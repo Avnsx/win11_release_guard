@@ -1,5 +1,6 @@
 import importlib
 import json
+from pathlib import Path
 
 from win11_release_guard.config import ReleaseCheckerConfig
 from win11_release_guard.exceptions import PolicyFetchError
@@ -16,6 +17,14 @@ from win11_release_guard.signing import sign_policy_bytes
 
 TEST_PRIVATE_KEY = "krtF2muLgucP7JDVNKk2g+YQfz92c7xM49dzszxHxjs="
 TEST_PUBLIC_KEY = "45dOpVuYqoPkldNrzORHM5ZZUxs6ILVcvpKxRFxsu3s="
+
+
+def test_distribution_name_and_console_script_are_hyphenated():
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+
+    assert 'name = "win-release-guard"' in pyproject
+    assert 'win-release-guard = "win11_release_guard.__main__:main"' in pyproject
+    assert 'include = ["win11_release_guard*"]' in pyproject
 
 
 def test_import_has_no_side_effects(monkeypatch):

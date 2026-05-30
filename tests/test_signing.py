@@ -17,7 +17,7 @@ def _policy_json() -> dict:
     return {
         "schema_version": 1,
         "generated_at_utc": "2026-05-28T00:00:00Z",
-        "generator_version": "win11-release-guard/0.2",
+        "generator_version": "win-release-guard/0.2",
         "source_urls": ["https://example.invalid/windows-release-policy.json"],
         "source_fetch_status": {"release_health_html": {"status": "ok"}},
         "current_versions": [

@@ -3,9 +3,9 @@
 Standalone Python mini-module for evaluating whether a Windows 11 device is on
 the current broad-fleet target release and baseline build.
 
-The package name is `win11_release_guard`. It intentionally matches
-the repository name, even though it is long, so the repo and import path stay
-unambiguous during early integration work.
+The repository, distribution package, and installed console command are named
+`win-release-guard`. The Python import package remains `win11_release_guard`
+because Python import statements cannot use hyphens.
 
 ## Project Goal
 
@@ -164,7 +164,7 @@ server/unknown scopes.
 A generated JSON policy can be cached locally and reused if the live policy
 fetch fails. Default cache path:
 
-- Windows: `%LOCALAPPDATA%\win11_release_guard\windows-release-policy.json`
+- Windows: `%LOCALAPPDATA%\win-release-guard\windows-release-policy.json`
 - Other/fallback: `.cache/windows-release-policy.json` under the current working
   directory
 
@@ -205,29 +205,34 @@ are called.
 
 ## CLI Examples
 
+After installation, use the hyphenated command:
+
 ```powershell
-python -m win11_release_guard --json
-python -m win11_release_guard --json-pretty
-python -m win11_release_guard --json --unicode
-python -m win11_release_guard --json --output release-check.json
-python -m win11_release_guard --pretty
-python -m win11_release_guard --policy-url https://avnsx.github.io/win-release-guard/windows-release-policy.json
-python -m win11_release_guard --diagnose-config
-python -m win11_release_guard --allow-runtime-release-health-html
-python -m win11_release_guard --allow-unsigned-policy
-python -m win11_release_guard --trusted-policy-public-key <base64-ed25519-public-key>
-python -m win11_release_guard --allow-major-upgrade-recommendation
-python -m win11_release_guard --allow-server-evaluation
-python -m win11_release_guard --disallow-preview-installed
-python -m win11_release_guard --no-preview-installed-warning
-python -m win11_release_guard --explicit-target-release 25H2
-python -m win11_release_guard --quality-policy b_release_only
-python -m win11_release_guard --timeout-seconds 12
-python -m win11_release_guard --wua --wua-timeout-seconds 8
-python -m win11_release_guard --with-wua
-python -m win11_release_guard --no-wua
-python -m win11_release_guard --json --include-raw-wua-history
+win-release-guard --json
+win-release-guard --json-pretty
+win-release-guard --json --unicode
+win-release-guard --json --output release-check.json
+win-release-guard --pretty
+win-release-guard --policy-url https://avnsx.github.io/win-release-guard/windows-release-policy.json
+win-release-guard --diagnose-config
+win-release-guard --allow-runtime-release-health-html
+win-release-guard --allow-unsigned-policy
+win-release-guard --trusted-policy-public-key <base64-ed25519-public-key>
+win-release-guard --allow-major-upgrade-recommendation
+win-release-guard --allow-server-evaluation
+win-release-guard --disallow-preview-installed
+win-release-guard --no-preview-installed-warning
+win-release-guard --explicit-target-release 25H2
+win-release-guard --quality-policy b_release_only
+win-release-guard --timeout-seconds 12
+win-release-guard --wua --wua-timeout-seconds 8
+win-release-guard --with-wua
+win-release-guard --no-wua
+win-release-guard --json --include-raw-wua-history
 ```
+
+For source-tree use without installing the console script,
+`python -m win11_release_guard` remains supported.
 
 JSON stdout is ASCII-escaped by default (`ensure_ascii=True`) so redirected
 machine output is codepage-safe. Use `--unicode` for human-readable UTF-8

@@ -60,7 +60,7 @@ The live output evidence reinforces the same design:
 - Selects GA H2 broad target and B-release baseline, matching the required "25H2 over 26H1 for existing devices" behavior.
 - Keeps WUA as secondary data in evaluation and already records WUA search/history, KB IDs, categories, operation, result code, HResult, and unmapped result code.
 - Import is side-effect free; active local/network/WUA work starts only through explicit APIs or CLI execution.
-- Project identity has been renamed to `win11_release_guard` for imports and `win11-release-guard` for distribution metadata, CLI examples, cache path, user agent, and WUA `ClientApplicationID`.
+- Project identity is `win-release-guard` for the repository, distribution metadata, console command, cache path, user agent, and WUA `ClientApplicationID`. The Python import package remains `win11_release_guard` because import statements cannot use hyphens.
 
 ## What Must Change
 

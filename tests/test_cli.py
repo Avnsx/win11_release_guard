@@ -413,6 +413,7 @@ def test_cli_help_returns_0(capsys):
 
     captured = capsys.readouterr()
     assert code == 0
+    assert "usage: win-release-guard" in captured.out
     assert "Evaluate Windows 11 release compliance" in captured.out
 
 

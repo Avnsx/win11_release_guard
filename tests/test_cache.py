@@ -77,7 +77,7 @@ def test_default_cache_path_for_windows_uses_localappdata_without_windowspath(tm
 
     assert isinstance(path, PureWindowsPath)
     assert str(path) == (
-        r"C:\Users\admin\AppData\Local\win11_release_guard"
+        r"C:\Users\admin\AppData\Local\win-release-guard"
         r"\windows-release-policy.json"
     )
 

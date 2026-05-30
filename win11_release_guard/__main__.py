@@ -37,7 +37,7 @@ EXIT_ARGUMENT_ERROR = 10
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m win11_release_guard",
+        prog="win-release-guard",
         description="Evaluate Windows 11 release compliance against broad-fleet policy.",
     )
     output = parser.add_mutually_exclusive_group()

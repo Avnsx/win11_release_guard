@@ -19,7 +19,7 @@ from .config import (
 
 
 SEARCH_CRITERIA = "IsInstalled=0 and Type='Software' and IsHidden=0"
-CLIENT_APPLICATION_ID = "win11-release-guard/0.2"
+CLIENT_APPLICATION_ID = "win-release-guard/0.2"
 NOISE_CLASSIFICATIONS = {
     "defender_definition",
     "dotnet",

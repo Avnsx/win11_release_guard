@@ -22,6 +22,9 @@ jobs:
       - name: Compile
         run: python -m compileall -q win11_release_guard
 
+      - name: Validate console command
+        run: win-release-guard --help
+
       - name: Test
         run: pytest -q
 
@@ -39,7 +42,7 @@ jobs:
 
       - name: Validate CLI JSON
         run: >
-          python -m win11_release_guard
+          win-release-guard
           --json
           --no-wua
           --policy-url win11_release_guard/data/windows-release-policy.json

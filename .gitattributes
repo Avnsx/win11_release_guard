@@ -6,4 +6,5 @@
 *.xml text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+.gitignore text eol=lf
 *.sig binary

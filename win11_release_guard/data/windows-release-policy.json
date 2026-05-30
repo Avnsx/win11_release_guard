@@ -140,7 +140,7 @@
     }
   ],
   "generated_at_utc": "2026-05-28T18:17:50+00:00",
-  "generator_version": "win11-release-guard/0.2",
+  "generator_version": "win-release-guard/0.2",
   "known_notes": [
     {
       "build_family": 28000,
@@ -155,7 +155,7 @@
     }
   ],
   "metadata": {
-    "generator": "win11-release-guard/0.2",
+    "generator": "win-release-guard/0.2",
     "parser": "stdlib_html_parser",
     "signature_status": "valid",
     "special_release_versions": [

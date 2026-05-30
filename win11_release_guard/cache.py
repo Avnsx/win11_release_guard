@@ -17,7 +17,7 @@ def _default_cache_path_for(
     cwd: Path | PurePath,
 ) -> Path | PurePath:
     if os_name == "nt" and env.get("LOCALAPPDATA"):
-        return PureWindowsPath(env["LOCALAPPDATA"]) / "win11_release_guard" / DEFAULT_CACHE_FILE_NAME
+        return PureWindowsPath(env["LOCALAPPDATA"]) / "win-release-guard" / DEFAULT_CACHE_FILE_NAME
     return cwd / ".cache" / DEFAULT_CACHE_FILE_NAME
 
 

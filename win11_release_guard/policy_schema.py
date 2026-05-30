@@ -9,7 +9,7 @@ from .exceptions import PolicyParseError
 
 
 POLICY_SCHEMA_VERSION = 1
-GENERATOR_VERSION = "win11-release-guard/0.2"
+GENERATOR_VERSION = "win-release-guard/0.2"
 
 REQUIRED_POLICY_FIELDS = (
     "schema_version",
