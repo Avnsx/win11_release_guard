@@ -155,6 +155,7 @@ signature, manifest, and `/api/v1/` aliases.
 
 The generator path derives policy from Microsoft Windows 11 Release Health HTML
 and enriches ambiguous update rows from the Microsoft Update History Atom feed.
+The production generator uses public Microsoft Release Health and Atom sources only; it does not use Microsoft Graph, Azure, OIDC, or token-authenticated Microsoft APIs.
 The parser supports the public tables for current versions and release history:
 
 - Version
@@ -163,8 +164,6 @@ The parser supports the public tables for current versions and release history:
 - Latest build
 - Update type
 - KB article
-
-The current desktop/standalone runtime works without Graph credentials.
 
 Current-version parsing keeps General Availability and LTSC rows as separate
 policy entries. `ReleasePolicyEntry.edition_scopes` and

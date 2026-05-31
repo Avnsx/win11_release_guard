@@ -17,8 +17,8 @@ This repository is public software for Windows administrators. Future agents mus
 11. The private policy signing key lives only in GitHub Actions Secret `WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64`.
 12. GitHub Pages output is public static non-secret data.
 13. WUA is secondary evidence only and must never override the signed policy verdict.
-14. The active production path does not use Microsoft Graph, Azure, OIDC, or authenticated Microsoft APIs.
-15. Microsoft Graph, Azure, and OIDC references may remain only in historical research files, not active architecture instructions.
+14. The production generator uses only public Microsoft Release Health HTML and public Microsoft Update History Atom feed sources.
+15. Historical research about authenticated Microsoft metadata APIs may remain only in `deep-research-report.md` or `docs/source-learnings.md` when explicitly marked out of scope, not active architecture instructions.
 16. `.git` is never included in clean archives.
 17. The source of truth is current code, tests, workflows, docs, and tools, not handover text.
 
