@@ -574,6 +574,8 @@ def _normalize_json_policy_data(
     source_urls = data.get("source_urls")
     if not isinstance(source_urls, list) or not source_urls or not all(isinstance(url, str) and url for url in source_urls):
         raise PolicyParseError("JSON policy is missing required non-empty list 'source_urls'.")
+    if source_url and _is_url(source_url) and source_url not in source_urls:
+        warnings.append("Loaded policy URL is not listed in source_urls.")
 
     current_versions = _require_sequence(data, "current_versions")
     normalized_current_versions: list[Mapping[str, Any]] = []

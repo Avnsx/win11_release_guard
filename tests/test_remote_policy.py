@@ -155,7 +155,7 @@ def test_json_string_loads():
     assert policy.broad_target_existing_devices is not None
     assert policy.broad_target_existing_devices.version == "25H2"
     assert policy.source["policy_url"] == "https://example.invalid/windows-release-policy.json"
-    assert "Loaded policy URL is not listed in source_urls." not in policy.validation_warnings
+    assert "Loaded policy URL is not listed in source_urls." in policy.validation_warnings
 
 
 def test_json_bytes_loads():

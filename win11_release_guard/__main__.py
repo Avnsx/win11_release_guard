@@ -1,14 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib
 import json
+import platform
 import sys
 import traceback
 from collections import Counter
+from importlib import metadata, resources
 from pathlib import Path
 from typing import Sequence
 
-from .api import check_current_system
+from cryptography.hazmat.primitives import serialization
+
+from .api import _load_runtime_policy, check_current_system
+from .bundled_policy import (
+    BUNDLED_POLICY_FILE,
+    BUNDLED_POLICY_PACKAGE,
+    BUNDLED_POLICY_SIGNATURE_FILE,
+    load_bundled_policy,
+)
+from .cache import default_cache_path
 from .config import (
     DEFAULT_CACHE_MAX_AGE_HOURS,
     DEFAULT_EVENT_LOG_MAX_EVENTS,
@@ -25,7 +38,13 @@ from .config import (
     policy_url_from_env,
 )
 from .exceptions import WindowsReleaseCheckerError
-from .models import EvaluationResult, EvaluationStatus
+from .models import (
+    EvaluationResult,
+    EvaluationStatus,
+    InstalledBuildClassification,
+    InstalledBuildOrigin,
+)
+from .signing import load_public_key
 
 
 EXIT_COMPLIANT = 0
@@ -39,6 +58,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="win-release-guard",
         description="Evaluate Windows 11 release compliance against broad-fleet policy.",
+        epilog="Source-tree entry point: python -m win11_release_guard",
     )
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
@@ -56,6 +76,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--diagnose-config",
         action="store_true",
         help="Print effective configuration, including policy URL source, without running probes.",
+    )
+    parser.add_argument(
+        "--check-source",
+        action="store_true",
+        help="With --diagnose-config, perform the configured policy source check.",
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Validate local package integrity and the bundled signed policy without probes or network.",
     )
     parser.add_argument("--cache-file", type=Path, default=None, help="Optional policy cache path.")
     parser.add_argument(
@@ -316,13 +346,7 @@ def _print_pretty(result: EvaluationResult) -> None:
     print(f"Target: {target_version} / {target_build or 'unknown'}")
     print(f"Source: {source_status} / {result.policy_source_kind or 'unknown'}")
     if result.installed_build_origin:
-        origin = result.installed_build_origin
-        print(
-            "Build origin: "
-            f"{origin.classification.value if origin.classification else 'unknown'} / "
-            f"{origin.evidence_source.value}"
-            f"{' / ' + origin.kb_article if origin.kb_article else ''}"
-        )
+        print(f"Build origin: {_format_build_origin(result.installed_build_origin, result)}")
     print(f"Action: {result.action or 'Manual inspection required.'}")
     if result.notes:
         print("Notes:")
@@ -336,6 +360,27 @@ def _print_pretty(result: EvaluationResult) -> None:
         print("Source problems:")
         for problem in result.source_problems:
             print(f"- {problem}")
+
+
+def _format_build_origin(origin: InstalledBuildOrigin, result: EvaluationResult) -> str:
+    classification = origin.classification
+    if classification is InstalledBuildClassification.UNKNOWN_NEWER_THAN_BASELINE:
+        if result.policy_source_kind == "bundled":
+            return "newer than bundled baseline; exact KB/origin unknown because live policy/WUA evidence was not used."
+        return "newer than policy baseline; exact KB/origin unknown."
+    if classification is InstalledBuildClassification.UNKNOWN_OLDER_THAN_BASELINE:
+        return "older than policy baseline; exact KB/origin unknown."
+
+    labels = {
+        InstalledBuildClassification.B_RELEASE: "B release",
+        InstalledBuildClassification.PREVIEW: "preview",
+        InstalledBuildClassification.OUT_OF_BAND: "out-of-band",
+    }
+    label = labels.get(classification, classification.value if classification else "unknown")
+    parts = [label, origin.evidence_source.value]
+    if origin.kb_article:
+        parts.append(origin.kb_article)
+    return " / ".join(parts)
 
 
 def _error_payload(message: str, status: str = "POLICY_ERROR") -> dict[str, object]:
@@ -389,24 +434,186 @@ def _policy_url_from_args(args: argparse.Namespace) -> tuple[str | None, str]:
     default_policy_url = normalize_policy_url(DEFAULT_POLICY_URL)
     if default_policy_url:
         return default_policy_url, "default"
-    return None, "default/bundled-only"
+    return None, "none"
+
+
+def _package_version() -> str:
+    try:
+        return metadata.version("win-release-guard")
+    except metadata.PackageNotFoundError:
+        pass
+
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    try:
+        for line in pyproject_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("version = "):
+                return stripped.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return "unknown"
+
+
+def _trusted_public_key_fingerprint(public_key: str | None) -> str:
+    try:
+        key = load_public_key(public_key)
+        raw_key = key.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        return f"sha256:{hashlib.sha256(raw_key).hexdigest()}"
+    except Exception as exc:
+        return f"invalid: {exc}"
+
+
+def _platform_summary() -> dict[str, object]:
+    return {
+        "platform": platform.platform(),
+        "system": platform.system(),
+        "release": platform.release(),
+        "version": platform.version(),
+        "machine": platform.machine(),
+        "python_version": platform.python_version(),
+        "python_executable": sys.executable,
+    }
+
+
+def _bundled_policy_file_status() -> tuple[bool, bool]:
+    try:
+        package_files = resources.files(BUNDLED_POLICY_PACKAGE)
+        return (
+            package_files.joinpath(BUNDLED_POLICY_FILE).is_file(),
+            package_files.joinpath(BUNDLED_POLICY_SIGNATURE_FILE).is_file(),
+        )
+    except Exception:
+        return False, False
+
+
+def _bundled_policy_diagnostics(config: ReleaseCheckerConfig) -> dict[str, object]:
+    policy_present, signature_present = _bundled_policy_file_status()
+    payload: dict[str, object] = {
+        "bundled_policy_present": policy_present,
+        "bundled_policy_signature_present": signature_present,
+        "bundled_policy_generated_at_utc": None,
+        "bundled_policy_signature_status": "unavailable",
+    }
+    if not policy_present:
+        return payload
+
+    try:
+        trusted = load_bundled_policy(
+            public_key=config.trusted_policy_public_key,
+            allow_unsigned=config.allow_unsigned_policy,
+        )
+    except Exception as exc:
+        payload["bundled_policy_signature_status"] = f"invalid: {exc}"
+        return payload
+
+    payload["bundled_policy_generated_at_utc"] = trusted.policy.generated_at_utc
+    payload["bundled_policy_signature_status"] = trusted.signature_status
+    return payload
+
+
+def _source_check_payload(config: ReleaseCheckerConfig) -> dict[str, object]:
+    try:
+        source = _load_runtime_policy(config)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "exception_type": type(exc).__name__,
+        }
+
+    return {
+        "ok": source.policy is not None,
+        "source_status": source.source_status.value,
+        "is_source_check_complete": source.is_source_check_complete,
+        "policy_source_url": source.policy_source_url,
+        "policy_source_kind": source.policy_source_kind,
+        "policy_signature_status": source.policy_signature_status,
+        "warnings": list(source.warnings),
+        "errors": list(source.errors),
+        "source_problems": [problem.to_dict() for problem in source.source_problems],
+    }
 
 
 def _diagnose_config_payload(args: argparse.Namespace) -> dict[str, object]:
     policy_url, source = _policy_url_from_args(args)
     config = _config_from_args(args)
-    return {
+    payload = {
+        "package_version": _package_version(),
+        "effective_policy_url": policy_url,
         "policy_url": policy_url,
         "policy_url_source": source,
         "policy_url_env_var": POLICY_URL_ENV_VAR,
+        "cache_file": str(Path(config.cache_file)) if config.cache_file else str(default_cache_path()),
+        "trusted_public_key_fingerprint": _trusted_public_key_fingerprint(config.trusted_policy_public_key),
+        "wua_default_enabled": ReleaseCheckerConfig().enable_wua_probe,
+        "wua_effective_enabled": config.enable_wua_probe,
+        "runtime_html_fallback_enabled": config.allow_runtime_release_health_html,
+        "source_check_required_for_green": config.source_check_required_for_green,
+        "platform_summary": _platform_summary(),
         "remote_fetch_enabled": policy_url is not None,
-        "cache_file": config.cache_file,
+        "live_remote_fetch_performed": bool(args.check_source),
         "cache_max_age_hours": config.cache_max_age_hours,
         "stale_cache_max_age_hours": config.stale_cache_max_age_hours,
         "use_bundled_policy_fallback": config.use_bundled_policy_fallback,
         "allow_unsigned_policy": config.allow_unsigned_policy,
         "allow_runtime_release_health_html": config.allow_runtime_release_health_html,
     }
+    payload.update(_bundled_policy_diagnostics(config))
+    if args.check_source:
+        payload["source_check"] = _source_check_payload(config)
+    return payload
+
+
+def _self_test_payload() -> tuple[dict[str, object], bool]:
+    payload: dict[str, object] = {
+        "ok": False,
+        "package_version": _package_version(),
+        "remote_fetch_performed": False,
+        "wua_probe_performed": False,
+        "checks": {
+            "package_import": "not_run",
+            "bundled_policy_loaded": "not_run",
+            "bundled_policy_signature": "not_run",
+            "policy_schema": "not_run",
+        },
+        "bundled_policy_generated_at_utc": None,
+        "errors": [],
+    }
+    checks = payload["checks"]
+    errors = payload["errors"]
+    assert isinstance(checks, dict)
+    assert isinstance(errors, list)
+
+    try:
+        importlib.import_module("win11_release_guard")
+        checks["package_import"] = "ok"
+    except Exception as exc:
+        checks["package_import"] = "failed"
+        errors.append(f"Package import failed: {exc}")
+        return payload, False
+
+    try:
+        trusted = load_bundled_policy()
+        checks["bundled_policy_loaded"] = "ok"
+        checks["bundled_policy_signature"] = trusted.signature_status
+        payload["bundled_policy_generated_at_utc"] = trusted.policy.generated_at_utc
+        if trusted.policy.schema_version != 1:
+            checks["policy_schema"] = "failed"
+            errors.append(f"Unsupported bundled policy schema_version {trusted.policy.schema_version}.")
+            return payload, False
+        checks["policy_schema"] = "ok"
+    except Exception as exc:
+        checks["bundled_policy_loaded"] = "failed"
+        if "signature" in str(exc).lower():
+            checks["bundled_policy_signature"] = "failed"
+        errors.append(f"Bundled policy validation failed: {exc}")
+        return payload, False
+
+    payload["ok"] = True
+    return payload, True
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -422,6 +629,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+    if args.self_test:
+        payload, ok = _self_test_payload()
+        print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True))
+        return 0 if ok else EXIT_UNKNOWN_OR_POLICY_ERROR
 
     if args.diagnose_config:
         print(json.dumps(_diagnose_config_payload(args), indent=2, sort_keys=True, ensure_ascii=True))

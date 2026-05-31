@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -49,31 +50,71 @@ def _source_problem(
     )
 
 
+def _has_http_status(message: str, status_code: int) -> bool:
+    return bool(
+        re.search(
+            rf"\bhttp(?:\s+error|\s+status)?\s*:?\s*{status_code}\b",
+            message,
+        )
+    )
+
+
+def _is_dns_failure_message(message: str) -> bool:
+    dns_fragments = (
+        "getaddrinfo",
+        "name resolution",
+        "temporary failure in name resolution",
+        "name or service not known",
+        "nodename nor servname",
+        "no address associated with hostname",
+        "no such host is known",
+        "errno 11001",
+        "errno -3",
+        "dns",
+    )
+    return any(fragment in message for fragment in dns_fragments)
+
+
+def _is_tls_failure_retryable(message: str) -> bool:
+    non_retryable_fragments = (
+        "certificate verify failed",
+        "self-signed",
+        "self signed",
+        "hostname mismatch",
+        "certificate has expired",
+        "certificate expired",
+        "unable to get local issuer",
+    )
+    return not any(fragment in message for fragment in non_retryable_fragments)
+
+
 def _problem_kind_for_exception(exc: BaseException, *, context: str) -> tuple[str, bool]:
     message = str(exc).lower()
     if isinstance(exc, PolicyTrustError):
+        if "signature" in message and ("required" in message or "is missing" in message):
+            return "missing_signature", False
+        if "signature" in message or "invalid" in message or "verification failed" in message:
+            return SourceStatus.REMOTE_POLICY_SIGNATURE_FAILED.value.lower(), False
         if "html" in message:
             return "runtime_html_rejected", False
-        if "missing" in message or "required" in message:
-            return "missing_signature", False
         return SourceStatus.REMOTE_POLICY_SIGNATURE_FAILED.value.lower(), False
     if isinstance(exc, PolicyParseError):
         return SourceStatus.REMOTE_POLICY_PARSE_FAILED.value.lower(), False
     if isinstance(exc, TimeoutError) or "timed out" in message or "timeout" in message:
         return "timeout", True
-    if "name or service not known" in message or "getaddrinfo" in message or "dns" in message:
+    if _is_dns_failure_message(message):
         return "dns_failure", True
     if "connection refused" in message or "actively refused" in message:
         return "connection_refused", True
     if "tls" in message or "ssl" in message or "certificate" in message:
-        return "tls_failure", True
+        return "tls_failure", _is_tls_failure_retryable(message)
     if "proxy" in message:
         return "proxy_failure", True
-    if "http 403" in message:
+    if _has_http_status(message, 403):
         return "http_403", False
-    if "http 404" in message:
+    if _has_http_status(message, 404):
         return "http_404", False
-    if "http 500" in message:
+    if _has_http_status(message, 500):
         return "http_500", True
     if "http " in message:
         return "http_error", True
@@ -81,7 +122,7 @@ def _problem_kind_for_exception(exc: BaseException, *, context: str) -> tuple[st
         return SourceStatus.REMOTE_POLICY_SIGNATURE_FAILED.value.lower(), False
     if "json" in message or "html" in message or "current-version table" in message or "target" in message or "baseline" in message:
         return SourceStatus.REMOTE_POLICY_PARSE_FAILED.value.lower(), False
-    return context, isinstance(exc, PolicyFetchError)
+    return context or SourceStatus.REMOTE_POLICY_UNREACHABLE.value.lower(), isinstance(exc, PolicyFetchError)
 
 
 def _policy_age_hours(policy: ReleasePolicy, now: datetime | None = None) -> float | None:
@@ -117,6 +158,10 @@ def _signature_url(policy_url: str) -> str:
     return f"{policy_url}.sig"
 
 
+def _is_url(value: str) -> bool:
+    return bool(re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", value))
+
+
 def _looks_like_html(data: bytes, content_type: str | None) -> bool:
     content_type_l = (content_type or "").lower()
     if "text/html" in content_type_l:
@@ -125,12 +170,19 @@ def _looks_like_html(data: bytes, content_type: str | None) -> bool:
     return prefix.startswith(b"<!doctype html") or prefix.startswith(b"<html") or b"<html" in prefix
 
 
-def _source_kind_from_bytes(data: bytes, content_type: str | None, *, config: ReleaseCheckerConfig) -> str:
+def _source_kind_from_bytes(
+    data: bytes,
+    content_type: str | None,
+    *,
+    source_url: str,
+    config: ReleaseCheckerConfig,
+) -> str:
+    is_url = _is_url(source_url)
     if _looks_like_html(data, content_type):
         if config.allow_runtime_release_health_html:
             return "remote_html"
         raise PolicyTrustError("HTML policy source is not allowed in runtime mode.")
-    return "remote_json"
+    return "remote_json" if is_url else "local_json"
 
 
 def _accept_trusted_policy(
@@ -218,7 +270,12 @@ def _load_remote_policy(
         policy_url,
         timeout=config.timeout_seconds,
     )
-    source_kind = _source_kind_from_bytes(policy_bytes, content_type, config=config)
+    source_kind = _source_kind_from_bytes(
+        policy_bytes,
+        content_type,
+        source_url=policy_url,
+        config=config,
+    )
     signature_bytes = None if source_kind == "remote_html" else _fetch_signature_bytes(policy_url, config)
     if signature_bytes is None and source_kind != "remote_html" and not config.allow_unsigned_policy:
         source_problems.append(

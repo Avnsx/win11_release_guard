@@ -1,16 +1,22 @@
 import json
+from dataclasses import replace
 
 import win11_release_guard.api as api
+import win11_release_guard.signing as signing
 from win11_release_guard import __main__ as cli
 from win11_release_guard.config import DEFAULT_POLICY_URL
 from win11_release_guard.evaluator import evaluate_windows_update_state
 from win11_release_guard.models import (
+    BuildEvidenceSource,
     EvaluationResult,
     EvaluationStatus,
+    InstalledBuildClassification,
+    InstalledBuildOrigin,
     LocalWindowsState,
     ReleaseHistoryEntry,
     ReleasePolicy,
     ReleasePolicyEntry,
+    SourceStatus,
 )
 from win11_release_guard.signing import sign_policy_bytes
 
@@ -150,6 +156,77 @@ def _patch_common(monkeypatch, local_state):
     monkeypatch.setattr(cli, "check_current_system", fake_check)
 
 
+def _live_preview_local() -> LocalWindowsState:
+    return LocalWindowsState(
+        product_name="Windows 10 Pro",
+        edition_id="Professional",
+        display_version="25H2",
+        release_id="2009",
+        current_build=26200,
+        ubr=8524,
+        full_build="26200.8524",
+        installation_type="Client",
+        inferred_release="25H2",
+    )
+
+
+def _live_preview_policy(*, include_preview_row: bool) -> ReleasePolicy:
+    history = [
+        ReleaseHistoryEntry(
+            release="25H2",
+            build_family=26200,
+            build="26200.8457",
+            update_type="2026-05 B",
+            update_type_letter="B",
+            servicing_option="General Availability Channel",
+            availability_date="2026-05-12",
+            kb_article="KB5089549",
+        )
+    ]
+    if include_preview_row:
+        history.append(
+            ReleaseHistoryEntry(
+                release="25H2",
+                build_family=26200,
+                build="26200.8524",
+                update_type="2026-05 D Preview",
+                update_type_letter="D",
+                preview=True,
+                servicing_option="General Availability Channel",
+                availability_date="2026-05-27",
+                kb_article="KB5089573",
+            )
+        )
+    return ReleasePolicy(
+        broad_target_existing_devices=ReleasePolicyEntry(
+            version="25H2",
+            build_family=26200,
+            latest_build="26200.8457",
+            baseline_build="26200.8457",
+            servicing_option="General Availability Channel",
+        ),
+        current_versions=(
+            ReleasePolicyEntry(
+                version="25H2",
+                build_family=26200,
+                latest_build="26200.8457",
+                baseline_build="26200.8457",
+                servicing_option="General Availability Channel",
+            ),
+        ),
+        release_history=tuple(history),
+        supported_build_families={26200: "25H2"},
+    )
+
+
+def _run_pretty_with_result(monkeypatch, result: EvaluationResult, capsys, *args: str) -> str:
+    monkeypatch.setattr(cli, "check_current_system", lambda config: result)
+    code = cli.main(["--pretty", *args])
+    captured = capsys.readouterr()
+    assert code == 0
+    return captured.out
+
+
 def test_cli_json_feature_update_required_exit_code(monkeypatch, capsys):
     _patch_common(
         monkeypatch,
@@ -179,6 +256,85 @@ def test_cli_pretty_compliant_exit_code(monkeypatch, capsys):
     assert "Status: COMPLIANT" in captured.out
     assert "Local: 25H2 / 26200.8457" in captured.out
     assert "Target: 25H2 / 26200.8457" in captured.out
+
+
+def test_cli_pretty_unknown_newer_bundled_origin_is_explicit(monkeypatch, capsys):
+    result = evaluate_windows_update_state(
+        _live_preview_local(),
+        _live_preview_policy(include_preview_row=False),
+    )
+    result = replace(
+        result,
+        source_status=SourceStatus.USING_BUNDLED_POLICY,
+        is_source_check_complete=False,
+        policy_source_kind="bundled",
+    )
+
+    output = _run_pretty_with_result(monkeypatch, result, capsys, "--no-wua")
+
+    assert (
+        "Build origin: newer than bundled baseline; exact KB/origin unknown "
+        "because live policy/WUA evidence was not used."
+    ) in output
+    assert "unknown_newer_than_baseline / unknown" not in output
+
+
+def test_cli_pretty_wua_preview_origin_uses_compact_preview_wording(monkeypatch, capsys):
+    result = evaluate_windows_update_state(
+        _live_preview_local(),
+        _live_preview_policy(include_preview_row=False),
+        wua_secondary={"history": [{"title": "2026-05 Vorschauupdate (KB5089573) (26200.8524)"}]},
+    )
+
+    def fake_check(config):
+        assert config.enable_wua_probe is True
+        return result
+
+    monkeypatch.setattr(cli, "check_current_system", fake_check)
+    code = cli.main(["--pretty", "--wua"])
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "Build origin: preview / wua_history / KB5089573" in output
+
+
+def test_cli_pretty_policy_preview_origin_uses_compact_preview_wording(monkeypatch, capsys):
+    result = evaluate_windows_update_state(
+        _live_preview_local(),
+        _live_preview_policy(include_preview_row=True),
+    )
+
+    output = _run_pretty_with_result(monkeypatch, result, capsys, "--no-wua")
+
+    assert "Build origin: preview / policy_release_history / KB5089573" in output
+
+
+def test_cli_pretty_build_origin_formatter_maps_all_known_classifications():
+    result = EvaluationResult(status=EvaluationStatus.COMPLIANT, policy_source_kind="remote_json")
+
+    assert cli._format_build_origin(
+        InstalledBuildOrigin(
+            classification=InstalledBuildClassification.B_RELEASE,
+            evidence_source=BuildEvidenceSource.POLICY_RELEASE_HISTORY,
+            kb_article="KB5089549",
+        ),
+        result,
+    ) == "B release / policy_release_history / KB5089549"
+    assert cli._format_build_origin(
+        InstalledBuildOrigin(
+            classification=InstalledBuildClassification.OUT_OF_BAND,
+            evidence_source=BuildEvidenceSource.POLICY_RELEASE_HISTORY,
+            kb_article="KB5089500",
+        ),
+        result,
+    ) == "out-of-band / policy_release_history / KB5089500"
+    assert cli._format_build_origin(
+        InstalledBuildOrigin(
+            classification=InstalledBuildClassification.UNKNOWN_OLDER_THAN_BASELINE,
+            evidence_source=BuildEvidenceSource.UNKNOWN,
+        ),
+        result,
+    ) == "older than policy baseline; exact KB/origin unknown."
 
 
 def test_cli_policy_url_and_explicit_target_are_used(monkeypatch):
@@ -287,15 +443,75 @@ def test_cli_diagnose_config_reports_policy_url_source(monkeypatch, capsys):
     cli_payload = json.loads(capsys.readouterr().out)
 
     assert code == 0
+    assert {
+        "package_version",
+        "effective_policy_url",
+        "policy_url_source",
+        "cache_file",
+        "bundled_policy_present",
+        "bundled_policy_generated_at_utc",
+        "bundled_policy_signature_status",
+        "trusted_public_key_fingerprint",
+        "wua_default_enabled",
+        "runtime_html_fallback_enabled",
+        "source_check_required_for_green",
+        "platform_summary",
+    }.issubset(default_payload)
+    assert default_payload["effective_policy_url"] == DEFAULT_POLICY_URL
     assert default_payload["policy_url"] == DEFAULT_POLICY_URL
     assert default_payload["policy_url_source"] == "default"
     assert default_payload["remote_fetch_enabled"] is True
+    assert default_payload["live_remote_fetch_performed"] is False
+    assert default_payload["bundled_policy_present"] is True
+    assert default_payload["bundled_policy_signature_status"] == "valid"
+    assert default_payload["trusted_public_key_fingerprint"].startswith("sha256:")
+    assert default_payload["wua_default_enabled"] is False
     assert code_env == 0
     assert env_payload["policy_url"] == "https://env.example.invalid/windows-release-policy.json"
     assert env_payload["policy_url_source"] == "env"
     assert code_cli == 0
     assert cli_payload["policy_url"] == "https://cli.example.invalid/windows-release-policy.json"
     assert cli_payload["policy_url_source"] == "cli"
+
+
+def test_cli_diagnose_config_does_not_check_source_by_default(monkeypatch, capsys):
+    def fail_source_check(config):
+        raise AssertionError("source check should not run")
+
+    monkeypatch.setattr(cli, "_load_runtime_policy", fail_source_check)
+
+    code = cli.main(["--diagnose-config"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["live_remote_fetch_performed"] is False
+    assert "source_check" not in payload
+
+
+def test_cli_self_test_validates_bundled_policy(capsys):
+    code = cli.main(["--self-test"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["checks"]["package_import"] == "ok"
+    assert payload["checks"]["bundled_policy_loaded"] == "ok"
+    assert payload["checks"]["bundled_policy_signature"] == "valid"
+    assert payload["checks"]["policy_schema"] == "ok"
+    assert payload["remote_fetch_performed"] is False
+    assert payload["wua_probe_performed"] is False
+
+
+def test_cli_self_test_fails_when_bundled_signature_validation_fails(monkeypatch, capsys):
+    monkeypatch.setattr(signing, "verify_policy_signature", lambda *args, **kwargs: False)
+
+    code = cli.main(["--self-test"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_UNKNOWN_OR_POLICY_ERROR
+    assert payload["ok"] is False
+    assert payload["checks"]["bundled_policy_signature"] == "failed"
+    assert payload["errors"]
 
 
 def test_cli_policy_url_can_be_local_json_file(monkeypatch, tmp_path, capsys):

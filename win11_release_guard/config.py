@@ -88,7 +88,7 @@ def policy_url_source(configured_policy_url: str | None) -> str:
         return "env"
     if normalize_policy_url(DEFAULT_POLICY_URL):
         return "default"
-    return "default/bundled-only"
+    return "none"
 
 
 __all__ = [

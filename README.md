@@ -171,8 +171,9 @@ fetch fails. Default cache path:
 Policy URLs can be overridden through `ReleaseCheckerConfig(policy_url=...)`,
 `--policy-url`, or the `WIN11_RELEASE_GUARD_POLICY_URL` environment variable.
 `--policy-url` wins over the environment variable, and both override the
-production default. The raw checked-in last-known-good policy is also available
-as a manual override:
+production default. Local policy file paths are accepted and report
+`policy_source_kind` as `local_json`. The raw checked-in last-known-good policy
+is also available as a manual override:
 
 ```text
 https://raw.githubusercontent.com/Avnsx/win-release-guard/main/win11_release_guard/data/windows-release-policy.json
@@ -229,6 +230,8 @@ win-release-guard --wua --wua-timeout-seconds 8
 win-release-guard --with-wua
 win-release-guard --no-wua
 win-release-guard --json --include-raw-wua-history
+win-release-guard --diagnose-config --check-source
+win-release-guard --self-test
 ```
 
 For source-tree use without installing the console script,
@@ -242,6 +245,14 @@ latest three relevant history entries, WUA errors, `service_enabled`,
 `target_feature_update_offered`, `target_feature_update_offer_expected`, and
 `raw_output_truncated`. Use `--include-raw-wua-history` to include the full
 bounded WUA history.
+
+`--diagnose-config` reports the package version, effective policy URL and
+source, cache path, bundled policy signature status, trusted public-key
+fingerprint, probe defaults, source-check setting, and platform summary. It
+does not fetch the remote policy unless `--check-source` is also passed.
+`--self-test` imports the package, loads and verifies the bundled signed
+policy, parses the policy schema, and performs no WUA or remote fetch by
+default.
 
 ## Policy Generator
 
