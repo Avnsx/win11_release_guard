@@ -37,14 +37,15 @@ from .config import (
     normalize_policy_url,
     policy_url_from_env,
 )
-from .exceptions import WindowsReleaseCheckerError
+from .exceptions import PolicyFetchError, PolicyParseError, PolicyTrustError, WindowsReleaseCheckerError
 from .models import (
     EvaluationResult,
     EvaluationStatus,
     InstalledBuildClassification,
     InstalledBuildOrigin,
 )
-from .signing import load_public_key
+from .remote_policy import fetch_policy_bytes
+from .signing import load_public_key, load_trusted_policy
 
 
 EXIT_COMPLIANT = 0
@@ -86,6 +87,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--self-test",
         action="store_true",
         help="Validate local package integrity and the bundled signed policy without probes or network.",
+    )
+    parser.add_argument(
+        "--check-policy-source",
+        action="store_true",
+        help="Fetch and verify the configured signed policy source without local Windows probes.",
     )
     parser.add_argument("--cache-file", type=Path, default=None, help="Optional policy cache path.")
     parser.add_argument(
@@ -616,6 +622,246 @@ def _self_test_payload() -> tuple[dict[str, object], bool]:
     return payload, True
 
 
+def _policy_signature_source(policy_url: str) -> str:
+    return f"{policy_url}.sig"
+
+
+def _policy_source_failure_payload(
+    *,
+    status: str,
+    policy_url: str | None,
+    signature_url: str | None,
+    message: str,
+    exc: BaseException | None = None,
+) -> dict[str, object]:
+    return {
+        "ok": False,
+        "status": status,
+        "policy_url": policy_url,
+        "signature_url": signature_url,
+        "error": message,
+        "exception_type": type(exc).__name__ if exc is not None else None,
+    }
+
+
+def _policy_source_success_payload(policy_url: str, signature_url: str, trusted_signature_status: str, policy) -> dict[str, object]:
+    target = policy.broad_target_existing_devices
+    broad_target = None
+    baseline = None
+    if target is not None:
+        broad_target = {
+            "version": target.version,
+            "build_family": target.build_family,
+            "latest_build": target.latest_build,
+            "baseline_build": target.effective_baseline_build,
+            "servicing_channel": target.servicing_channel.value,
+        }
+        baseline = target.effective_baseline_build
+
+    excluded_releases = [
+        {
+            "version": entry.version,
+            "build_family": entry.build_family,
+            "reason": entry.reason or entry.metadata.get("reason"),
+            "latest_build": entry.latest_build,
+            "baseline_build": entry.effective_baseline_build,
+        }
+        for entry in policy.excluded_for_existing_devices
+    ]
+
+    return {
+        "ok": True,
+        "status": "OK",
+        "policy_url": policy_url,
+        "signature_url": signature_url,
+        "signature_status": trusted_signature_status,
+        "generated_at_utc": policy.generated_at_utc,
+        "source_urls": list(policy.source_urls),
+        "broad_target": broad_target,
+        "baseline": baseline,
+        "excluded_releases": excluded_releases,
+        "validation_warnings": list(policy.validation_warnings),
+    }
+
+
+def _check_policy_source_payload(args: argparse.Namespace) -> tuple[dict[str, object], bool]:
+    policy_url, _source = _policy_url_from_args(args)
+    if policy_url is None:
+        return (
+            _policy_source_failure_payload(
+                status="UNAVAILABLE",
+                policy_url=None,
+                signature_url=None,
+                message="Policy source unavailable: no policy URL configured.",
+            ),
+            False,
+        )
+
+    signature_url = _policy_signature_source(policy_url)
+    try:
+        policy_bytes, content_type = fetch_policy_bytes(policy_url, timeout=args.timeout_seconds)
+    except PolicyFetchError as exc:
+        return (
+            _policy_source_failure_payload(
+                status="UNAVAILABLE",
+                policy_url=policy_url,
+                signature_url=signature_url,
+                message=f"Policy source unavailable: {exc}",
+                exc=exc,
+            ),
+            False,
+        )
+    except Exception as exc:
+        return (
+            _policy_source_failure_payload(
+                status="UNAVAILABLE",
+                policy_url=policy_url,
+                signature_url=signature_url,
+                message=f"Policy source unavailable: {exc}",
+                exc=exc,
+            ),
+            False,
+        )
+
+    try:
+        signature_bytes, _signature_content_type = fetch_policy_bytes(signature_url, timeout=args.timeout_seconds)
+    except PolicyFetchError as exc:
+        return (
+            _policy_source_failure_payload(
+                status="UNAVAILABLE",
+                policy_url=policy_url,
+                signature_url=signature_url,
+                message=f"Policy signature unavailable: {exc}",
+                exc=exc,
+            ),
+            False,
+        )
+    except Exception as exc:
+        return (
+            _policy_source_failure_payload(
+                status="UNAVAILABLE",
+                policy_url=policy_url,
+                signature_url=signature_url,
+                message=f"Policy signature unavailable: {exc}",
+                exc=exc,
+            ),
+            False,
+        )
+
+    try:
+        trusted = load_trusted_policy(
+            policy_bytes,
+            signature_bytes=signature_bytes,
+            public_key=args.trusted_policy_public_key,
+            require_signature=True,
+            allow_unsigned=False,
+            content_type=content_type,
+            source_url=policy_url,
+            allow_html_fallback=False,
+        )
+    except PolicyTrustError as exc:
+        return (
+            _policy_source_failure_payload(
+                status="SIGNATURE_FAILED",
+                policy_url=policy_url,
+                signature_url=signature_url,
+                message=f"Policy signature invalid: {exc}",
+                exc=exc,
+            ),
+            False,
+        )
+    except PolicyParseError as exc:
+        return (
+            _policy_source_failure_payload(
+                status="INVALID",
+                policy_url=policy_url,
+                signature_url=signature_url,
+                message=f"Policy source invalid: {exc}",
+                exc=exc,
+            ),
+            False,
+        )
+    except WindowsReleaseCheckerError as exc:
+        return (
+            _policy_source_failure_payload(
+                status="INVALID",
+                policy_url=policy_url,
+                signature_url=signature_url,
+                message=f"Policy source invalid: {exc}",
+                exc=exc,
+            ),
+            False,
+        )
+    except Exception as exc:
+        return (
+            _policy_source_failure_payload(
+                status="INVALID",
+                policy_url=policy_url,
+                signature_url=signature_url,
+                message=f"Policy source invalid: {exc}",
+                exc=exc,
+            ),
+            False,
+        )
+
+    return (
+        _policy_source_success_payload(
+            policy_url,
+            signature_url,
+            trusted.signature_status,
+            trusted.policy,
+        ),
+        True,
+    )
+
+
+def _print_policy_source_payload(payload: dict[str, object]) -> None:
+    print(f"Policy source: {payload['status']}")
+    if payload.get("policy_url"):
+        print(f"Policy URL: {payload['policy_url']}")
+    if payload.get("signature_url"):
+        print(f"Signature URL: {payload['signature_url']}")
+    if not payload.get("ok"):
+        print(f"Error: {payload['error']}")
+        if payload.get("exception_type"):
+            print(f"Exception type: {payload['exception_type']}")
+        return
+
+    print(f"Signature: {payload['signature_status']}")
+    print(f"Generated at UTC: {payload['generated_at_utc'] or 'unknown'}")
+    print("Source URLs:")
+    for source_url in payload.get("source_urls") or []:
+        print(f"- {source_url}")
+
+    broad_target = payload.get("broad_target")
+    if isinstance(broad_target, dict):
+        print(
+            "Broad target: "
+            f"{broad_target.get('version')} / "
+            f"{broad_target.get('build_family')} / "
+            f"{broad_target.get('latest_build') or 'unknown'}"
+        )
+    else:
+        print("Broad target: unknown")
+    print(f"Baseline: {payload.get('baseline') or 'unknown'}")
+
+    print("Excluded releases:")
+    excluded_releases = payload.get("excluded_releases") or []
+    if excluded_releases:
+        for entry in excluded_releases:
+            if isinstance(entry, dict):
+                reason = f" / {entry['reason']}" if entry.get("reason") else ""
+                print(f"- {entry.get('version')} / {entry.get('build_family')}{reason}")
+    else:
+        print("- none")
+
+    warnings = payload.get("validation_warnings") or []
+    if warnings:
+        print("Warnings:")
+        for warning in warnings:
+            print(f"- {warning}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
@@ -633,6 +879,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.self_test:
         payload, ok = _self_test_payload()
         print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True))
+        return 0 if ok else EXIT_UNKNOWN_OR_POLICY_ERROR
+
+    if args.check_policy_source:
+        payload, ok = _check_policy_source_payload(args)
+        _print_policy_source_payload(payload)
         return 0 if ok else EXIT_UNKNOWN_OR_POLICY_ERROR
 
     if args.diagnose_config:

@@ -179,6 +179,34 @@ is also available as a manual override:
 https://raw.githubusercontent.com/Avnsx/win-release-guard/main/win11_release_guard/data/windows-release-policy.json
 ```
 
+## Readiness Checks
+
+Library readiness and policy-feed readiness are separate.
+
+Library readiness means the package imports, the bundled policy verifies, the
+evaluator works, and tests pass. Check local package integrity without WUA or
+remote fetch:
+
+```powershell
+python -m win11_release_guard --self-test
+```
+
+Policy feed readiness means a real hosted URL is configured, signed JSON is
+available, the detached signature verifies, the schema validates, source URLs
+are listed, the generator workflow passes, and an update schedule exists. Check
+the hosted or local signed policy without local Windows probes:
+
+```powershell
+python -m win11_release_guard --check-policy-source --policy-url https://avnsx.github.io/win-release-guard/windows-release-policy.json
+```
+
+This prints the policy source status, source URLs, `generated_at_utc`, broad
+target, baseline, and excluded releases. It exits `0` when the policy source is
+valid and `2` when the policy or signature is unavailable, invalid, or
+untrusted. The command verifies the hosted signed-policy artifact; generator
+workflow health and the update schedule are verified through the repository's
+GitHub Actions and Pages configuration.
+
 ## Python Example
 
 ```python
@@ -232,6 +260,7 @@ win-release-guard --no-wua
 win-release-guard --json --include-raw-wua-history
 win-release-guard --diagnose-config --check-source
 win-release-guard --self-test
+win-release-guard --check-policy-source --policy-url https://avnsx.github.io/win-release-guard/windows-release-policy.json
 ```
 
 For source-tree use without installing the console script,
@@ -252,7 +281,24 @@ fingerprint, probe defaults, source-check setting, and platform summary. It
 does not fetch the remote policy unless `--check-source` is also passed.
 `--self-test` imports the package, loads and verifies the bundled signed
 policy, parses the policy schema, and performs no WUA or remote fetch by
-default.
+default. `--check-policy-source` fetches only the configured policy JSON and
+its `.sig` file, verifies the signature, validates the schema, and prints feed
+metadata without running local Windows probes.
+
+## Creating a clean source archive
+
+Use the export helper when sharing this repository as a source ZIP:
+
+```powershell
+python tools/export_clean_archive.py
+```
+
+It writes `dist/win-release-guard-source.zip` and self-checks the archive
+manifest. The archive intentionally includes `win11_release_guard/`, `tests/`,
+`tools/`, `docs/`, `README.md`, `pyproject.toml`, `.github/workflows/ci.yml`,
+and the signed bundled policy in `win11_release_guard/data/`. It excludes Git
+metadata, pytest and Python bytecode caches, local `.cache/`, build/dist
+artifacts, local temp files, `out*.json`, and the deleted prototype entry point.
 
 ## Policy Generator
 
