@@ -1,0 +1,40 @@
+name: Dependency freshness
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 7 * * 1"
+  push:
+    paths:
+      - ".github/workflows/dependency-freshness.yml"
+      - "pyproject.toml"
+      - "tools/check_dependency_freshness.py"
+      - "tests/test_dependency_freshness.py"
+  pull_request:
+    paths:
+      - ".github/workflows/dependency-freshness.yml"
+      - "pyproject.toml"
+      - "tools/check_dependency_freshness.py"
+      - "tests/test_dependency_freshness.py"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+
+      - name: Check direct dependency freshness
+        run: python tools/check_dependency_freshness.py --output dependency-freshness.json

@@ -27,6 +27,7 @@ This repository is public software for Windows administrators. Future agents mus
 - Do not inspect or print credentials, tokens, private signing keys, GitHub Actions secret values, or credentialed remote URLs.
 - Preserve administrator-facing diagnostic data in normal product output unless the user explicitly asks for masking.
 - Keep WUA, Panther, DISM, and local system evidence subordinate to signed policy truth.
+- CodeQL code scanning is configured by `.github/workflows/codeql.yml`. If GitHub code scanning is disabled in repository settings, enable it under Settings, Code security and analysis.
 
 ## Deployment-Affecting Live Verification Gate
 

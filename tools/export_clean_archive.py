@@ -31,8 +31,13 @@ INCLUDE_PATHS = (
     Path("pyproject.toml"),
     Path(".gitignore"),
     Path(".gitattributes"),
+    Path(".github") / "dependabot.yml",
     Path(".github") / "workflows" / "ci.yml",
     Path(".github") / "workflows" / "publish-policy.yml",
+    Path(".github") / "workflows" / "codeql.yml",
+    Path(".github") / "workflows" / "pylint.yml",
+    Path(".github") / "workflows" / "dependency-freshness.yml",
+    Path(".github") / "workflows" / "dependency-audit.yml",
     Path("docs"),
 )
 
@@ -77,8 +82,13 @@ REQUIRED_ARCHIVE_ENTRIES = {
     "pyproject.toml",
     ".gitignore",
     ".gitattributes",
+    ".github/dependabot.yml",
     ".github/workflows/ci.yml",
     ".github/workflows/publish-policy.yml",
+    ".github/workflows/codeql.yml",
+    ".github/workflows/pylint.yml",
+    ".github/workflows/dependency-freshness.yml",
+    ".github/workflows/dependency-audit.yml",
     "win11_release_guard/__init__.py",
     "win11_release_guard/data/windows-release-policy.json",
     "win11_release_guard/data/windows-release-policy.json.sig",
@@ -87,8 +97,10 @@ REQUIRED_ARCHIVE_ENTRIES = {
     "tools/generate_signing_key.py",
     "tools/scan_for_secret_material.py",
     "tools/check_commit_message.py",
+    "tools/check_dependency_freshness.py",
     "tools/export_clean_archive.py",
     "docs/policy-signing.md",
+    "docs/security-automation.md",
     "tests/test_no_secret_material.py",
 }
 

@@ -57,3 +57,10 @@ def test_agents_contract_requires_live_gate_for_deployment_affecting_changes() -
     assert "If live network is unavailable" in text
     assert "do not claim live success" in text
     assert "exact failing URL, status, and" in text
+
+
+def test_agents_contract_mentions_codeql_settings_limit() -> None:
+    text = _agents_text()
+
+    assert "CodeQL code scanning is configured by `.github/workflows/codeql.yml`" in text
+    assert "Code security and analysis" in text

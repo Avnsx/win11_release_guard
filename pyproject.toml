@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = ["cryptography>=41"]
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
+test = ["packaging>=24", "pytest>=8"]
 
 [project.scripts]
 win-release-guard = "win11_release_guard.__main__:main"

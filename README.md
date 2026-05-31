@@ -1,5 +1,12 @@
 # Windows 11 Release Guard
 
+[![CI](https://github.com/Avnsx/win-release-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/Avnsx/win-release-guard/actions/workflows/ci.yml)
+[![Publish policy](https://github.com/Avnsx/win-release-guard/actions/workflows/publish-policy.yml/badge.svg)](https://github.com/Avnsx/win-release-guard/actions/workflows/publish-policy.yml)
+[![CodeQL](https://github.com/Avnsx/win-release-guard/actions/workflows/codeql.yml/badge.svg)](https://github.com/Avnsx/win-release-guard/actions/workflows/codeql.yml)
+[![Pylint](https://github.com/Avnsx/win-release-guard/actions/workflows/pylint.yml/badge.svg)](https://github.com/Avnsx/win-release-guard/actions/workflows/pylint.yml)
+[![Dependency audit](https://github.com/Avnsx/win-release-guard/actions/workflows/dependency-audit.yml/badge.svg)](https://github.com/Avnsx/win-release-guard/actions/workflows/dependency-audit.yml)
+[![Dependency freshness](https://github.com/Avnsx/win-release-guard/actions/workflows/dependency-freshness.yml/badge.svg)](https://github.com/Avnsx/win-release-guard/actions/workflows/dependency-freshness.yml)
+
 Standalone Python mini-module for evaluating whether a Windows 11 device is on
 the current broad-fleet target release and baseline build.
 
@@ -221,6 +228,16 @@ and `/api/v1/` aliases. These modes run no local Windows probes and no WUA.
 Generator workflow health and the update schedule are verified through the
 repository's GitHub Actions and Pages configuration.
 
+Dependency freshness is checked by a scheduled workflow. If the badge is
+passing, the latest run found that direct dependency specifiers in
+`pyproject.toml` allow the latest stable PyPI releases. It is not a transitive
+dependency audit; vulnerability checks are covered by the separate Dependency
+audit workflow.
+
+CodeQL code scanning is configured by `.github/workflows/codeql.yml`. If GitHub
+code scanning is disabled in repository settings, enable it under Settings,
+Code security and analysis.
+
 Manual public endpoint checks:
 
 ```powershell
@@ -322,8 +339,10 @@ python tools/export_clean_archive.py
 
 It writes `dist/win-release-guard-source.zip` and self-checks the archive
 manifest. The archive intentionally includes `win11_release_guard/`, `tests/`,
-`tools/`, `docs/`, `README.md`, `pyproject.toml`, `.github/workflows/ci.yml`,
-and the signed bundled policy in `win11_release_guard/data/`. It excludes Git
+`tools/`, `docs/`, `README.md`, `pyproject.toml`, `.github/dependabot.yml`,
+`.github/workflows/ci.yml`, `.github/workflows/publish-policy.yml`,
+automation workflows, and the signed bundled policy in
+`win11_release_guard/data/`. It excludes Git
 metadata, pytest and Python bytecode caches, local `.cache/`, build/dist
 artifacts, local temp files, `out*.json`, and the deleted prototype entry point.
 
