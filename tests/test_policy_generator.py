@@ -369,6 +369,11 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
     assert "26200.8457" in index
     assert "b_release_only" in index
     assert "26H1 excluded for existing devices" in index
+    assert (
+        "26H1 is excluded for existing devices because Microsoft scopes it to new devices and does not offer "
+        "it as an in-place update from 24H2/25H2."
+    ) in index
+    assert "existing devi." not in index
     assert "Microsoft Release Health" in index
     assert "Microsoft Atom feed" in index
     assert "Ed25519" in index or "ed25519" in index

@@ -35,6 +35,12 @@ ROBOTS_TXT = (
     "Allow: /\n"
     "Sitemap: https://avnsx.github.io/win-release-guard/sitemap.xml\n"
 )
+CURATED_EXCLUDED_RELEASE_SUMMARIES = {
+    "26H1": (
+        "26H1 is excluded for existing devices because Microsoft scopes it to new devices and does not offer "
+        "it as an in-place update from 24H2/25H2."
+    )
+}
 
 
 @dataclass(frozen=True)
@@ -646,7 +652,17 @@ def _reason_summary(value: str | None, *, max_length: int = 150) -> str:
         return "Excluded by signed release policy."
     if len(text) <= max_length:
         return text
-    return text[: max_length - 1].rstrip() + "."
+    boundary = text.rfind(" ", 0, max_length - 1)
+    if boundary < max_length // 2:
+        boundary = max_length - 1
+    return text[:boundary].rstrip(" ,;:-.") + "."
+
+
+def _excluded_release_summary(entry: ReleasePolicyEntry) -> str:
+    curated = CURATED_EXCLUDED_RELEASE_SUMMARIES.get(entry.version.upper())
+    if curated:
+        return curated
+    return _reason_summary(entry.reason)
 
 
 def _source_label(url: str) -> str:
@@ -678,7 +694,7 @@ def render_policy_index(
         (
             "          <li>"
             f"<strong>{escape(entry.version)} excluded for existing devices</strong>"
-            f"<span>{escape(_reason_summary(entry.reason))}</span>"
+            f"<span>{escape(_excluded_release_summary(entry))}</span>"
             "</li>"
         )
         for entry in policy.excluded_for_existing_devices
