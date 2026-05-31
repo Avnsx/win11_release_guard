@@ -37,6 +37,9 @@ jobs:
       - name: Compile
         run: python -m compileall -q win11_release_guard tools
 
+      - name: Audit GitHub action versions
+        run: python tools/check_github_action_versions.py
+
       - name: Test
         run: pytest -q
 

@@ -47,6 +47,7 @@ def test_ci_workflow_runs_required_commands() -> None:
 
     assert 'python -m pip install -e ".[test]"' in text
     assert "python -m compileall -q win11_release_guard tools" in text
+    assert "python tools/check_github_action_versions.py" in text
     assert "pytest -q" in text
     assert "python tools/generate_policy.py" in text
     assert "--release-health-html tests/fixtures/windows11-release-health.html" in text

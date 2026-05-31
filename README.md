@@ -508,6 +508,7 @@ Useful test commands:
 
 ```powershell
 python -m compileall -q win11_release_guard tools
+python tools/check_github_action_versions.py
 pytest -q tests/test_evaluator.py
 pytest -q tests/test_remote_policy.py
 pytest -q tests/test_local_state.py
@@ -536,9 +537,10 @@ suite, and do not claim live success. If a live check fails, fix the regression,
 rerun the live check, and record the exact failing URL, status, and error.
 
 CI runs on Ubuntu and Windows across Python 3.11 and 3.12. It runs compileall,
-the no-network pytest suite, fixture-based policy generation with Pages support
-files, CLI JSON validation, clean source archive export, and the secret-material
-scanner. Treat a build as production-ready only when source failures are
-structured and visible, signed/generated policy loading works, cache and bundled
-fallback work, WUA is bounded, the German 25H2 live fixture passes, the
-edge-case suite passes, and the archive/scanner checks remain clean.
+the GitHub action-version audit, the no-network pytest suite, fixture-based
+policy generation with Pages support files, CLI JSON validation, clean source
+archive export, and the secret-material scanner. Treat a build as
+production-ready only when source failures are structured and visible,
+signed/generated policy loading works, cache and bundled fallback work, WUA is
+bounded, the German 25H2 live fixture passes, the edge-case suite passes, and
+the archive/scanner checks remain clean.

@@ -99,6 +99,7 @@ REQUIRED_ARCHIVE_ENTRIES = {
     "tools/scan_for_secret_material.py",
     "tools/check_commit_message.py",
     "tools/check_dependency_freshness.py",
+    "tools/check_github_action_versions.py",
     "tools/export_clean_archive.py",
     "docs/policy-signing.md",
     "docs/security-automation.md",

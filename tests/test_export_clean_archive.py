@@ -29,6 +29,7 @@ def test_export_clean_archive_contains_only_clean_source_entries(tmp_path: Path)
     assert "win11_release_guard/data/windows-release-policy.json.sig" in names
     assert "tools/check_dependency_freshness.py" in names
     assert "tools/check_commit_message.py" in names
+    assert "tools/check_github_action_versions.py" in names
     assert "tools/export_clean_archive.py" in names
     assert "docs/security-automation.md" in names
     assert any(name.startswith("tests/") for name in names)
