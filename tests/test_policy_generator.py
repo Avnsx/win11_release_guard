@@ -129,11 +129,24 @@ def test_generate_policy_from_local_html_and_atom_fixtures(tmp_path):
     )
     data = policy.to_dict()
     validate_policy_document(data)
-    written = write_policy_outputs(policy, output_dir=tmp_path, write_index=True)
+    written = write_policy_outputs(
+        policy,
+        output_dir=tmp_path,
+        write_index=True,
+        write_robots=True,
+        write_sitemap=True,
+        write_manifest=True,
+    )
 
     assert written["policy"].name == "windows-release-policy.json"
     assert written["index"].name == "index.html"
+    assert written["robots"].name == "robots.txt"
+    assert written["sitemap"].name == "sitemap.xml"
+    assert written["manifest"].name == "manifest.json"
     assert json.loads(written["policy"].read_text(encoding="utf-8"))["broad_target_existing_devices"]["version"] == "25H2"
+    assert "Sitemap:" in written["robots"].read_text(encoding="utf-8")
+    assert "windows-release-policy.json" in written["sitemap"].read_text(encoding="utf-8")
+    assert json.loads(written["manifest"].read_text(encoding="utf-8"))["broad_target_existing_devices"]["version"] == "25H2"
     assert data["source_fetch_status"]["release_health_html"]["status"] == "ok"
     assert data["source_fetch_status"]["atom_feed"]["status"] == "ok"
     assert "quality_baselines" in data
@@ -250,3 +263,27 @@ def test_generator_source_failure_exits_nonzero_and_explains_failure(tmp_path, c
     captured = capsys.readouterr()
     assert code == 1
     assert "release_health_html source failure" in captured.err
+
+
+def test_generator_cli_writes_pages_support_files(tmp_path):
+    output_dir = tmp_path / "site"
+
+    code = generate_policy_cli.main([
+        "--release-health-html",
+        str(FIXTURES / "windows11-release-health.html"),
+        "--atom-feed",
+        str(FIXTURES / "windows11-atom.xml"),
+        "--output-dir",
+        str(output_dir),
+        "--write-index",
+        "--write-robots",
+        "--write-sitemap",
+        "--write-manifest",
+    ])
+
+    assert code == 0
+    assert (output_dir / "windows-release-policy.json").exists()
+    assert (output_dir / "index.html").exists()
+    assert (output_dir / "robots.txt").exists()
+    assert (output_dir / "sitemap.xml").exists()
+    assert (output_dir / "manifest.json").exists()

@@ -251,3 +251,15 @@ management uses:
 
 Any earlier reference in this handover to `WIN11_RELEASE_GUARD_SIGNING_KEY` is
 historical Prompt 1 state, not the current workflow contract.
+
+## Prompt 5 Publish Workflow Update
+
+Prompt 5 superseded the publish-workflow details above. Current
+`.github/workflows/publish-policy.yml` uses same-repo GitHub Pages artifact
+deployment, Python `3.12`, `contents: read`, `pages: write`, and
+`id-token: write`.
+
+Production publishing now fails if
+`WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64` is missing. It no longer falls back
+to publishing checked-in bundled policy, does not commit generated files to a
+branch, does not use PATs, and does not use `gh-pages` branch mode.

@@ -315,7 +315,10 @@ python tools/generate_policy.py `
   --release-health-html tests/fixtures/windows11-release-health.html `
   --atom-feed tests/fixtures/windows11-atom.xml `
   --output-dir site `
-  --write-index
+  --write-index `
+  --write-robots `
+  --write-sitemap `
+  --write-manifest
 ```
 
 To emit `site/windows-release-policy.json.sig`, provide a signing key through
@@ -342,11 +345,12 @@ python tools/scan_for_secret_material.py site win11_release_guard tests tools do
 ```
 
 The repository includes `.github/workflows/publish-policy.yml`, which runs on a
-six-hour schedule and publishes `site/` to GitHub Pages. When the repository
-secret `WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64` is configured, that workflow
-generates and signs fresh live policy from Microsoft sources. If the secret is
-absent, it publishes the checked-in signed last-known-good policy instead so the
-production endpoint still serves a verifiable policy.
+twice-daily schedule and publishes `site/` to GitHub Pages through the same
+repository's Pages artifact deployment. The workflow requires repository secret
+`WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64`; if that secret is absent, production
+publishing fails before upload and the previous Pages deployment remains
+untouched. It does not use PATs, `contents: write`, branch commits, or
+`gh-pages` branch publishing.
 
 ## Trust Model
 

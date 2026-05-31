@@ -5,16 +5,22 @@ import re
 import urllib.request
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 from typing import Any, Mapping
 from xml.etree import ElementTree
 
-from .config import DEFAULT_HTTP_TIMEOUT_SECONDS, DEFAULT_RELEASE_HEALTH_URL, DEFAULT_USER_AGENT
+from .config import (
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
+    DEFAULT_POLICY_URL,
+    DEFAULT_RELEASE_HEALTH_URL,
+    DEFAULT_TRUSTED_POLICY_KEY_ID,
+    DEFAULT_USER_AGENT,
+)
 from .exceptions import PolicyFetchError, PolicyParseError
 from .models import QualityPolicy, ReleaseHistoryEntry, ReleasePolicy, ReleasePolicyEntry
 from .policy_schema import GENERATOR_VERSION, policy_document_to_json, validate_policy_document
 from .remote_policy import parse_windows11_release_health_html
-from .config import DEFAULT_TRUSTED_POLICY_KEY_ID
 from .signing import sign_policy_bytes as sign_ed25519_policy_bytes
 
 
@@ -469,6 +475,9 @@ def write_policy_outputs(
     signing_key: str | bytes | None = None,
     key_id: str = DEFAULT_TRUSTED_POLICY_KEY_ID,
     write_index: bool = False,
+    write_robots: bool = False,
+    write_sitemap: bool = False,
+    write_manifest: bool = False,
 ) -> dict[str, Path]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -488,7 +497,26 @@ def write_policy_outputs(
         index_file.write_text(render_policy_index(policy), encoding="utf-8")
         written["index"] = index_file
 
+    if write_robots:
+        robots_file = output_path / "robots.txt"
+        robots_file.write_text(render_robots_txt(), encoding="utf-8", newline="\n")
+        written["robots"] = robots_file
+
+    if write_sitemap:
+        sitemap_file = output_path / "sitemap.xml"
+        sitemap_file.write_text(render_sitemap_xml(policy), encoding="utf-8", newline="\n")
+        written["sitemap"] = sitemap_file
+
+    if write_manifest:
+        manifest_file = output_path / "manifest.json"
+        manifest_file.write_text(render_policy_manifest(policy), encoding="utf-8", newline="\n")
+        written["manifest"] = manifest_file
+
     return written
+
+
+def _site_base_url(policy_url: str = DEFAULT_POLICY_URL) -> str:
+    return policy_url.rsplit("/", 1)[0].rstrip("/")
 
 
 def render_policy_index(policy: ReleasePolicy) -> str:
@@ -513,6 +541,58 @@ def render_policy_index(policy: ReleasePolicy) -> str:
         "</body>\n"
         "</html>\n"
     )
+
+
+def render_robots_txt(*, base_url: str = _site_base_url()) -> str:
+    return (
+        "User-agent: *\n"
+        "Allow: /\n"
+        f"Sitemap: {base_url}/sitemap.xml\n"
+    )
+
+
+def render_sitemap_xml(policy: ReleasePolicy, *, base_url: str = _site_base_url()) -> str:
+    generated_at = escape(policy.generated_at_utc or _utc_now())
+    return (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+        "  <url>\n"
+        f"    <loc>{escape(base_url)}/</loc>\n"
+        f"    <lastmod>{generated_at}</lastmod>\n"
+        "  </url>\n"
+        "  <url>\n"
+        f"    <loc>{escape(base_url)}/windows-release-policy.json</loc>\n"
+        f"    <lastmod>{generated_at}</lastmod>\n"
+        "  </url>\n"
+        "  <url>\n"
+        f"    <loc>{escape(base_url)}/windows-release-policy.json.sig</loc>\n"
+        f"    <lastmod>{generated_at}</lastmod>\n"
+        "  </url>\n"
+        "</urlset>\n"
+    )
+
+
+def render_policy_manifest(policy: ReleasePolicy, *, base_url: str = _site_base_url()) -> str:
+    target = policy.broad_target_existing_devices
+    manifest = {
+        "name": "win-release-guard policy feed",
+        "generated_at_utc": policy.generated_at_utc,
+        "generator_version": policy.generator_version,
+        "policy_url": f"{base_url}/windows-release-policy.json",
+        "signature_url": f"{base_url}/windows-release-policy.json.sig",
+        "sitemap_url": f"{base_url}/sitemap.xml",
+        "broad_target_existing_devices": (
+            {
+                "version": target.version,
+                "build_family": target.build_family,
+                "latest_build": target.latest_build,
+                "baseline_build": target.effective_baseline_build,
+            }
+            if target
+            else None
+        ),
+    }
+    return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
 
 
 def build_policy_from_sources(
@@ -562,6 +642,9 @@ __all__ = [
     "load_source_text",
     "parse_atom_feed",
     "render_policy_index",
+    "render_policy_manifest",
+    "render_robots_txt",
+    "render_sitemap_xml",
     "sign_policy_bytes",
     "write_policy_outputs",
 ]

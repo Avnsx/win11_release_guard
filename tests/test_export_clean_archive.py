@@ -16,6 +16,7 @@ def test_export_clean_archive_contains_only_clean_source_entries(tmp_path: Path)
     assert "README.md" in names
     assert "pyproject.toml" in names
     assert ".github/workflows/ci.yml" in names
+    assert ".github/workflows/publish-policy.yml" in names
     assert "win11_release_guard/data/windows-release-policy.json" in names
     assert "win11_release_guard/data/windows-release-policy.json.sig" in names
     assert "tools/export_clean_archive.py" in names

@@ -18,6 +18,7 @@ INCLUDE_PATHS = (
     Path("README.md"),
     Path("pyproject.toml"),
     Path(".github") / "workflows" / "ci.yml",
+    Path(".github") / "workflows" / "publish-policy.yml",
     Path("docs"),
 )
 
@@ -55,6 +56,7 @@ REQUIRED_ARCHIVE_ENTRIES = {
     "README.md",
     "pyproject.toml",
     ".github/workflows/ci.yml",
+    ".github/workflows/publish-policy.yml",
     "win11_release_guard/__init__.py",
     "win11_release_guard/data/windows-release-policy.json",
     "win11_release_guard/data/windows-release-policy.json.sig",

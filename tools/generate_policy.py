@@ -34,6 +34,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, default=Path("site"))
     parser.add_argument("--timeout", type=float, default=DEFAULT_HTTP_TIMEOUT_SECONDS)
     parser.add_argument("--write-index", action="store_true", help="Write site/index.html summary.")
+    parser.add_argument("--write-robots", action="store_true", help="Write site/robots.txt.")
+    parser.add_argument("--write-sitemap", action="store_true", help="Write site/sitemap.xml.")
+    parser.add_argument("--write-manifest", action="store_true", help="Write site/manifest.json.")
     parser.add_argument(
         "--signing-key-env",
         default=None,
@@ -81,6 +84,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             signing_key=signing_key,
             key_id=args.key_id,
             write_index=args.write_index,
+            write_robots=args.write_robots,
+            write_sitemap=args.write_sitemap,
+            write_manifest=args.write_manifest,
         )
     except (OSError, WindowsReleaseCheckerError) as exc:
         print(f"Policy generation failed: {exc}", file=sys.stderr)

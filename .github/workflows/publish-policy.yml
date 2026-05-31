@@ -3,13 +3,14 @@ name: Publish policy
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 */6 * * *"
+    - cron: "23 6,18 * * *"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/publish-policy.yml"
       - "tools/generate_policy.py"
+      - "tools/scan_for_secret_material.py"
       - "win11_release_guard/**"
 
 permissions:
@@ -29,51 +30,35 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .
+          python -m pip install -e ".[test]"
+
+      - name: Compile
+        run: python -m compileall -q win11_release_guard tools
+
+      - name: Test
+        run: pytest -q
 
       - name: Generate signed policy
         env:
           WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64: ${{ secrets.WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64 }}
         run: |
           set -euo pipefail
-          if [ -n "${WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64:-}" ]; then
-            python tools/generate_policy.py \
-              --output-dir site \
-              --write-index \
-              --signing-key-env WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64
-          else
-            echo "WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64 is not configured; publishing checked-in signed last-known-good policy."
-            mkdir -p site
-            cp win11_release_guard/data/windows-release-policy.json site/windows-release-policy.json
-            cp win11_release_guard/data/windows-release-policy.json.sig site/windows-release-policy.json.sig
-            python - <<'PY'
-          import json
-          from pathlib import Path
-
-          policy = json.loads(Path("site/windows-release-policy.json").read_text(encoding="utf-8"))
-          target = policy.get("broad_target_existing_devices") or {}
-          target_text = f"{target.get('version', 'unknown')} build {target.get('baseline_build') or target.get('latest_build') or 'unknown'}"
-          Path("site/index.html").write_text(
-              "<!doctype html>\n"
-              "<html lang=\"en\">\n"
-              "<head><meta charset=\"utf-8\"><title>Windows release policy</title></head>\n"
-              "<body>\n"
-              "<h1>Windows release policy</h1>\n"
-              f"<p>Generated at: {policy.get('generated_at_utc', 'unknown')}</p>\n"
-              f"<p>Broad target for existing devices: {target_text}</p>\n"
-              "<p>Publisher: checked-in signed last-known-good policy.</p>\n"
-              "</body>\n"
-              "</html>\n",
-              encoding="utf-8",
-              newline="\n",
-          )
-          PY
+          if [ -z "${WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64:-}" ]; then
+            echo "::error::WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64 is required for production policy publishing."
+            exit 1
           fi
+          python tools/generate_policy.py \
+            --output-dir site \
+            --write-index \
+            --write-robots \
+            --write-sitemap \
+            --write-manifest \
+            --signing-key-env WIN_RELEASE_GUARD_POLICY_SIGNING_KEY_B64
           touch site/.nojekyll
 
       - name: Validate policy and signature
@@ -111,7 +96,7 @@ jobs:
         with:
           enablement: true
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
