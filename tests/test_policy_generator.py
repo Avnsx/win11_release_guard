@@ -5,8 +5,11 @@ import hashlib
 from pathlib import Path
 from urllib.parse import urlparse
 
+import pytest
+
 from tools import generate_policy as generate_policy_cli
 from win11_release_guard.config import DEFAULT_POLICY_URL, DEFAULT_PUBLISHED_POLICY_URLS, DEFAULT_RELEASE_HEALTH_URL
+from win11_release_guard.exceptions import PolicyParseError
 from win11_release_guard.models import QualityPolicy
 from win11_release_guard.policy_generator import (
     _source_label,
@@ -29,6 +32,10 @@ EXPECTED_ROBOTS_TXT = (
 
 def _html() -> str:
     return (FIXTURES / "windows11-release-health.html").read_text(encoding="utf-8")
+
+
+def _html_file(name: str) -> str:
+    return (FIXTURES / name).read_text(encoding="utf-8")
 
 
 def _atom() -> str:
@@ -151,6 +158,16 @@ def _with_oob_row(html: str) -> str:
     return html.replace("      <tr>\n        <td>General Availability Channel</td>\n        <td>2026-04 D</td>", row + "      <tr>\n        <td>General Availability Channel</td>\n        <td>2026-04 D</td>", 1)
 
 
+def _with_25h2_current_latest_build(html: str, build: str) -> str:
+    return html.replace("        <td>26200.8457</td>\n      </tr>", f"        <td>{build}</td>\n      </tr>", 1)
+
+
+def _without_26h1_special_note(html: str) -> str:
+    start = html.index("  <p>\n    Windows 11, version 26H1")
+    end = html.index("  </p>", start) + len("  </p>\n")
+    return html[:start] + html[end:]
+
+
 def test_generate_policy_from_local_html_and_atom_fixtures(tmp_path):
     policy = build_policy_from_sources(
         release_health_html_path=FIXTURES / "windows11-release-health.html",
@@ -158,7 +175,8 @@ def test_generate_policy_from_local_html_and_atom_fixtures(tmp_path):
         signature_status="valid",
     )
     data = policy.to_dict()
-    validate_policy_document(data)
+    validation_warnings = validate_policy_document(data)
+    assert not any("source_diagnostics" in warning for warning in validation_warnings)
     written = write_policy_outputs(
         policy,
         output_dir=tmp_path,
@@ -180,6 +198,21 @@ def test_generate_policy_from_local_html_and_atom_fixtures(tmp_path):
     assert json.loads(written["manifest"].read_text(encoding="utf-8"))["broad_target_existing_devices"]["version"] == "25H2"
     assert data["source_fetch_status"]["release_health_html"]["status"] == "ok"
     assert data["source_fetch_status"]["atom_feed"]["status"] == "ok"
+    assert data["source_fetch_status"]["release_health_html"]["fetched_at_utc"]
+    assert data["source_fetch_status"]["atom_feed"]["fetched_at_utc"]
+    diagnostics = data["source_diagnostics"]
+    assert data["schema_version"] == 1
+    assert data["min_reader_schema_version"] == 1
+    assert data["max_reader_schema_version"] == 1
+    assert data["api_version"] == "v1"
+    assert data["compatibility"]["required_core_schema_version"] == 1
+    assert diagnostics["release_health_html"]["source_url"] == DEFAULT_RELEASE_HEALTH_URL
+    assert diagnostics["release_health_html"]["bytes"] > 0
+    assert diagnostics["release_health_html"]["newest_current_version_revision_date"] == "2026-05-12"
+    assert diagnostics["release_health_html"]["newest_release_history_availability_date"] == "2026-05-12"
+    assert diagnostics["atom_feed"]["newest_atom_updated"] == "2026-05-16T18:00:00Z"
+    assert diagnostics["atom_feed"]["newest_atom_published"] == "2026-05-16T18:00:00Z"
+    assert diagnostics["atom_feed"]["newest_atom_build"] == "26200.8460"
     assert "quality_baselines" in data
     assert "preview_builds" in data
 
@@ -215,6 +248,32 @@ def test_fixture_with_26h1_25h2_24h2_chooses_25h2():
     assert special["26H1"].metadata["special_release"] is True
     assert special["26H1"].metadata["new_devices_only"] is True
     assert special["26H1"].metadata["not_broad_target_existing_devices"] is True
+
+
+def test_generate_policy_from_release_health_current_d_preview_fixture():
+    policy = generate_policy(
+        release_health_html=_html_file("windows11-release-health-current-d-26h1.html"),
+        atom_feed_xml=_atom(),
+    )
+    target = policy.broad_target_existing_devices
+    baseline = policy.quality_baselines["25H2"][QualityPolicy.B_RELEASE_ONLY.value]
+
+    assert target is not None
+    assert target.latest_observed_build == "26200.8524"
+    assert target.required_baseline_build == "26200.8457"
+    assert baseline["build"] == "26200.8457"
+    current_25h2 = next(entry for entry in policy.current_versions if entry.version == "25H2")
+    assert current_25h2.latest_build == "26200.8524"
+    assert current_25h2.latest_observed_build == "26200.8524"
+    assert current_25h2.baseline_build == "26200.8457"
+    assert current_25h2.required_baseline_build == "26200.8457"
+    assert any(item["build"] == "26200.8524" for item in policy.preview_builds)
+    assert {entry.version for entry in policy.special_releases} == {"26H1"}
+
+
+def test_generate_policy_fails_on_release_health_26h1_without_special_note():
+    with pytest.raises(PolicyParseError, match="26H1 new-devices-only special release note"):
+        generate_policy(release_health_html=_without_26h1_special_note(_html()), atom_feed_xml=_atom())
 
 
 def test_future_26h2_ga_chooses_26h2():
@@ -256,10 +315,76 @@ def test_atom_feed_marks_oob_when_table_is_ambiguous():
     assert any(item["kb_article"] == "KB5089550" for item in policy.out_of_band_builds)
 
 
+def test_source_diagnostics_warn_when_atom_has_newer_build_than_release_history():
+    policy = generate_policy(
+        release_health_html=_html(),
+        atom_feed_xml=_atom(),
+        generated_at_utc="2026-05-20T00:00:00+00:00",
+    )
+    diagnostics = policy.source_diagnostics
+    drift = diagnostics["drift"]["atom_newer_than_release_history"]
+
+    assert drift[0]["build"] == "26200.8460"
+    assert drift[0]["kb_article"] == "KB5089550"
+    assert diagnostics["drift"]["generated_after_newest_source_hours"] == 78.0
+    assert any("Atom feed has newer build/KB entries" in warning for warning in policy.validation_warnings)
+    assert any("generated more than 24 hours after the newest source timestamp" in warning for warning in policy.validation_warnings)
+
+
+def test_source_diagnostics_warn_when_current_versions_lag_release_history():
+    policy = generate_policy(release_health_html=_with_oob_row(_html()), atom_feed_xml=_atom())
+    drift = policy.source_diagnostics["drift"]["current_version_latest_older_than_release_history"]
+
+    assert drift[0]["version"] == "25H2"
+    assert drift[0]["latest_build"] == "26200.8457"
+    assert drift[0]["newest_release_history_build"] == "26200.8460"
+    assert any("Current Versions latest_build appears older" in warning for warning in policy.validation_warnings)
+
+
+def test_policy_schema_accepts_source_diagnostics_without_unknown_key_warning():
+    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+
+    warnings = validate_policy_document(policy.to_dict())
+
+    assert not any("unknown top-level key 'source_diagnostics'" in warning for warning in warnings)
+
+
+def test_policy_schema_rejects_invalid_source_diagnostics_shape():
+    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+    data = policy.to_dict()
+    data["source_diagnostics"] = {"release_health_html": "not an object"}
+
+    with pytest.raises(PolicyParseError, match="source_diagnostics.release_health_html"):
+        validate_policy_document(data)
+
+
 def test_b_release_quality_baseline_does_not_require_preview():
     policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
     baseline = policy.quality_baselines["25H2"][QualityPolicy.B_RELEASE_ONLY.value]
 
+    assert baseline["build"] == "26200.8457"
+    assert baseline["preview"] is False
+
+
+def test_current_table_preview_latest_stays_distinct_from_required_baseline():
+    policy = generate_policy(
+        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
+        atom_feed_xml=_atom(),
+    )
+    validate_policy_document(policy.to_dict())
+    target = policy.broad_target_existing_devices
+    baseline = policy.quality_baselines["25H2"][QualityPolicy.B_RELEASE_ONLY.value]
+
+    assert target is not None
+    assert target.latest_build == "26200.8524"
+    assert target.latest_observed_build == "26200.8524"
+    assert target.baseline_build == "26200.8457"
+    assert target.required_baseline_build == "26200.8457"
+    current_25h2 = next(entry for entry in policy.current_versions if entry.version == "25H2")
+    assert current_25h2.latest_build == "26200.8524"
+    assert current_25h2.latest_observed_build == "26200.8524"
+    assert current_25h2.baseline_build == "26200.8457"
+    assert current_25h2.required_baseline_build == "26200.8457"
     assert baseline["build"] == "26200.8457"
     assert baseline["preview"] is False
 
@@ -372,12 +497,21 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
     assert manifest["signature_sha256"] == hashlib.sha256(signature_bytes).hexdigest()
     assert manifest["signature_algorithm"] == "ed25519"
     assert manifest["key_id"] == "test-policy-key"
+    assert manifest["policy_schema_version"] == 1
+    assert manifest["min_reader_schema_version"] == 1
+    assert manifest["max_reader_schema_version"] == 1
+    assert manifest["api_version"] == "v1"
+    assert manifest["compatibility"]["required_core_schema_version"] == 1
     assert api_policy == generated_policy
     assert api_manifest == manifest
     assert manifest["timezone"] == "Europe/Berlin"
-    assert manifest["status"] == "Policy current"
+    assert manifest["status"] == "Warning state"
     assert manifest["published_urls"]["policy"] == DEFAULT_POLICY_URL
     assert manifest["published_urls"]["api_policy"].endswith("/api/v1/policy.json")
+    assert manifest["source_diagnostics"]["atom_feed"]["newest_atom_build"] == "26200.8460"
+    assert manifest["broad_target_existing_devices"]["latest_observed_build"] == "26200.8457"
+    assert manifest["broad_target_existing_devices"]["required_baseline_build"] == "26200.8457"
+    assert manifest["required_baseline_build"] == "26200.8457"
     assert generated_policy["published_urls"] == DEFAULT_PUBLISHED_POLICY_URLS
     assert DEFAULT_RELEASE_HEALTH_URL in generated_policy["source_urls"]
     source_hosts = {urlparse(url).hostname for url in generated_policy["source_urls"]}
@@ -386,8 +520,10 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
     index = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert "<title>win11_release_guard</title>" in index
     assert "Windows release policy feed" in index
-    assert "Policy current" in index
+    assert "Warning state" in index
     assert "25H2" in index
+    assert "Latest observed" in index
+    assert "Required baseline" in index
     assert "26200" in index
     assert "26200.8457" in index
     assert "b_release_only" in index

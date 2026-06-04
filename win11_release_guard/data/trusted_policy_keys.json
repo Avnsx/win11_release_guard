@@ -5,14 +5,17 @@
       "created_at_utc": "2026-01-01T00:00:00Z",
       "key_id": "win11_release_guard-policy-2026-01",
       "public_key_b64": "5OoJIhKvOGLJ72+/EZiQHX51m0gEczh5CctQjW7wPHk=",
-      "status": "retiring"
+      "status": "retiring",
+      "valid_from_utc": "2026-01-01T00:00:00Z",
+      "verify_not_after_utc": "2026-06-30T00:00:00Z"
     },
     {
       "algorithm": "ed25519",
       "created_at_utc": "2026-05-31T23:16:50+00:00",
       "key_id": "win11_release_guard-policy-2026-05",
       "public_key_b64": "EyYjpk2UGyF2uutZg3PE5+p6gN2sMmSl6mRscTmmz9s=",
-      "status": "active"
+      "status": "active",
+      "valid_from_utc": "2026-05-31T23:16:50+00:00"
     }
   ]
 }

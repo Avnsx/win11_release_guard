@@ -10,7 +10,12 @@ from win11_release_guard.cache import (
     load_cached_policy,
     save_cached_policy,
 )
-from win11_release_guard.config import DEFAULT_POLICY_URL, ReleaseCheckerConfig, resolve_policy_url
+from win11_release_guard.config import (
+    DEFAULT_POLICY_URL,
+    STRICT_PRODUCTION_ENV_VAR,
+    ReleaseCheckerConfig,
+    resolve_policy_url,
+)
 from win11_release_guard.exceptions import PolicyParseError
 from win11_release_guard.models import ReleasePolicy, ReleasePolicyEntry
 
@@ -111,7 +116,8 @@ def test_malformed_cache_json_raises_policy_parse_error(tmp_path):
         is_policy_cache_fresh(cache_file)
 
 
-def test_config_defaults_exclude_26h1_or_mark_special_release():
+def test_config_defaults_exclude_26h1_or_mark_special_release(monkeypatch):
+    monkeypatch.delenv(STRICT_PRODUCTION_ENV_VAR, raising=False)
     config = ReleaseCheckerConfig()
 
     assert config.policy_url is None
@@ -124,3 +130,25 @@ def test_config_defaults_exclude_26h1_or_mark_special_release():
     assert config.allow_unsigned_policy is False
     assert config.use_bundled_policy_fallback is True
     assert config.source_check_required_for_green is False
+    assert config.strict_production is False
+
+
+def test_strict_production_env_and_preset_force_signed_source_check(monkeypatch):
+    monkeypatch.setenv(STRICT_PRODUCTION_ENV_VAR, "1")
+
+    env_config = ReleaseCheckerConfig(allow_unsigned_policy=True)
+    explicit_config = ReleaseCheckerConfig(
+        strict_production=True,
+        allow_runtime_release_health_html=True,
+        allow_unsigned_policy=True,
+        source_check_required_for_green=False,
+    )
+
+    assert env_config.strict_production is True
+    assert env_config.allow_runtime_release_health_html is False
+    assert env_config.allow_unsigned_policy is False
+    assert env_config.source_check_required_for_green is True
+    assert explicit_config.strict_production is True
+    assert explicit_config.allow_runtime_release_health_html is False
+    assert explicit_config.allow_unsigned_policy is False
+    assert explicit_config.source_check_required_for_green is True

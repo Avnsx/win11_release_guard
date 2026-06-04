@@ -16,11 +16,12 @@ This repository is public software for Windows administrators. Future agents mus
 10. Runtime clients verify Ed25519 signatures with committed public keys.
 11. The private policy signing key lives only in GitHub Actions Secret `WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64`.
 12. GitHub Pages output is public static non-secret data.
-13. WUA is secondary evidence only and must never override the signed policy verdict.
-14. The production generator uses only public Microsoft Release Health HTML and public Microsoft Update History Atom feed sources.
-15. Historical research about authenticated Microsoft metadata APIs may remain only in `docs/architecture-insight.md` when explicitly marked out of scope, not active architecture instructions.
-16. `.git` is never included in clean archives.
-17. The source of truth is current code, tests, workflows, docs, and tools, not handover text.
+13. Retiring or retired public policy keys must be bounded by `verify_not_after_utc`; runtime verification must not accept fresh signatures from retired keys.
+14. WUA is secondary evidence only and must never override the signed policy verdict.
+15. The production generator uses only public Microsoft Release Health HTML and public Microsoft Update History Atom feed sources.
+16. Historical research about authenticated Microsoft metadata APIs may remain only in `docs/architecture-insight.md` when explicitly marked out of scope, not active architecture instructions.
+17. `.git` is never included in clean archives.
+18. The source of truth is current code, tests, workflows, docs, and tools, not handover text.
 
 Canonical repository and feed:
 
@@ -35,6 +36,13 @@ Canonical repository and feed:
 - Keep WUA, Panther, DISM, and local system evidence subordinate to signed policy truth.
 - CodeQL code scanning is configured by `.github/workflows/codeql.yml`. If GitHub code scanning is disabled in repository settings, enable it under Settings, Code security and analysis.
 - Handover files are temporary local artifacts. Do not commit or publish `*handover*.md`; they are ignored and excluded from clean archives.
+- The only recommended handoff artifact is the validated clean archive created
+  with `python tools/export_clean_archive.py --output dist/win11_release_guard-source.zip`
+  and checked with
+  `python tools/export_clean_archive.py --validate dist/win11_release_guard-source.zip`.
+  Do not share raw worktree ZIPs because they can include `.git/`, `.tmp/`,
+  `site/`, `dist/`, pycache, package metadata, and private signing-key scratch
+  files.
 - The signed bundled policy JSON must use the current `win11_release_guard` identity and must verify against its detached signature.
 
 ## GitHub Actions Pinning Policy
@@ -58,8 +66,11 @@ After any deployment-affecting change, run:
 ```powershell
 python -m compileall -q win11_release_guard tools
 pytest -q
+python tools/generate_signing_key.py --out-dir .tmp/signing-test --key-id test-policy-key --created-at-utc 2026-06-03T00:00:00+00:00
 python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --atom-feed tests/fixtures/windows11-atom.xml --output-dir site --write-index --write-robots --write-sitemap --write-manifest --signing-key-file .tmp/signing-test/private-key.b64
 python tools/scan_for_secret_material.py site win11_release_guard tests tools docs README.md AGENTS.md pyproject.toml .github
+python tools/export_clean_archive.py --output dist/win11_release_guard-source.zip
+python tools/export_clean_archive.py --validate dist/win11_release_guard-source.zip
 python -m win11_release_guard --check-policy-source
 python -m win11_release_guard --check-public-pages
 ```

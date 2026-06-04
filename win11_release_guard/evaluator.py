@@ -291,22 +291,70 @@ def _add_signal(
     )
 
 
+def _signal_build_family(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    parts = text.split(".")
+    try:
+        if len(parts) >= 3:
+            return int(parts[2])
+        return int(parts[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_signal_flags(local_state: LocalWindowsState, value: object) -> tuple[str, ...]:
+    raw = local_state.raw if isinstance(local_state.raw, Mapping) else {}
+    decision = raw.get("build_signal_decision")
+    if not isinstance(decision, Mapping):
+        return ()
+    build = _signal_build_family(value)
+    if build is None:
+        return ()
+    selected_build = _signal_build_family(decision.get("selected_build"))
+    flags: list[str] = []
+    if decision.get("conflict"):
+        flags.append("build_signal_conflict")
+    if selected_build is not None:
+        flags.append("selected_build_signal" if build == selected_build else "conflicting_build_signal")
+    return tuple(dict.fromkeys(flags))
+
+
 def local_signal_set(local_state: LocalWindowsState) -> LocalSignalSet:
     registry = _raw_mapping(local_state, "registry")
     rtl = _raw_mapping(local_state, "rtl")
     wmi = _raw_mapping(local_state, "wmi")
     signals: list[LocalSignal] = []
+    registry_build_value = _signal_value(
+        registry,
+        "CurrentBuildNumber",
+        _signal_value(registry, "CurrentBuild", local_state.current_build),
+    )
+    rtl_build_value = _signal_value(rtl, "build")
+    wmi_version_value = _signal_value(wmi, "Version", local_state.wmi_version)
+    wmi_build_value = _signal_value(wmi, "BuildNumber")
 
     _add_signal(
         signals,
         source="registry",
         name="CurrentBuild",
-        value=_signal_value(registry, "CurrentBuildNumber", _signal_value(registry, "CurrentBuild", local_state.current_build)),
+        value=registry_build_value,
         kind="build",
-        trust="release_truth",
+        trust="registry_metadata",
         normalized_value=str(local_state.current_build) if local_state.current_build is not None else None,
+        diagnostic_flags=_build_signal_flags(local_state, registry_build_value),
     )
-    _add_signal(signals, source="registry", name="UBR", value=_signal_value(registry, "UBR", local_state.ubr), kind="build", trust="release_truth")
+    _add_signal(
+        signals,
+        source="registry",
+        name="UBR",
+        value=_signal_value(registry, "UBR", local_state.ubr),
+        kind="build",
+        trust="registry_metadata",
+    )
     _add_signal(signals, source="registry", name="ProductName", value=local_state.product_name, kind="display_label", trust="display_only")
     _add_signal(
         signals,
@@ -326,9 +374,33 @@ def local_signal_set(local_state: LocalWindowsState) -> LocalSignalSet:
         trust="edition_signal",
         normalized_value=local_state.edition_scope.value,
     )
-    _add_signal(signals, source="rtl", name="RtlGetVersion.build", value=_signal_value(rtl, "build"), kind="build", trust="release_truth")
-    _add_signal(signals, source="wmi", name="Version", value=_signal_value(wmi, "Version", local_state.wmi_version), kind="build", trust="release_truth")
-    _add_signal(signals, source="wmi", name="BuildNumber", value=_signal_value(wmi, "BuildNumber"), kind="build", trust="release_truth")
+    _add_signal(
+        signals,
+        source="rtl",
+        name="RtlGetVersion.build",
+        value=rtl_build_value,
+        kind="build",
+        trust="runtime_truth",
+        diagnostic_flags=_build_signal_flags(local_state, rtl_build_value),
+    )
+    _add_signal(
+        signals,
+        source="wmi",
+        name="Version",
+        value=wmi_version_value,
+        kind="build",
+        trust="wmi_metadata",
+        diagnostic_flags=_build_signal_flags(local_state, wmi_version_value),
+    )
+    _add_signal(
+        signals,
+        source="wmi",
+        name="BuildNumber",
+        value=wmi_build_value,
+        kind="build",
+        trust="wmi_metadata",
+        diagnostic_flags=_build_signal_flags(local_state, wmi_build_value),
+    )
     _add_signal(signals, source="wmi", name="Caption", value=local_state.caption, kind="display_label", trust="display_only")
     _add_signal(signals, source="wmi", name="OperatingSystemSKU", value=local_state.operating_system_sku, kind="edition", trust="edition_signal")
     _add_signal(
@@ -339,6 +411,23 @@ def local_signal_set(local_state: LocalWindowsState) -> LocalSignalSet:
         kind="edition",
         trust="primary_edition_signal",
         normalized_value=local_state.edition_scope.value,
+    )
+    _add_signal(
+        signals,
+        source="dism",
+        name="Image Version",
+        value=local_state.dism_image_version,
+        kind="build",
+        trust="dism_image",
+        diagnostic_flags=_build_signal_flags(local_state, local_state.dism_image_version),
+    )
+    _add_signal(
+        signals,
+        source="dism",
+        name="DISM tool version",
+        value=local_state.dism_tool_version,
+        kind="tool_version",
+        trust="diagnostic",
     )
     _add_signal(
         signals,
@@ -355,7 +444,8 @@ def local_signal_set(local_state: LocalWindowsState) -> LocalSignalSet:
         name="ntoskrnl.exe version",
         value=local_state.kernel_file_version,
         kind="build",
-        trust="release_truth",
+        trust="runtime_file",
+        diagnostic_flags=_build_signal_flags(local_state, local_state.kernel_file_version),
     )
     _add_signal(signals, source="dism", name="packages", value=local_state.raw.get("dism_packages"), kind="audit", trust="audit")
     _add_signal(signals, source="panther", name="logs", value=local_state.raw.get("panther_logs"), kind="audit", trust="audit")
@@ -431,6 +521,13 @@ def derive_local_consensus(
     conflicts: list[str] = []
     warnings: list[str] = []
     display_release = _display_release_hint(local_state)
+    build_signal_conflicts = ()
+    if isinstance(local_state.raw, Mapping):
+        build_signal_conflicts = tuple(
+            str(item)
+            for item in local_state.raw.get("build_signal_conflicts", [])
+            if item
+        )
 
     if raw_product_name and "windows 10" in raw_product_name.lower() and display_os_name.startswith("Windows 11"):
         conflicts.append("LOCAL_PRODUCT_NAME_STALE")
@@ -447,6 +544,9 @@ def derive_local_consensus(
         warnings.append(
             f"DISPLAY_VERSION_CONFLICTS_WITH_BUILD: DisplayVersion {display_release} was ignored because build family {local_state.build_family} maps to {inference.release}."
         )
+    if build_signal_conflicts:
+        conflicts.append("LOCAL_BUILD_SIGNAL_CONFLICT")
+        warnings.extend(build_signal_conflicts)
     if _edition_scope(local_state.edition_scope) is EditionScope.UNKNOWN:
         warnings.append("UNKNOWN_EDITION_SCOPE: unable to derive Windows edition; display name uses unknown edition.")
 
@@ -1018,7 +1118,9 @@ def _make_result(
         "raw_product_name": local_consensus.raw_product_name if local_consensus else None,
         "target_release": target.version if target else None,
         "target_latest_build": target.latest_build if target else None,
+        "target_latest_observed_build": target.latest_observed_build if target else None,
         "baseline_build": baseline_build,
+        "target_required_baseline_build": target.required_baseline_build if target else None,
     }
     result_metadata = metadata or {}
     result = EvaluationResult(

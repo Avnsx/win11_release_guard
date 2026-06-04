@@ -116,3 +116,37 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v5
+
+  verify-live-pages:
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Verify live Pages policy feed
+        run: |
+          set -euo pipefail
+          attempts=8
+          delay_seconds=15
+          for attempt in $(seq 1 "$attempts"); do
+            echo "Live Pages verification attempt ${attempt}/${attempts}"
+            if python -m win11_release_guard --check-policy-source --check-public-pages; then
+              exit 0
+            fi
+            if [ "$attempt" -eq "$attempts" ]; then
+              echo "::error::Live Pages/API/signature/manifest verification failed after ${attempts} attempts."
+              exit 1
+            fi
+            sleep "$delay_seconds"
+          done

@@ -8,7 +8,8 @@ from typing import Any
 from .exceptions import PolicyParseError
 
 
-POLICY_SCHEMA_VERSION = 1
+SUPPORTED_POLICY_SCHEMA_VERSION = 1
+POLICY_SCHEMA_VERSION = SUPPORTED_POLICY_SCHEMA_VERSION
 GENERATOR_VERSION = "win11_release_guard/0.2"
 
 REQUIRED_POLICY_FIELDS = (
@@ -29,6 +30,26 @@ REQUIRED_POLICY_FIELDS = (
     "out_of_band_builds",
     "known_notes",
     "validation_warnings",
+)
+
+OPTIONAL_COMPATIBILITY_FIELDS = (
+    "min_reader_schema_version",
+    "max_reader_schema_version",
+    "api_version",
+    "compatibility",
+    "extensions",
+)
+
+ALLOWED_POLICY_FIELDS = frozenset(
+    (
+        *REQUIRED_POLICY_FIELDS,
+        *OPTIONAL_COMPATIBILITY_FIELDS,
+        "source",
+        "source_diagnostics",
+        "quality_policy",
+        "supported_releases",
+        "metadata",
+    )
 )
 
 _RELEASE_PATTERN = re.compile(r"^\d{2}H[12]$", re.IGNORECASE)
@@ -83,7 +104,90 @@ def _build(value: Any, field: str) -> str:
     return text
 
 
+def _optional_build(value: Any, field: str) -> str | None:
+    if value in (None, ""):
+        return None
+    return _build(value, field)
+
+
+def _validate_source_diagnostics(data: Mapping[str, Any]) -> None:
+    value = data.get("source_diagnostics")
+    if value is None:
+        return
+    if not isinstance(value, Mapping):
+        raise PolicyParseError("source_diagnostics must be an object.")
+    for key in ("release_health_html", "atom_feed"):
+        source = value.get(key)
+        if source is None:
+            continue
+        if not isinstance(source, Mapping):
+            raise PolicyParseError(f"source_diagnostics.{key} must be an object.")
+        source_url = source.get("source_url")
+        if source_url is not None and (not isinstance(source_url, str) or not _URL_PATTERN.match(source_url)):
+            raise PolicyParseError(f"source_diagnostics.{key}.source_url must be an absolute URL.")
+        fetched_at = source.get("fetched_at_utc")
+        if fetched_at is not None and not isinstance(fetched_at, str):
+            raise PolicyParseError(f"source_diagnostics.{key}.fetched_at_utc must be a string.")
+        byte_count = source.get("bytes")
+        if byte_count is not None and (not isinstance(byte_count, int) or byte_count < 0):
+            raise PolicyParseError(f"source_diagnostics.{key}.bytes must be a non-negative integer.")
+    drift = value.get("drift")
+    if drift is not None and not isinstance(drift, Mapping):
+        raise PolicyParseError("source_diagnostics.drift must be an object.")
+    warnings = value.get("warnings")
+    if warnings is not None and not isinstance(warnings, list):
+        raise PolicyParseError("source_diagnostics.warnings must be a list.")
+
+
+def _optional_int(data: Mapping[str, Any], key: str) -> int | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise PolicyParseError(f"{key} must be an integer.") from exc
+
+
+def _validate_compatibility(data: Mapping[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    min_reader = _optional_int(data, "min_reader_schema_version")
+    max_reader = _optional_int(data, "max_reader_schema_version")
+    if min_reader is not None and min_reader > SUPPORTED_POLICY_SCHEMA_VERSION:
+        raise PolicyParseError(
+            f"Policy requires reader schema_version {min_reader}; "
+            f"this reader supports {SUPPORTED_POLICY_SCHEMA_VERSION}."
+        )
+    if max_reader is not None and max_reader < SUPPORTED_POLICY_SCHEMA_VERSION:
+        raise PolicyParseError(
+            f"Policy max_reader_schema_version {max_reader} excludes this reader "
+            f"schema_version {SUPPORTED_POLICY_SCHEMA_VERSION}."
+        )
+    if min_reader is not None and max_reader is not None and min_reader > max_reader:
+        raise PolicyParseError("min_reader_schema_version must not exceed max_reader_schema_version.")
+
+    api_version = data.get("api_version")
+    if api_version is not None and (not isinstance(api_version, str) or not api_version):
+        raise PolicyParseError("api_version must be a non-empty string.")
+    compatibility = data.get("compatibility")
+    if compatibility is not None and not isinstance(compatibility, Mapping):
+        raise PolicyParseError("compatibility must be an object.")
+    extensions = data.get("extensions")
+    if extensions is not None and not isinstance(extensions, Mapping):
+        raise PolicyParseError("extensions must be an object.")
+
+    unknown_keys = sorted(
+        str(key)
+        for key in data.keys()
+        if key not in ALLOWED_POLICY_FIELDS and not str(key).startswith("x_")
+    )
+    for key in unknown_keys:
+        warnings.append(f"Policy compatibility warning: unknown top-level key {key!r} ignored by this reader.")
+    return warnings
+
+
 def validate_policy_document(data: Mapping[str, Any]) -> tuple[str, ...]:
+    compatibility_warnings = _validate_compatibility(data)
     missing = [field for field in REQUIRED_POLICY_FIELDS if field not in data]
     if missing:
         raise PolicyParseError(f"Generated policy is missing required fields: {', '.join(missing)}.")
@@ -92,10 +196,10 @@ def validate_policy_document(data: Mapping[str, Any]) -> tuple[str, ...]:
         schema_version = int(data["schema_version"])
     except (TypeError, ValueError) as exc:
         raise PolicyParseError("schema_version must be an integer.") from exc
-    if schema_version != POLICY_SCHEMA_VERSION:
+    if schema_version != SUPPORTED_POLICY_SCHEMA_VERSION:
         raise PolicyParseError(
             f"Unsupported generated policy schema_version {schema_version}; "
-            f"supported version is {POLICY_SCHEMA_VERSION}."
+            f"supported version is {SUPPORTED_POLICY_SCHEMA_VERSION}."
         )
 
     source_urls = _require_sequence(data, "source_urls")
@@ -117,6 +221,7 @@ def validate_policy_document(data: Mapping[str, Any]) -> tuple[str, ...]:
             raise PolicyParseError(f"published_urls.{key} must be an absolute URL.")
 
     _require_mapping(data, "source_fetch_status")
+    _validate_source_diagnostics(data)
     current_versions = _require_sequence(data, "current_versions")
     if not current_versions:
         raise PolicyParseError("current_versions must not be empty.")
@@ -138,13 +243,50 @@ def validate_policy_document(data: Mapping[str, Any]) -> tuple[str, ...]:
             raise PolicyParseError(f"current_versions[{index}] must be an object.")
         release = _release(entry.get("version"), f"current_versions[{index}].version")
         family = _build_family(entry.get("build_family"), f"current_versions[{index}].build_family")
-        _build(entry.get("latest_build"), f"current_versions[{index}].latest_build")
+        latest = _build(entry.get("latest_build"), f"current_versions[{index}].latest_build")
+        latest_observed = _optional_build(
+            entry.get("latest_observed_build"),
+            f"current_versions[{index}].latest_observed_build",
+        )
+        if latest_observed is not None and latest_observed != latest:
+            raise PolicyParseError(
+                f"current_versions[{index}].latest_observed_build must match latest_build."
+            )
+        baseline_build = _optional_build(entry.get("baseline_build"), f"current_versions[{index}].baseline_build")
+        required_baseline = _optional_build(
+            entry.get("required_baseline_build"),
+            f"current_versions[{index}].required_baseline_build",
+        )
+        if baseline_build is not None and required_baseline is not None and required_baseline != baseline_build:
+            raise PolicyParseError(
+                f"current_versions[{index}].required_baseline_build must match baseline_build."
+            )
         seen_current.add((release, family))
 
     target = _require_mapping(data, "broad_target_existing_devices")
     target_release = _release(target.get("version"), "broad_target_existing_devices.version")
     target_family = _build_family(target.get("build_family"), "broad_target_existing_devices.build_family")
-    _build(target.get("latest_build"), "broad_target_existing_devices.latest_build")
+    target_latest = _build(target.get("latest_build"), "broad_target_existing_devices.latest_build")
+    target_latest_observed = _optional_build(
+        target.get("latest_observed_build"),
+        "broad_target_existing_devices.latest_observed_build",
+    )
+    if target_latest_observed is not None and target_latest_observed != target_latest:
+        raise PolicyParseError("broad_target_existing_devices.latest_observed_build must match latest_build.")
+    target_baseline_build = _optional_build(
+        target.get("baseline_build"),
+        "broad_target_existing_devices.baseline_build",
+    )
+    target_required_baseline = _optional_build(
+        target.get("required_baseline_build"),
+        "broad_target_existing_devices.required_baseline_build",
+    )
+    if (
+        target_baseline_build is not None
+        and target_required_baseline is not None
+        and target_required_baseline != target_baseline_build
+    ):
+        raise PolicyParseError("broad_target_existing_devices.required_baseline_build must match baseline_build.")
     if (target_release, target_family) not in seen_current:
         raise PolicyParseError("broad_target_existing_devices must be present in current_versions.")
     if normalized_supported.get(target_family) != target_release:
@@ -170,7 +312,7 @@ def validate_policy_document(data: Mapping[str, Any]) -> tuple[str, ...]:
     for key in ("preview_builds", "out_of_band_builds", "known_notes", "validation_warnings"):
         _require_sequence(data, key)
 
-    return tuple(str(warning) for warning in data.get("validation_warnings", []))
+    return tuple(dict.fromkeys([*(str(warning) for warning in data.get("validation_warnings", [])), *compatibility_warnings]))
 
 
 def policy_document_to_json(data: Mapping[str, Any]) -> str:
@@ -183,6 +325,7 @@ __all__ = [
     "POLICY_SCHEMA_VERSION",
     "PUBLISHED_URL_KEYS",
     "REQUIRED_POLICY_FIELDS",
+    "SUPPORTED_POLICY_SCHEMA_VERSION",
     "policy_document_to_json",
     "validate_policy_document",
 ]

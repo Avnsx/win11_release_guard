@@ -304,6 +304,8 @@ class LocalWindowsState:
     wmi_version: str | None = None
     kernel_file_version: str | None = None
     dism_current_edition: str | None = None
+    dism_image_version: str | None = None
+    dism_tool_version: str | None = None
     product_info_code: int | None = None
     source: str | None = None
     available: bool = True
@@ -344,7 +346,13 @@ class LocalWindowsState:
     def _derive_build_family(self) -> int | None:
         if self.current_build is not None:
             return self.current_build
-        for candidate in (self.full_build, self.rtl_version, self.wmi_version, self.kernel_file_version):
+        for candidate in (
+            self.full_build,
+            self.rtl_version,
+            self.wmi_version,
+            self.kernel_file_version,
+            self.dism_image_version,
+        ):
             if not candidate:
                 continue
             try:
@@ -355,7 +363,13 @@ class LocalWindowsState:
         return None
 
     def _derive_major_version(self) -> int | None:
-        for candidate in (self.rtl_version, self.os_version, self.wmi_version, self.kernel_file_version):
+        for candidate in (
+            self.rtl_version,
+            self.os_version,
+            self.wmi_version,
+            self.kernel_file_version,
+            self.dism_image_version,
+        ):
             if not candidate:
                 continue
             try:
@@ -462,6 +476,8 @@ class LocalWindowsState:
             "wmi_version": self.wmi_version,
             "kernel_file_version": self.kernel_file_version,
             "dism_current_edition": self.dism_current_edition,
+            "dism_image_version": self.dism_image_version,
+            "dism_tool_version": self.dism_tool_version,
             "product_info_code": self.product_info_code,
             "source": self.source,
             "available": self.available,
@@ -499,6 +515,8 @@ class LocalWindowsState:
             wmi_version=_optional_str(data.get("wmi_version")),
             kernel_file_version=_optional_str(data.get("kernel_file_version")),
             dism_current_edition=_optional_str(data.get("dism_current_edition")),
+            dism_image_version=_optional_str(data.get("dism_image_version")),
+            dism_tool_version=_optional_str(data.get("dism_tool_version")),
             product_info_code=_optional_int(data.get("product_info_code")),
             source=_optional_str(data.get("source")),
             available=bool(data.get("available", True)),
@@ -710,6 +728,7 @@ class ReleasePolicyEntry:
     build_family: int
     latest_build: str | None = None
     baseline_build: str | None = None
+    required_baseline_build: str | None = None
     servicing_option: str | None = None
     availability_date: str | None = None
     reason: str | None = None
@@ -721,6 +740,12 @@ class ReleasePolicyEntry:
     def __post_init__(self) -> None:
         object.__setattr__(self, "version", self.version.upper())
         object.__setattr__(self, "build_family", int(self.build_family))
+        object.__setattr__(self, "latest_build", _optional_str(self.latest_build))
+        object.__setattr__(self, "baseline_build", _optional_str(self.baseline_build))
+        required_baseline = _optional_str(self.required_baseline_build)
+        if required_baseline is None:
+            required_baseline = self.baseline_build or self.latest_build
+        object.__setattr__(self, "required_baseline_build", required_baseline)
         object.__setattr__(self, "quality_policy", _quality_policy(self.quality_policy))
         object.__setattr__(self, "edition_scopes", _edition_scopes(self.edition_scopes))
         channel = _servicing_channel(self.servicing_channel)
@@ -753,14 +778,20 @@ class ReleasePolicyEntry:
 
     @property
     def effective_baseline_build(self) -> str | None:
-        return self.baseline_build or self.latest_build
+        return self.required_baseline_build or self.baseline_build or self.latest_build
+
+    @property
+    def latest_observed_build(self) -> str | None:
+        return self.latest_build
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
             "build_family": self.build_family,
             "latest_build": self.latest_build,
+            "latest_observed_build": self.latest_observed_build,
             "baseline_build": self.baseline_build,
+            "required_baseline_build": self.required_baseline_build,
             "servicing_option": self.servicing_option,
             "availability_date": self.availability_date,
             "reason": self.reason,
@@ -777,6 +808,7 @@ class ReleasePolicyEntry:
             build_family=int(data["build_family"]),
             latest_build=_optional_str(data.get("latest_build")),
             baseline_build=_optional_str(data.get("baseline_build")),
+            required_baseline_build=_optional_str(data.get("required_baseline_build")),
             servicing_option=_optional_str(data.get("servicing_option")),
             availability_date=_optional_str(data.get("availability_date")),
             reason=_optional_str(data.get("reason")),
@@ -857,6 +889,7 @@ class ReleasePolicy:
     published_urls: Mapping[str, str] = field(default_factory=dict)
     generator_version: str | None = None
     source_fetch_status: Mapping[str, Any] = field(default_factory=dict)
+    source_diagnostics: Mapping[str, Any] = field(default_factory=dict)
     quality_policy: QualityPolicy = QualityPolicy.B_RELEASE_ONLY
     broad_target_existing_devices: ReleasePolicyEntry | None = None
     current_versions: tuple[ReleasePolicyEntry, ...] = field(default_factory=tuple)
@@ -872,6 +905,10 @@ class ReleasePolicy:
     validation_warnings: tuple[str, ...] = field(default_factory=tuple)
     metadata: Mapping[str, Any] = field(default_factory=dict)
     schema_version: int = 1
+    min_reader_schema_version: int | None = None
+    max_reader_schema_version: int | None = None
+    api_version: str | None = None
+    compatibility: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "quality_policy", _quality_policy(self.quality_policy))
@@ -882,12 +919,26 @@ class ReleasePolicy:
             {str(key): str(value) for key, value in dict(self.published_urls or {}).items()},
         )
         object.__setattr__(self, "source_fetch_status", dict(self.source_fetch_status))
+        object.__setattr__(self, "source_diagnostics", dict(self.source_diagnostics))
         object.__setattr__(self, "current_versions", tuple(self.current_versions))
         object.__setattr__(self, "release_history", tuple(self.release_history))
         object.__setattr__(self, "special_releases", tuple(self.special_releases))
         object.__setattr__(self, "supported_releases", tuple(self.supported_releases))
         object.__setattr__(self, "excluded_for_existing_devices", tuple(self.excluded_for_existing_devices))
         object.__setattr__(self, "quality_baselines", dict(self.quality_baselines))
+        object.__setattr__(self, "schema_version", int(self.schema_version))
+        object.__setattr__(
+            self,
+            "min_reader_schema_version",
+            int(self.min_reader_schema_version) if self.min_reader_schema_version is not None else None,
+        )
+        object.__setattr__(
+            self,
+            "max_reader_schema_version",
+            int(self.max_reader_schema_version) if self.max_reader_schema_version is not None else None,
+        )
+        object.__setattr__(self, "api_version", _optional_str(self.api_version))
+        object.__setattr__(self, "compatibility", dict(self.compatibility))
         object.__setattr__(self, "preview_builds", tuple(dict(item) for item in self.preview_builds))
         object.__setattr__(self, "out_of_band_builds", tuple(dict(item) for item in self.out_of_band_builds))
         object.__setattr__(self, "known_notes", tuple(dict(item) for item in self.known_notes))
@@ -916,12 +967,17 @@ class ReleasePolicy:
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
+            "min_reader_schema_version": self.min_reader_schema_version,
+            "max_reader_schema_version": self.max_reader_schema_version,
+            "api_version": self.api_version,
+            "compatibility": dict(self.compatibility),
             "generated_at_utc": self.generated_at_utc,
             "source": dict(self.source),
             "source_urls": list(self.source_urls),
             "published_urls": dict(self.published_urls),
             "generator_version": self.generator_version,
             "source_fetch_status": dict(self.source_fetch_status),
+            "source_diagnostics": dict(self.source_diagnostics),
             "quality_policy": self.quality_policy.value,
             "broad_target_existing_devices": (
                 self.broad_target_existing_devices.to_dict()
@@ -971,6 +1027,7 @@ class ReleasePolicy:
             },
             generator_version=_optional_str(data.get("generator_version")),
             source_fetch_status=dict(data.get("source_fetch_status") or {}),
+            source_diagnostics=dict(data.get("source_diagnostics") or {}),
             quality_policy=_quality_policy(data.get("quality_policy")),
             broad_target_existing_devices=(
                 ReleasePolicyEntry.from_dict(broad_data) if broad_data else None
@@ -999,6 +1056,18 @@ class ReleasePolicy:
             ),
             metadata=dict(data.get("metadata") or {}),
             schema_version=int(data.get("schema_version", 1)),
+            min_reader_schema_version=(
+                int(data["min_reader_schema_version"])
+                if data.get("min_reader_schema_version") is not None
+                else None
+            ),
+            max_reader_schema_version=(
+                int(data["max_reader_schema_version"])
+                if data.get("max_reader_schema_version") is not None
+                else None
+            ),
+            api_version=_optional_str(data.get("api_version")),
+            compatibility=dict(data.get("compatibility") or {}),
         )
 
 
@@ -1037,6 +1106,7 @@ class EvaluationResult:
     policy_source_url: str | None = None
     policy_source_kind: str | None = None
     policy_signature_status: str | None = None
+    strict_production: bool = False
     target_selection_reason: str | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
     errors: tuple[str, ...] = field(default_factory=tuple)
@@ -1049,6 +1119,7 @@ class EvaluationResult:
         object.__setattr__(self, "source_status", _source_status(self.source_status))
         object.__setattr__(self, "warnings", tuple(str(item) for item in self.warnings))
         object.__setattr__(self, "errors", tuple(str(item) for item in self.errors))
+        object.__setattr__(self, "strict_production", bool(self.strict_production))
         object.__setattr__(self, "possible_causes", tuple(str(item) for item in self.possible_causes))
         object.__setattr__(self, "recommended_actions", tuple(str(item) for item in self.recommended_actions))
         object.__setattr__(self, "policy_blocks", tuple(dict(item) for item in self.policy_blocks))
@@ -1103,6 +1174,7 @@ class EvaluationResult:
             "policy_source_url": self.policy_source_url,
             "policy_source_kind": self.policy_source_kind,
             "policy_signature_status": self.policy_signature_status,
+            "strict_production": self.strict_production,
             "target_selection_reason": self.target_selection_reason,
             "warnings": list(self.warnings),
             "errors": list(self.errors),
@@ -1168,6 +1240,7 @@ class EvaluationResult:
             policy_source_url=_optional_str(data.get("policy_source_url")),
             policy_source_kind=_optional_str(data.get("policy_source_kind")),
             policy_signature_status=_optional_str(data.get("policy_signature_status")),
+            strict_production=bool(data.get("strict_production", False)),
             target_selection_reason=_optional_str(data.get("target_selection_reason")),
             warnings=tuple(str(item) for item in data.get("warnings", [])),
             errors=tuple(str(item) for item in data.get("errors", [])),

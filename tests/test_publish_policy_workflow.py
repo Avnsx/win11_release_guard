@@ -116,3 +116,19 @@ def test_publish_policy_workflow_uses_pages_artifact_deployment_actions() -> Non
     assert "actions/configure-pages@" + "v5" not in text
     assert "actions/upload-pages-artifact@" + "v4" not in text
     assert "actions/deploy-pages@" + "v4" not in text
+
+
+def test_publish_policy_workflow_verifies_live_pages_after_deploy() -> None:
+    text = _workflow_text()
+
+    assert "verify-live-pages:" in text
+    assert "needs: deploy" in text
+    assert "runs-on: ubuntu-latest" in text
+    assert "python -m pip install -e ." in text
+    assert "attempts=8" in text
+    assert "sleep \"$delay_seconds\"" in text
+    assert "python -m win11_release_guard --check-policy-source --check-public-pages" in text
+    assert "Live Pages/API/signature/manifest verification failed" in text
+    verify_job = text.split("verify-live-pages:", 1)[1]
+    assert SECRET_NAME not in verify_job
+    assert "contents: write" not in verify_job

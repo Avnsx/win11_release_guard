@@ -11,6 +11,7 @@ from tools import generate_signing_key
 from win11_release_guard.bundled_policy import load_bundled_policy
 from win11_release_guard.config import DEFAULT_TRUSTED_POLICY_KEY_ID
 from win11_release_guard.signing import (
+    TrustedPolicyKey,
     decode_policy_signature_metadata,
     load_trusted_policy_keys,
     sign_policy_bytes,
@@ -60,7 +61,39 @@ def test_generated_key_signs_and_verifies(monkeypatch, tmp_path, capsys):
     assert public_key_b64 == _public_key_b64(private_key_b64)
     assert trusted_keys["trusted_policy_keys"][0]["key_id"] == "test-policy-key"
     assert trusted_keys["trusted_policy_keys"][0]["public_key_b64"] == public_key_b64
+    assert trusted_keys["trusted_policy_keys"][0]["valid_from_utc"] == "2026-05-31T00:00:00+00:00"
     assert verify_policy_signature(policy_bytes, signature_bytes, public_key_b64)
+
+
+def test_generate_signing_key_retiring_skeleton_requires_verify_window(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    missing_code = generate_signing_key.main([
+        "--out-dir",
+        ".tmp/signing-key-missing",
+        "--status",
+        "retiring",
+    ])
+    valid_code = generate_signing_key.main([
+        "--out-dir",
+        ".tmp/signing-key-retiring",
+        "--status",
+        "retiring",
+        "--created-at-utc",
+        "2026-01-01T00:00:00+00:00",
+        "--verify-not-after-utc",
+        "2026-06-30T00:00:00+00:00",
+    ])
+
+    captured = capsys.readouterr()
+    trusted_keys = json.loads((Path(".tmp/signing-key-retiring") / "trusted_policy_keys.json").read_text(encoding="utf-8"))
+    record = trusted_keys["trusted_policy_keys"][0]
+    assert missing_code == 2
+    assert "--verify-not-after-utc is required" in captured.err
+    assert valid_code == 0
+    assert record["status"] == "retiring"
+    assert record["valid_from_utc"] == "2026-01-01T00:00:00+00:00"
+    assert record["verify_not_after_utc"] == "2026-06-30T00:00:00+00:00"
 
 
 def test_generate_signing_key_refuses_private_key_outside_tmp(tmp_path, capsys):
@@ -121,6 +154,72 @@ def test_default_generated_signature_uses_current_policy_key_id():
 
     assert DEFAULT_TRUSTED_POLICY_KEY_ID == "win11_release_guard-policy-2026-05"
     assert signature["key_id"] == DEFAULT_TRUSTED_POLICY_KEY_ID
+    assert signature["signed_at_utc"]
+
+
+def _trusted_key(*, key_id: str, status: str, verify_not_after_utc: str | None = None) -> TrustedPolicyKey:
+    return TrustedPolicyKey(
+        key_id=key_id,
+        algorithm="ed25519",
+        public_key_b64=TEST_PUBLIC_KEY,
+        created_at_utc="2026-01-01T00:00:00+00:00",
+        status=status,
+        valid_from_utc="2026-01-01T00:00:00+00:00",
+        verify_not_after_utc=verify_not_after_utc,
+    )
+
+
+def test_retiring_key_validates_only_inside_verify_window(monkeypatch):
+    policy_bytes = b'{"schema_version":1}\n'
+    key_id = "test-retiring-key"
+    monkeypatch.setattr(
+        "win11_release_guard.signing.load_trusted_policy_keys",
+        lambda: (_trusted_key(key_id=key_id, status="retiring", verify_not_after_utc="2026-06-30T00:00:00+00:00"),),
+    )
+
+    valid_signature = sign_policy_bytes(
+        policy_bytes,
+        TEST_PRIVATE_KEY,
+        key_id=key_id,
+        signed_at_utc="2026-06-01T00:00:00+00:00",
+    )
+    late_signature = sign_policy_bytes(
+        policy_bytes,
+        TEST_PRIVATE_KEY,
+        key_id=key_id,
+        signed_at_utc="2026-07-01T00:00:00+00:00",
+    )
+    missing_signed_at = dict(valid_signature)
+    missing_signed_at.pop("signed_at_utc")
+
+    assert verify_policy_signature(policy_bytes, json.dumps(valid_signature).encode("utf-8"))
+    assert not verify_policy_signature(policy_bytes, json.dumps(late_signature).encode("utf-8"))
+    assert not verify_policy_signature(policy_bytes, json.dumps(missing_signed_at).encode("utf-8"))
+
+
+def test_retired_key_requires_old_signature_inside_verify_window(monkeypatch):
+    policy_bytes = b'{"schema_version":1}\n'
+    key_id = "test-retired-key"
+    monkeypatch.setattr(
+        "win11_release_guard.signing.load_trusted_policy_keys",
+        lambda: (_trusted_key(key_id=key_id, status="retired", verify_not_after_utc="2026-02-01T00:00:00+00:00"),),
+    )
+
+    old_signature = sign_policy_bytes(
+        policy_bytes,
+        TEST_PRIVATE_KEY,
+        key_id=key_id,
+        signed_at_utc="2026-01-15T00:00:00+00:00",
+    )
+    fresh_signature = sign_policy_bytes(
+        policy_bytes,
+        TEST_PRIVATE_KEY,
+        key_id=key_id,
+        signed_at_utc="2026-03-01T00:00:00+00:00",
+    )
+
+    assert verify_policy_signature(policy_bytes, json.dumps(old_signature).encode("utf-8"))
+    assert not verify_policy_signature(policy_bytes, json.dumps(fresh_signature).encode("utf-8"))
 
 
 def test_committed_public_key_file_contains_no_private_key_material():
@@ -134,6 +233,11 @@ def test_committed_public_key_file_contains_no_private_key_material():
     assert data["trusted_policy_keys"]
     assert all("public_key_b64" in record for record in data["trusted_policy_keys"])
     assert all("private_key_b64" not in record for record in data["trusted_policy_keys"])
+    assert all("valid_from_utc" in record for record in data["trusted_policy_keys"])
+    assert all(
+        record["status"] == "active" or record.get("verify_not_after_utc")
+        for record in data["trusted_policy_keys"]
+    )
 
 
 def test_data_directory_contains_only_public_policy_artifacts():
@@ -159,4 +263,6 @@ def test_runtime_can_verify_policy_with_committed_trusted_key():
     assert trusted.signature_status == "valid"
     assert trusted.policy.broad_target_existing_devices is not None
     assert keys_by_id["win11_release_guard-policy-2026-01"].status == "retiring"
+    assert keys_by_id["win11_release_guard-policy-2026-01"].verify_not_after_utc == "2026-06-30T00:00:00Z"
     assert keys_by_id[DEFAULT_TRUSTED_POLICY_KEY_ID].status == "active"
+    assert keys_by_id[DEFAULT_TRUSTED_POLICY_KEY_ID].valid_from_utc == "2026-05-31T23:16:50+00:00"

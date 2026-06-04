@@ -57,14 +57,8 @@ jobs:
           --write-sitemap
           --write-manifest
 
-      - name: Validate CLI JSON
-        run: >
-          python -m win11_release_guard
-          --json
-          --no-wua
-          --policy-url win11_release_guard/data/windows-release-policy.json
-          |
-          python -m json.tool
+      - name: Validate local runner JSON smoke
+        run: python tools/ci_local_runner_smoke.py
 
       - name: Check generated project identity
         run: python tools/check_project_identity.py

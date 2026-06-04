@@ -95,6 +95,11 @@ def _patch_local(monkeypatch, *, build: int = 26200, full_build: str = "26200.84
     monkeypatch.setattr(api, "query_wua_secondary", lambda target_release: None)
 
 
+def _patch_local_state(monkeypatch, local_state: LocalWindowsState) -> None:
+    monkeypatch.setattr(api, "get_local_windows_state", lambda: local_state)
+    monkeypatch.setattr(api, "query_wua_secondary", lambda target_release: None)
+
+
 def _fail_remote(monkeypatch, message: str = "network unavailable") -> None:
     def fail_fetch(*args, **kwargs):
         raise PolicyFetchError(message)
@@ -123,6 +128,27 @@ def test_runtime_json_policy_url_works(monkeypatch, tmp_path):
     assert result.policy_signature_status == "valid"
     assert not any("Remote policy" in warning for warning in result.warnings)
     assert "Loaded policy URL is not listed in published_urls or source_urls." not in result.warnings
+
+
+def test_runtime_signed_policy_allows_unknown_additive_top_level_metadata(monkeypatch, tmp_path):
+    _patch_local(monkeypatch)
+    policy_file = tmp_path / "windows-release-policy.json"
+    data = _json_policy()
+    data["future_metadata"] = {"observed": True}
+    _write_signed_json(policy_file, data)
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=str(policy_file),
+            cache_file=str(tmp_path / "cache.json"),
+            enable_wua_probe=False,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+        )
+    )
+
+    assert result.status is EvaluationStatus.COMPLIANT
+    assert result.source_status is SourceStatus.REMOTE_POLICY_OK
+    assert any("unknown top-level key 'future_metadata'" in warning for warning in result.warnings)
 
 
 def test_remote_json_policy_url_warns_when_loaded_url_not_in_published_or_source_urls(monkeypatch, tmp_path):
@@ -427,6 +453,250 @@ def test_source_check_required_for_green_blocks_cached_compliant_result(monkeypa
     assert result.action == "Source check incomplete; cannot return green result."
 
 
+def test_source_degradation_decision_classifies_cache_and_exit_code_semantics():
+    source = api.PolicySourceResult(
+        policy=_policy(),
+        source_status=SourceStatus.USING_STALE_CACHE,
+        is_source_check_complete=False,
+        policy_source_kind="stale_cache",
+    )
+
+    lenient = api.decide_source_degradation(
+        ReleaseCheckerConfig(),
+        source,
+        candidate_status=EvaluationStatus.COMPLIANT,
+    )
+    strict = api.decide_source_degradation(
+        ReleaseCheckerConfig(strict_production=True),
+        source,
+        candidate_status=EvaluationStatus.COMPLIANT,
+    )
+
+    assert lenient.source_class == "stale_cache"
+    assert lenient.allow_compliant_green is True
+    assert lenient.force_check_incomplete is False
+    assert lenient.must_exit_code_2 is False
+    assert strict.allow_compliant_green is False
+    assert strict.force_check_incomplete is True
+    assert strict.must_exit_code_2 is True
+    assert strict.reason and "Strict production requires" in strict.reason
+
+
+def test_strict_production_allows_green_only_for_live_remote_json(monkeypatch, tmp_path):
+    _patch_local(monkeypatch)
+    policy_file = tmp_path / "remote-policy.json"
+    policy_bytes = _write_signed_policy(policy_file, _policy(generated_at_utc=_generated_at(hours_ago=1)))
+    signature_bytes = policy_file.with_name(policy_file.name + ".sig").read_bytes()
+    policy_url = ("https://policy.example" + ".invalid/windows-release-policy.json")
+
+    def fake_fetch(url, *args, **kwargs):
+        if str(url).endswith(".sig"):
+            return signature_bytes, "application/json"
+        return policy_bytes, "application/json"
+
+    monkeypatch.setattr(api, "fetch_policy_bytes", fake_fetch)
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=policy_url,
+            cache_file=str(tmp_path / "cache.json"),
+            enable_wua_probe=False,
+            strict_production=True,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+        )
+    )
+
+    assert result.status is EvaluationStatus.COMPLIANT
+    assert result.source_status is SourceStatus.REMOTE_POLICY_OK
+    assert result.policy_source_kind == "remote_json"
+    assert result.is_source_check_complete is True
+    assert result.strict_production is True
+    payload = result.to_dict()
+    assert payload["strict_production"] is True
+    assert payload["source_status"] == SourceStatus.REMOTE_POLICY_OK.value
+    assert payload["policy_source_kind"] == "remote_json"
+    assert payload["is_source_check_complete"] is True
+    assert isinstance(payload["policy_age_hours"], float)
+
+
+def test_strict_production_blocks_local_json_green_even_when_signed(monkeypatch, tmp_path):
+    _patch_local(monkeypatch)
+    policy_file = tmp_path / "windows-release-policy.json"
+    _write_signed_policy(policy_file, _policy(generated_at_utc=_generated_at(hours_ago=1)))
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=str(policy_file),
+            cache_file=str(tmp_path / "cache.json"),
+            enable_wua_probe=False,
+            strict_production=True,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+        )
+    )
+
+    assert result.status is EvaluationStatus.CHECK_INCOMPLETE
+    assert result.source_status is SourceStatus.REMOTE_POLICY_OK
+    assert result.policy_source_kind == "local_json"
+    assert result.is_source_check_complete is True
+    assert result.strict_production is True
+    assert "Strict production requires" in result.action
+
+
+def test_strict_production_blocks_stale_cache_green(monkeypatch, tmp_path):
+    _patch_local(monkeypatch)
+    _fail_remote(monkeypatch)
+    cache_file = tmp_path / "windows-release-policy.json"
+    _write_signed_policy(cache_file, _policy(generated_at_utc=_generated_at(hours_ago=100)))
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=BAD_POLICY_URL,
+            cache_file=str(cache_file),
+            cache_max_age_hours=72,
+            stale_cache_max_age_hours=720,
+            enable_wua_probe=False,
+            strict_production=True,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+        )
+    )
+
+    assert result.status is EvaluationStatus.CHECK_INCOMPLETE
+    assert result.source_status is SourceStatus.USING_STALE_CACHE
+    assert result.policy_source_kind == "stale_cache"
+    assert result.is_source_check_complete is False
+    assert result.strict_production is True
+    assert "Strict production requires" in result.action
+
+
+def test_strict_production_degrades_stale_cache_update_required_to_incomplete(monkeypatch, tmp_path):
+    _patch_local(monkeypatch, build=26100, full_build="26100.8457")
+    _fail_remote(monkeypatch)
+    cache_file = tmp_path / "windows-release-policy.json"
+    _write_signed_policy(cache_file, _policy(generated_at_utc=_generated_at(hours_ago=100)))
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=BAD_POLICY_URL,
+            cache_file=str(cache_file),
+            cache_max_age_hours=72,
+            stale_cache_max_age_hours=720,
+            enable_wua_probe=False,
+            strict_production=True,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+        )
+    )
+
+    assert result.status is EvaluationStatus.CHECK_INCOMPLETE
+    assert result.source_status is SourceStatus.USING_STALE_CACHE
+    assert result.policy_source_kind == "stale_cache"
+    assert result.metadata["source_degradation"]["must_exit_code_2"] is True
+    assert "Strict production requires" in result.action
+
+
+def test_strict_production_blocks_bundled_green(monkeypatch, tmp_path):
+    _patch_local(monkeypatch)
+    _fail_remote(monkeypatch)
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=BAD_POLICY_URL,
+            cache_file=str(tmp_path / "missing-cache.json"),
+            enable_wua_probe=False,
+            strict_production=True,
+        )
+    )
+
+    assert result.status is EvaluationStatus.CHECK_INCOMPLETE
+    assert result.source_status is SourceStatus.USING_BUNDLED_POLICY
+    assert result.policy_source_kind == "bundled"
+    assert result.is_source_check_complete is False
+    assert result.strict_production is True
+    assert "Strict production requires" in result.action
+
+
+def test_strict_production_blocks_windows10_out_of_scope_from_bundled(monkeypatch, tmp_path):
+    _patch_local_state(
+        monkeypatch,
+        LocalWindowsState(
+            product_name="Windows 10 Pro",
+            current_build=19045,
+            full_build="19045.4529",
+            installation_type="Client",
+        ),
+    )
+    _fail_remote(monkeypatch)
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=BAD_POLICY_URL,
+            cache_file=str(tmp_path / "missing-cache.json"),
+            enable_wua_probe=False,
+            strict_production=True,
+        )
+    )
+
+    assert result.status is EvaluationStatus.CHECK_INCOMPLETE
+    assert result.source_status is SourceStatus.USING_BUNDLED_POLICY
+    assert result.policy_source_kind == "bundled"
+    assert result.strict_production is True
+    assert result.metadata["source_degradation"]["candidate_status"] == EvaluationStatus.OUT_OF_SCOPE.value
+    assert result.metadata["source_degradation"]["must_exit_code_2"] is True
+    assert "Strict production requires" in result.action
+
+
+def test_strict_production_blocks_server_out_of_scope_from_bundled(monkeypatch, tmp_path):
+    _patch_local_state(
+        monkeypatch,
+        LocalWindowsState(
+            product_name="Windows Server 2025 Datacenter",
+            current_build=26100,
+            full_build="26100.8457",
+            installation_type="Server",
+        ),
+    )
+    _fail_remote(monkeypatch)
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=BAD_POLICY_URL,
+            cache_file=str(tmp_path / "missing-cache.json"),
+            enable_wua_probe=False,
+            strict_production=True,
+        )
+    )
+
+    assert result.status is EvaluationStatus.CHECK_INCOMPLETE
+    assert result.source_status is SourceStatus.USING_BUNDLED_POLICY
+    assert result.policy_source_kind == "bundled"
+    assert result.strict_production is True
+    assert result.metadata["source_degradation"]["candidate_status"] == EvaluationStatus.OUT_OF_SCOPE.value
+    assert result.metadata["source_degradation"]["must_exit_code_2"] is True
+    assert "Strict production requires" in result.action
+
+
+def test_strict_production_rejects_unsigned_policy_even_if_unsigned_allowed(monkeypatch, tmp_path):
+    _patch_local(monkeypatch)
+    policy_file = tmp_path / "unsigned-policy.json"
+    policy_file.write_bytes((json.dumps(_json_policy(), indent=2, sort_keys=True) + "\n").encode("utf-8"))
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=str(policy_file),
+            cache_file=str(tmp_path / "missing-cache.json"),
+            enable_wua_probe=False,
+            allow_unsigned_policy=True,
+            strict_production=True,
+            use_bundled_policy_fallback=False,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+        )
+    )
+
+    assert result.status is EvaluationStatus.CHECK_INCOMPLETE
+    assert result.strict_production is True
+    assert result.policy_signature_status == "unavailable"
+    assert any(problem.kind == "missing_signature" for problem in result.source_problems)
+
+
 def test_no_internet_uses_stale_cache_with_stronger_warning(monkeypatch, tmp_path):
     _patch_local(monkeypatch)
     _fail_remote(monkeypatch)
@@ -449,6 +719,9 @@ def test_no_internet_uses_stale_cache_with_stronger_warning(monkeypatch, tmp_pat
     assert result.is_source_check_complete is False
     assert any("using stale cached policy" in warning for warning in result.warnings)
     assert any("Source check is incomplete" in warning for warning in result.warnings)
+    assert len(result.warnings) == len(set(result.warnings))
+    assert len(result.notes) == len(set(result.notes))
+    assert not set(result.errors).intersection(result.warnings)
 
 
 def test_no_internet_no_cache_uses_bundled_fallback_with_warning(monkeypatch, tmp_path):

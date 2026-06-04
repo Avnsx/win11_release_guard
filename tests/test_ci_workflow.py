@@ -58,10 +58,23 @@ def test_ci_workflow_runs_required_commands() -> None:
     assert "--write-robots" in text
     assert "--write-sitemap" in text
     assert "--write-manifest" in text
-    assert "python -m win11_release_guard" in text
-    assert "--json" in text
-    assert "--no-wua" in text
-    assert "--policy-url win11_release_guard/data/windows-release-policy.json" in text
-    assert "python -m json.tool" in text
+    assert "python tools/ci_local_runner_smoke.py" in text
     assert "python tools/export_clean_archive.py" in text
     assert "python tools/scan_for_secret_material.py" in text
+
+
+def test_ci_local_runner_smoke_is_json_only_not_fleet_validation() -> None:
+    tool = Path("tools/ci_local_runner_smoke.py")
+    text = tool.read_text(encoding="utf-8")
+
+    assert "python -m" not in text
+    assert '"win11_release_guard"' in text
+    assert '"--json"' in text
+    assert '"--no-wua"' in text
+    assert '"win11_release_guard/data/windows-release-policy.json"' in text
+    assert "json.loads" in text
+    assert "local runner JSON only; not a client fleet target validation" in text
+    assert "RUNNER_SCOPE_STATUSES" in text
+    assert '"OUT_OF_SCOPE"' in text
+    assert "is_windows_client" in text
+    assert "is_server" in text

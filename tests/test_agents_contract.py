@@ -54,8 +54,11 @@ def test_agents_contract_requires_live_gate_for_deployment_affecting_changes() -
     assert "`--check-public-pages`" in text
     assert "python -m compileall -q win11_release_guard tools" in text
     assert "pytest -q" in text
+    assert "python tools/generate_signing_key.py --out-dir .tmp/signing-test --key-id test-policy-key" in text
     assert "python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html" in text
     assert "python tools/scan_for_secret_material.py site win11_release_guard tests tools docs README.md AGENTS.md pyproject.toml .github" in text
+    assert "python tools/export_clean_archive.py --output dist/win11_release_guard-source.zip" in text
+    assert "python tools/export_clean_archive.py --validate dist/win11_release_guard-source.zip" in text
     assert "python -m win11_release_guard --check-policy-source" in text
     assert "python -m win11_release_guard --check-public-pages" in text
     assert "If live network is unavailable" in text
@@ -68,3 +71,15 @@ def test_agents_contract_mentions_codeql_settings_limit() -> None:
 
     assert "CodeQL code scanning is configured by `.github/workflows/codeql.yml`" in text
     assert "Code security and analysis" in text
+
+
+def test_agents_contract_requires_validated_clean_archive_for_handoff() -> None:
+    text = _agents_text()
+
+    assert "only recommended handoff artifact is the validated clean archive" in text
+    assert "python tools/export_clean_archive.py --output dist/win11_release_guard-source.zip" in text
+    assert "python tools/export_clean_archive.py --validate dist/win11_release_guard-source.zip" in text
+    assert "Do not share raw worktree ZIPs" in text
+    assert ".git/" in text
+    assert ".tmp/" in text
+    assert "private signing-key scratch" in text

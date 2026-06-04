@@ -49,6 +49,7 @@ EXCLUDED_DIR_NAMES = {
     ".tmp",
     "build",
     "dist",
+    "site",
 }
 
 EXCLUDED_FILE_PATTERNS = (
@@ -151,14 +152,17 @@ def _normalize_archive_name(path: Path) -> str:
 
 
 def _is_excluded(relative_path: Path) -> bool:
-    parts = set(relative_path.parts)
-    if parts.intersection(EXCLUDED_DIR_NAMES):
+    if _has_excluded_dir_part(relative_path.parts):
         return True
     name = relative_path.name
     suffix = relative_path.suffix.lower()
     if suffix == ".zip":
         return True
     return any(fnmatch.fnmatchcase(name, pattern) for pattern in EXCLUDED_FILE_PATTERNS)
+
+
+def _has_excluded_dir_part(parts: tuple[str, ...]) -> bool:
+    return any(part in EXCLUDED_DIR_NAMES or part.endswith(".egg-info") for part in parts)
 
 
 def _included_files(root: Path) -> list[Path]:
@@ -320,7 +324,7 @@ def validate_archive(archive_path: Path, *, run_tests: bool = True) -> list[str]
     forbidden: list[str] = []
     for name in names:
         path = Path(name)
-        if set(path.parts).intersection({".git", ".pytest_cache", "__pycache__", ".cache", ".tmp", "build", "dist"}):
+        if _has_excluded_dir_part(path.parts):
             forbidden.append(name)
             continue
         if (
@@ -349,6 +353,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Archive path, relative to the repository root unless absolute.",
     )
     parser.add_argument(
+        "--validate",
+        type=Path,
+        default=None,
+        help="Validate an existing clean archive instead of creating one.",
+    )
+    parser.add_argument(
         "--skip-test-run",
         action="store_true",
         help="Validate archive contents without running pytest inside the extracted archive.",
@@ -356,10 +366,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.validate is not None:
+            archive_path = args.validate
+            if not archive_path.is_absolute():
+                archive_path = REPO_ROOT / archive_path
+            names = validate_archive(archive_path, run_tests=not args.skip_test_run)
+            print(f"Validated {archive_path}")
+            print(f"Entries: {len(names)}")
+            return 0
+
         archive_path = create_archive(REPO_ROOT, args.output)
         names = validate_archive(archive_path, run_tests=not args.skip_test_run)
     except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        message = str(exc) or type(exc).__name__
+        print(f"Error: {message}", file=sys.stderr)
         return 1
 
     print(f"Created {archive_path}")

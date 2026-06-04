@@ -4,7 +4,7 @@ from dataclasses import replace
 import win11_release_guard.api as api
 import win11_release_guard.signing as signing
 from win11_release_guard import __main__ as cli
-from win11_release_guard.config import DEFAULT_POLICY_URL
+from win11_release_guard.config import DEFAULT_POLICY_URL, STRICT_PRODUCTION_ENV_VAR
 from win11_release_guard.evaluator import evaluate_windows_update_state
 from win11_release_guard.models import (
     BuildEvidenceSource,
@@ -258,6 +258,33 @@ def test_cli_pretty_compliant_exit_code(monkeypatch, capsys):
     assert "Target: 25H2 / 26200.8457" in captured.out
 
 
+def test_cli_pretty_shows_required_baseline_and_latest_observed(monkeypatch, capsys):
+    base_policy = _policy()
+    assert base_policy.broad_target_existing_devices is not None
+    target = replace(base_policy.broad_target_existing_devices, latest_build="26200.8524")
+    current_versions = tuple(
+        replace(entry, latest_build="26200.8524")
+        if entry.version == "25H2" and entry.build_family == 26200
+        else entry
+        for entry in base_policy.current_versions
+    )
+    policy = replace(
+        base_policy,
+        broad_target_existing_devices=target,
+        current_versions=current_versions,
+    )
+    result = evaluate_windows_update_state(
+        LocalWindowsState(current_build=26200, full_build="26200.8457"),
+        policy,
+    )
+
+    output = _run_pretty_with_result(monkeypatch, result, capsys, "--no-wua")
+
+    assert "Target: 25H2 / 26200.8457" in output
+    assert "Required baseline: 26200.8457" in output
+    assert "Latest observed: 26200.8524" in output
+
+
 def test_cli_pretty_unknown_newer_bundled_origin_is_explicit(monkeypatch, capsys):
     result = evaluate_windows_update_state(
         _live_preview_local(),
@@ -307,6 +334,44 @@ def test_cli_pretty_policy_preview_origin_uses_compact_preview_wording(monkeypat
     output = _run_pretty_with_result(monkeypatch, result, capsys, "--no-wua")
 
     assert "Build origin: preview / policy_release_history / KB5089573" in output
+    assert "Preview warning: COMPLIANT means the installed build is at or above the required B-release baseline" in output
+    assert "but a preview build is installed" in output
+
+
+def test_cli_pretty_warns_on_stale_cache_source(monkeypatch, capsys):
+    result = evaluate_windows_update_state(
+        LocalWindowsState(current_build=26200, full_build="26200.8457"),
+        _policy(),
+    )
+    result = replace(
+        result,
+        source_status=SourceStatus.USING_STALE_CACHE,
+        is_source_check_complete=False,
+        policy_source_kind="cache",
+    )
+
+    output = _run_pretty_with_result(monkeypatch, result, capsys, "--no-wua")
+
+    assert "Source: USING_STALE_CACHE / cache" in output
+    assert "using stale cache; treat this as degraded evidence, not production green" in output
+
+
+def test_cli_pretty_prints_source_drift_warnings(monkeypatch, capsys):
+    result = evaluate_windows_update_state(
+        LocalWindowsState(current_build=26200, full_build="26200.8457"),
+        _policy(),
+    )
+    result = replace(
+        result,
+        warnings=(
+            "Source freshness warning: Atom feed has newer build/KB entries not present in Release Health.",
+        ),
+    )
+
+    output = _run_pretty_with_result(monkeypatch, result, capsys, "--no-wua")
+
+    assert "Source drift warnings:" in output
+    assert "Atom feed has newer build/KB entries" in output
 
 
 def test_cli_pretty_build_origin_formatter_maps_all_known_classifications():
@@ -425,8 +490,67 @@ def test_cli_policy_url_overrides_env(monkeypatch):
     assert calls == [("https://cli.example" + ".invalid/windows-release-policy.json")]
 
 
+def test_cli_strict_production_preset_forces_signed_remote_green_requirements(monkeypatch, capsys):
+    calls = []
+
+    def fake_check(config):
+        calls.append(config)
+        return EvaluationResult(
+            status=EvaluationStatus.COMPLIANT,
+            action="No action required.",
+            source_status=SourceStatus.REMOTE_POLICY_OK,
+            is_source_check_complete=True,
+            policy_source_kind="remote_json",
+            policy_age_hours=1.5,
+            strict_production=config.strict_production,
+        )
+
+    monkeypatch.setattr(cli, "check_current_system", fake_check)
+
+    code = cli.main(["--json", "--strict-production", "--allow-unsigned-policy"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert len(calls) == 1
+    assert calls[0].strict_production is True
+    assert calls[0].source_check_required_for_green is True
+    assert calls[0].allow_unsigned_policy is False
+    assert payload["strict_production"] is True
+    assert payload["source_status"] == SourceStatus.REMOTE_POLICY_OK.value
+    assert payload["policy_source_kind"] == "remote_json"
+    assert payload["policy_age_hours"] == 1.5
+    assert payload["is_source_check_complete"] is True
+
+
+def test_cli_strict_production_env_var_enables_preset(monkeypatch, capsys):
+    calls = []
+
+    def fake_check(config):
+        calls.append(config)
+        return EvaluationResult(
+            status=EvaluationStatus.CHECK_INCOMPLETE,
+            action="Strict production requires a live source.",
+            source_status=SourceStatus.USING_BUNDLED_POLICY,
+            is_source_check_complete=False,
+            policy_source_kind="bundled",
+            strict_production=config.strict_production,
+        )
+
+    monkeypatch.setenv(STRICT_PRODUCTION_ENV_VAR, "1")
+    monkeypatch.setattr(cli, "check_current_system", fake_check)
+
+    code = cli.main(["--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_UNKNOWN_OR_POLICY_ERROR
+    assert calls[0].strict_production is True
+    assert calls[0].source_check_required_for_green is True
+    assert payload["strict_production"] is True
+
+
 def test_cli_diagnose_config_reports_policy_url_source(monkeypatch, capsys):
     monkeypatch.delenv("WIN11_RELEASE_GUARD_POLICY_URL", raising=False)
+    monkeypatch.delenv(STRICT_PRODUCTION_ENV_VAR, raising=False)
 
     code = cli.main(["--diagnose-config"])
     default_payload = json.loads(capsys.readouterr().out)
@@ -455,6 +579,7 @@ def test_cli_diagnose_config_reports_policy_url_source(monkeypatch, capsys):
         "wua_default_enabled",
         "runtime_html_fallback_enabled",
         "source_check_required_for_green",
+        "strict_production",
         "platform_summary",
     }.issubset(default_payload)
     assert default_payload["effective_policy_url"] == DEFAULT_POLICY_URL
@@ -466,12 +591,53 @@ def test_cli_diagnose_config_reports_policy_url_source(monkeypatch, capsys):
     assert default_payload["bundled_policy_signature_status"] == "valid"
     assert default_payload["trusted_public_key_fingerprint"].startswith("sha256:")
     assert default_payload["wua_default_enabled"] is False
+    assert default_payload["strict_production"] is False
     assert code_env == 0
     assert env_payload["policy_url"] == ("https://env.example" + ".invalid/windows-release-policy.json")
     assert env_payload["policy_url_source"] == "env"
     assert code_cli == 0
     assert cli_payload["policy_url"] == ("https://cli.example" + ".invalid/windows-release-policy.json")
     assert cli_payload["policy_url_source"] == "cli"
+
+
+def test_cli_diagnose_config_reports_strict_production(monkeypatch, capsys):
+    monkeypatch.setenv(STRICT_PRODUCTION_ENV_VAR, "1")
+
+    code = cli.main([
+        "--diagnose-config",
+        "--allow-runtime-release-health-html",
+        "--allow-unsigned-policy",
+    ])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["strict_production"] is True
+    assert payload["source_check_required_for_green"] is True
+    assert payload["allow_unsigned_policy"] is False
+    assert payload["allow_runtime_release_health_html"] is False
+    assert payload["strict_production_env_var"] == STRICT_PRODUCTION_ENV_VAR
+
+
+def test_cli_pretty_warns_when_source_is_not_live_remote_json(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli,
+        "check_current_system",
+        lambda config: EvaluationResult(
+            status=EvaluationStatus.CHECK_INCOMPLETE,
+            action="Strict production requires a live source.",
+            source_status=SourceStatus.USING_BUNDLED_POLICY,
+            is_source_check_complete=False,
+            policy_source_kind="bundled",
+            strict_production=True,
+        ),
+    )
+
+    code = cli.main(["--pretty"])
+
+    output = capsys.readouterr().out
+    assert code == cli.EXIT_UNKNOWN_OR_POLICY_ERROR
+    assert "Source: USING_BUNDLED_POLICY / bundled" in output
+    assert "Source warning: live signed remote JSON policy was not fully verified" in output
 
 
 def test_cli_diagnose_config_does_not_check_source_by_default(monkeypatch, capsys):

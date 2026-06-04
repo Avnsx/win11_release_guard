@@ -33,6 +33,14 @@ DEFAULT_BUILD_FAMILY_RELEASES: Mapping[int, str] = {
     28000: "26H1",
 }
 
+BUILD_SIGNAL_TRUST: Mapping[str, dict[str, int | str]] = {
+    "rtl": {"trust": "runtime_truth", "weight": 120, "priority": 0},
+    "dism_image": {"trust": "dism_image", "weight": 80, "priority": 1},
+    "kernel": {"trust": "runtime_file", "weight": 60, "priority": 2},
+    "registry": {"trust": "registry_metadata", "weight": 35, "priority": 3},
+    "wmi": {"trust": "wmi_metadata", "weight": 35, "priority": 4},
+}
+
 PRODUCT_INFO_EDITION_SCOPES: Mapping[int, EditionScope] = {
     0x00000002: EditionScope.HOME_PRO,
     0x00000003: EditionScope.HOME_PRO,
@@ -173,21 +181,125 @@ def _version_ubr(value: str | None) -> int | None:
         return None
 
 
+def _is_plausible_windows_version(value: str | None) -> bool:
+    if not value:
+        return False
+    parts = str(value).strip().split(".")
+    if len(parts) not in {3, 4}:
+        return False
+    try:
+        numbers = [int(part) for part in parts]
+    except ValueError:
+        return False
+    major = numbers[0]
+    build = numbers[2]
+    revision = numbers[3] if len(numbers) == 4 else 0
+    return major >= 6 and build >= 10240 and revision >= 0
+
+
+def _build_signal_metadata(source: str) -> dict[str, int | str]:
+    return dict(BUILD_SIGNAL_TRUST.get(source, {"trust": "diagnostic", "weight": 10, "priority": 99}))
+
+
+def _build_signal_decision(candidates: list[tuple[str, int | None]]) -> dict[str, Any]:
+    signals: list[dict[str, Any]] = []
+    grouped: dict[int, dict[str, Any]] = {}
+    for source, value in candidates:
+        if value is None:
+            continue
+        metadata = _build_signal_metadata(source)
+        build = int(value)
+        signal = {
+            "source": source,
+            "build": build,
+            "trust": metadata["trust"],
+            "weight": metadata["weight"],
+            "priority": metadata["priority"],
+        }
+        signals.append(signal)
+        group = grouped.setdefault(
+            build,
+            {
+                "build": build,
+                "sources": [],
+                "trust_classes": [],
+                "score": 0,
+                "highest_signal_weight": 0,
+                "best_priority": 99,
+            },
+        )
+        group["sources"].append(source)
+        group["trust_classes"].append(metadata["trust"])
+        group["score"] += int(metadata["weight"])
+        group["highest_signal_weight"] = max(int(group["highest_signal_weight"]), int(metadata["weight"]))
+        group["best_priority"] = min(int(group["best_priority"]), int(metadata["priority"]))
+
+    if not grouped:
+        return {
+            "selected_build": None,
+            "selection_method": "weighted_trust",
+            "selected_sources": [],
+            "selected_trust_classes": [],
+            "conflict": False,
+            "signals": [],
+            "conflicting_builds": {},
+        }
+
+    selected = max(
+        grouped.values(),
+        key=lambda group: (
+            int(group["score"]),
+            int(group["highest_signal_weight"]),
+            -int(group["best_priority"]),
+            int(group["build"]),
+        ),
+    )
+    selected_build = int(selected["build"])
+    for signal in signals:
+        signal["selected"] = int(signal["build"]) == selected_build
+
+    return {
+        "selected_build": selected_build,
+        "selection_method": "weighted_trust",
+        "selected_sources": list(selected["sources"]),
+        "selected_trust_classes": list(dict.fromkeys(str(item) for item in selected["trust_classes"])),
+        "conflict": len(grouped) > 1,
+        "signals": signals,
+        "conflicting_builds": {
+            str(build): {
+                "sources": list(group["sources"]),
+                "trust_classes": list(dict.fromkeys(str(item) for item in group["trust_classes"])),
+                "score": int(group["score"]),
+                "highest_signal_weight": int(group["highest_signal_weight"]),
+            }
+            for build, group in sorted(grouped.items())
+        },
+    }
+
+
 def _choose_build(candidates: list[tuple[str, int | None]]) -> int | None:
-    values = [value for _, value in candidates if value is not None]
-    if not values:
-        return None
+    decision = _build_signal_decision(candidates)
+    selected = decision.get("selected_build")
+    return int(selected) if selected is not None else None
 
-    for value in values:
-        if values.count(value) > 1:
-            return value
 
-    preferred_order = ("rtl", "registry", "wmi", "kernel")
-    for source in preferred_order:
-        for candidate_source, value in candidates:
-            if candidate_source == source and value is not None:
-                return value
-    return values[0]
+def _build_signal_conflicts(
+    candidates: list[tuple[str, int | None]],
+    *,
+    selected_build: int | None,
+    decision: Mapping[str, Any] | None = None,
+) -> tuple[str, ...]:
+    present = [(source, value) for source, value in candidates if value is not None]
+    values = {value for _, value in present}
+    if len(values) <= 1:
+        return ()
+    signals = ", ".join(f"{source}={value}" for source, value in present)
+    selected_sources = ", ".join(str(source) for source in (decision or {}).get("selected_sources", []))
+    selected_by = f" via weighted_trust from {selected_sources}" if selected_sources else ""
+    return (
+        f"LOCAL_BUILD_SIGNAL_CONFLICT: build signals disagree ({signals}); "
+        f"selected current_build={selected_build}{selected_by}.",
+    )
 
 
 def _read_registry_current_version() -> dict[str, Any]:
@@ -382,9 +494,48 @@ def _servicing_channel_from_signals(
     return ServicingChannel.UNKNOWN
 
 
+def _parse_dism_current_edition_output(text: str) -> dict[str, str]:
+    data: dict[str, str] = {}
+    for pattern in (r"Current Edition\s*:\s*(\S+)", r"Aktuelle Edition\s*:\s*(\S+)"):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            data["current_edition"] = match.group(1).strip()
+            break
+
+    for pattern in (r"^\s*Image Version\s*:\s*(\S+)", r"^\s*Abbildversion\s*:\s*(\S+)"):
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
+        if match:
+            data["image_version"] = match.group(1).strip()
+            break
+
+    image_match_start = None
+    image_match = re.search(r"^\s*(?:Image Version|Abbildversion)\s*:", text, flags=re.IGNORECASE | re.MULTILINE)
+    if image_match:
+        image_match_start = image_match.start()
+    tool_text = text if image_match_start is None else text[:image_match_start]
+    match = re.search(r"^\s*Version\s*:\s*(\S+)", tool_text, flags=re.IGNORECASE | re.MULTILINE)
+    if match:
+        data["dism_tool_version"] = match.group(1).strip()
+    return data
+
+
+def _normalize_dism_current_edition_info(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if isinstance(value, Mapping):
+        data = {
+            "current_edition": _optional_str(value.get("current_edition") or value.get("CurrentEdition")),
+            "image_version": _optional_str(value.get("image_version") or value.get("ImageVersion")),
+            "dism_tool_version": _optional_str(value.get("dism_tool_version") or value.get("DismToolVersion")),
+        }
+        return {key: item for key, item in data.items() if item}
+    text = _optional_str(value)
+    return {"current_edition": text} if text else {}
+
+
 def _read_dism_current_edition(
     timeout_seconds: float = DEFAULT_DISM_TIMEOUT_SECONDS,
-) -> str | None:
+) -> dict[str, str] | None:
     try:
         proc = subprocess.run(
             ["dism.exe", "/Online", "/Get-CurrentEdition"],
@@ -400,13 +551,10 @@ def _read_dism_current_edition(
             f"DISM Get-CurrentEdition timed out after {timeout_seconds:g} seconds."
         ) from exc
     text = f"{proc.stdout}\n{proc.stderr}"
-    for pattern in (r"Current Edition\s*:\s*(\S+)", r"Aktuelle Edition\s*:\s*(\S+)"):
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
     if proc.returncode != 0:
         raise RuntimeError(f"DISM Get-CurrentEdition failed with exit code {proc.returncode}.")
-    return None
+    data = _parse_dism_current_edition_output(text)
+    return data or None
 
 
 class _VsFixedFileInfo(ctypes.Structure):
@@ -549,12 +697,22 @@ def get_local_windows_state(
         raw["wmi_error"] = str(exc)
 
     dism_current_edition: str | None = None
+    dism_image_version: str | None = None
+    dism_tool_version: str | None = None
     try:
-        dism_current_edition = _call_timeout_probe(
-            _read_dism_current_edition,
-            timeout_seconds=dism_timeout_seconds,
+        dism_info = _normalize_dism_current_edition_info(
+            _call_timeout_probe(
+                _read_dism_current_edition,
+                timeout_seconds=dism_timeout_seconds,
+            )
         )
+        dism_current_edition = dism_info.get("current_edition")
+        dism_image_version = dism_info.get("image_version")
+        dism_tool_version = dism_info.get("dism_tool_version")
+        raw["dism"] = dism_info or None
         raw["dism_current_edition"] = dism_current_edition
+        raw["dism_image_version"] = dism_image_version
+        raw["dism_tool_version"] = dism_tool_version
     except Exception as exc:
         errors.append(f"DISM current edition read failed: {exc}")
         raw["dism_error"] = str(exc)
@@ -581,19 +739,34 @@ def get_local_windows_state(
     rtl_build = _optional_int(rtl.get("build"))
     wmi_build = _optional_int((wmi or {}).get("BuildNumber"))
     kernel_build = _version_build(kernel_file_version)
+    dism_build = _version_build(dism_image_version) if _is_plausible_windows_version(dism_image_version) else None
+    build_candidates = [
+        ("registry", registry_build),
+        ("rtl", rtl_build),
+        ("wmi", wmi_build),
+        ("kernel", kernel_build),
+        ("dism_image", dism_build),
+    ]
 
-    current_build = _choose_build(
-        [
-            ("registry", registry_build),
-            ("rtl", rtl_build),
-            ("wmi", wmi_build),
-            ("kernel", kernel_build),
-        ]
+    build_signal_decision = _build_signal_decision(build_candidates)
+    selected_build = build_signal_decision.get("selected_build")
+    current_build = int(selected_build) if selected_build is not None else None
+    raw["build_signals"] = {source: value for source, value in build_candidates if value is not None}
+    raw["build_signal_decision"] = build_signal_decision
+    build_conflicts = _build_signal_conflicts(
+        build_candidates,
+        selected_build=current_build,
+        decision=build_signal_decision,
     )
+    if build_conflicts:
+        raw["build_signal_conflicts"] = list(build_conflicts)
+        errors.extend(build_conflicts)
 
     ubr = _optional_int(registry.get("UBR"))
     if ubr is None and kernel_build == current_build:
         ubr = _version_ubr(kernel_file_version)
+    if ubr is None and dism_build == current_build:
+        ubr = _version_ubr(dism_image_version)
 
     display_version = _optional_str(registry.get("DisplayVersion"))
     display_release = extract_release(display_version)
@@ -613,6 +786,11 @@ def get_local_windows_state(
         wmi_version = _optional_str((wmi or {}).get("Version"))
         try:
             major_version = int(wmi_version.split(".", 1)[0]) if wmi_version else None
+        except ValueError:
+            major_version = None
+    if major_version is None and _is_plausible_windows_version(dism_image_version):
+        try:
+            major_version = int(str(dism_image_version).split(".", 1)[0])
         except ValueError:
             major_version = None
     rtl_minor_version = _optional_int(rtl.get("minor")) or 0
@@ -691,6 +869,8 @@ def get_local_windows_state(
         wmi_version=_optional_str((wmi or {}).get("Version")),
         kernel_file_version=kernel_file_version,
         dism_current_edition=dism_current_edition,
+        dism_image_version=dism_image_version,
+        dism_tool_version=dism_tool_version,
         product_info_code=product_info_code,
         source="local_windows_read_only",
         available=available,

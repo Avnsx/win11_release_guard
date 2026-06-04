@@ -5,7 +5,7 @@ import pytest
 from win11_release_guard.config import DEFAULT_POLICY_URL, DEFAULT_PUBLISHED_POLICY_URLS, DEFAULT_RELEASE_HEALTH_URL
 from win11_release_guard.exceptions import PolicyParseError
 from win11_release_guard.generator import generate_policy_from_release_health_html
-from win11_release_guard.models import EditionScope, ReleasePolicy, ServicingChannel
+from win11_release_guard.models import EditionScope, ReleasePolicy, ReleasePolicyEntry, ServicingChannel
 from win11_release_guard.remote_policy import (
     fetch_release_policy,
     load_policy_bytes,
@@ -18,6 +18,11 @@ from win11_release_guard.remote_policy import (
 
 def _fixture_html() -> str:
     with open("tests/fixtures/windows11-release-health.html", encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _fixture_html_file(name: str) -> str:
+    with open(f"tests/fixtures/{name}", encoding="utf-8") as handle:
         return handle.read()
 
 
@@ -48,6 +53,17 @@ def _fixture_html_with_ltsc_table() -> str:
   </table>
 """
     return _fixture_html().replace("  <h2>Windows 11 release history</h2>", ltsc_table + "\n  <h2>Windows 11 release history</h2>", 1)
+
+
+def _fixture_html_with_25h2_current_latest_build(build: str) -> str:
+    return _fixture_html().replace("        <td>26200.8457</td>\n      </tr>", f"        <td>{build}</td>\n      </tr>", 1)
+
+
+def _fixture_html_without_26h1_note() -> str:
+    html = _fixture_html()
+    start = html.index("  <p>\n    Windows 11, version 26H1")
+    end = html.index("  </p>", start) + len("  </p>\n")
+    return html[:start] + html[end:]
 
 
 def _json_policy() -> dict:
@@ -148,6 +164,28 @@ def test_policy_round_trip_preserves_exclusions_and_build_map():
     assert restored.release_for_build_family(26100) == "24H2"
 
 
+def test_release_policy_entry_from_dict_preserves_explicit_required_baseline():
+    entry = ReleasePolicyEntry.from_dict(
+        {
+            "version": "25H2",
+            "build_family": 26200,
+            "latest_build": "26200.8524",
+            "required_baseline_build": "26200.8457",
+            "servicing_option": "General Availability Channel",
+        }
+    )
+    serialized = entry.to_dict()
+    restored = ReleasePolicyEntry.from_dict(serialized)
+
+    assert entry.latest_build == "26200.8524"
+    assert entry.latest_observed_build == "26200.8524"
+    assert entry.baseline_build is None
+    assert entry.required_baseline_build == "26200.8457"
+    assert entry.effective_baseline_build == "26200.8457"
+    assert serialized["required_baseline_build"] == "26200.8457"
+    assert restored.required_baseline_build == "26200.8457"
+
+
 def test_json_string_loads():
     policy = load_policy_text(
         json.dumps(_json_policy()),
@@ -164,6 +202,35 @@ def test_default_pages_policy_url_does_not_warn():
     policy = load_policy_text(json.dumps(_json_policy()), source_url=DEFAULT_POLICY_URL)
 
     assert "Loaded policy URL is not listed in published_urls or source_urls." not in policy.validation_warnings
+
+
+def test_json_source_diagnostics_loads():
+    data = _json_policy()
+    data["source_diagnostics"] = {
+        "release_health_html": {
+            "source_url": DEFAULT_RELEASE_HEALTH_URL,
+            "fetched_at_utc": "2026-05-31T00:00:00Z",
+            "bytes": 1234,
+            "status": "ok",
+            "newest_current_version_revision_date": "2026-05-12",
+            "newest_release_history_availability_date": "2026-05-12",
+        },
+        "atom_feed": {
+            "source_url": DEFAULT_PUBLISHED_POLICY_URLS["policy"],
+            "fetched_at_utc": "2026-05-31T00:00:01Z",
+            "bytes": 5678,
+            "status": "ok",
+            "newest_atom_updated": "2026-05-16T18:00:00Z",
+            "newest_atom_published": "2026-05-16T18:00:00Z",
+        },
+        "warnings": ["Source freshness warning: example"],
+    }
+
+    policy = load_policy_text(json.dumps(data), source_url=DEFAULT_POLICY_URL)
+
+    assert policy.source_diagnostics["release_health_html"]["bytes"] == 1234
+    assert policy.source_diagnostics["atom_feed"]["newest_atom_updated"] == "2026-05-16T18:00:00Z"
+    assert not any("source_diagnostics" in warning for warning in policy.validation_warnings)
 
 
 def test_api_policy_alias_does_not_warn():
@@ -258,12 +325,23 @@ def test_json_missing_broad_target_raises_policy_parse_error():
         load_policy_text(json.dumps(data))
 
 
-def test_json_unknown_top_level_key_raises_policy_parse_error():
+def test_json_unknown_top_level_key_is_forward_compatible_warning():
     data = _json_policy()
     data["unexpected_future_key"] = True
 
-    with pytest.raises(PolicyParseError, match="unknown top-level key"):
-        load_policy_text(json.dumps(data))
+    policy = load_policy_text(json.dumps(data))
+
+    assert any("unknown top-level key 'unexpected_future_key'" in warning for warning in policy.validation_warnings)
+
+
+def test_json_extensions_and_x_keys_are_forward_compatible_without_warning():
+    data = _json_policy()
+    data["extensions"] = {"vendor": {"flag": True}}
+    data["x_vendor_future_key"] = {"value": 1}
+
+    policy = load_policy_text(json.dumps(data))
+
+    assert not any("unknown top-level key" in warning for warning in policy.validation_warnings)
 
 
 def test_json_malformed_release_and_build_raise_policy_parse_error():
@@ -280,11 +358,38 @@ def test_json_malformed_release_and_build_raise_policy_parse_error():
         load_policy_text(json.dumps(data))
 
 
+def test_json_rejects_mismatched_current_required_baseline():
+    data = _json_policy()
+    data["current_versions"][1]["latest_build"] = "26200.8524"
+    data["current_versions"][1]["latest_observed_build"] = "26200.8524"
+    data["current_versions"][1]["baseline_build"] = "26200.8457"
+    data["current_versions"][1]["required_baseline_build"] = "26200.8524"
+
+    with pytest.raises(PolicyParseError, match=r"current_versions\[1\].required_baseline_build"):
+        load_policy_text(json.dumps(data))
+
+
 def test_json_unsupported_schema_version_raises_policy_parse_error():
     data = _json_policy()
     data["schema_version"] = 999
 
     with pytest.raises(PolicyParseError, match="Unsupported policy schema_version"):
+        load_policy_text(json.dumps(data))
+
+
+def test_json_incompatible_reader_schema_range_raises_policy_parse_error():
+    data = _json_policy()
+    data["schema_version"] = 1
+    data["min_reader_schema_version"] = 2
+
+    with pytest.raises(PolicyParseError, match="requires reader schema_version"):
+        load_policy_text(json.dumps(data))
+
+    data = _json_policy()
+    data["schema_version"] = 1
+    data["max_reader_schema_version"] = 0
+
+    with pytest.raises(PolicyParseError, match="max_reader_schema_version"):
         load_policy_text(json.dumps(data))
 
 
@@ -301,6 +406,44 @@ def test_parse_release_health_builds_current_versions_and_history():
     assert any(row.release == "25H2" and row.build == "26200.8457" for row in policy.release_history)
 
 
+def test_parse_release_health_current_d_preview_fixture_keeps_latest_and_baseline_distinct():
+    policy = parse_windows11_release_health_html(
+        _fixture_html_file("windows11-release-health-current-d-26h1.html")
+    )
+
+    assert policy.broad_target_existing_devices is not None
+    assert policy.broad_target_existing_devices.version == "25H2"
+    assert policy.broad_target_existing_devices.latest_build == "26200.8524"
+    assert policy.broad_target_existing_devices.latest_observed_build == "26200.8524"
+    assert policy.broad_target_existing_devices.baseline_build == "26200.8457"
+    assert policy.broad_target_existing_devices.required_baseline_build == "26200.8457"
+    current_25h2 = next(entry for entry in policy.current_versions if entry.version == "25H2")
+    assert current_25h2.latest_build == "26200.8524"
+    assert current_25h2.latest_observed_build == "26200.8524"
+    assert current_25h2.baseline_build == "26200.8457"
+    assert current_25h2.required_baseline_build == "26200.8457"
+    preview = next(row for row in policy.release_history if row.build == "26200.8524")
+    assert preview.preview is True
+    assert preview.update_type_letter == "D"
+    assert preview.kb_article == "KB5089573"
+    assert {entry.version for entry in policy.special_releases} == {"26H1"}
+
+
+def test_parse_release_health_header_variants_accept_german_latest_and_update_type_headers():
+    policy = parse_windows11_release_health_html(
+        _fixture_html_file("windows11-release-health-header-variants.html")
+    )
+
+    assert policy.broad_target_existing_devices is not None
+    assert policy.broad_target_existing_devices.version == "25H2"
+    assert policy.broad_target_existing_devices.latest_build == "26200.8457"
+    assert any(row.release == "25H2" and row.build == "26200.8524" and row.preview for row in policy.release_history)
+    current_25h2 = next(entry for entry in policy.current_versions if entry.version == "25H2")
+    assert current_25h2.servicing_option == "Allgemeiner Verfügbarkeitskanal"
+    assert current_25h2.metadata["latest_revision_date"] == "2026-05-12"
+    assert {entry.version for entry in policy.special_releases} == {"26H1"}
+
+
 def test_parse_release_health_selects_h2_ga_broad_target_not_26h1():
     policy = parse_windows11_release_health_html(_fixture_html())
 
@@ -309,6 +452,21 @@ def test_parse_release_health_selects_h2_ga_broad_target_not_26h1():
     assert policy.broad_target_existing_devices.build_family == 26200
     assert policy.broad_target_existing_devices.latest_build == "26200.8457"
     assert policy.broad_target_existing_devices.baseline_build == "26200.8457"
+
+
+def test_parse_release_health_keeps_latest_observed_preview_distinct_from_baseline():
+    policy = parse_windows11_release_health_html(_fixture_html_with_25h2_current_latest_build("26200.8524"))
+
+    assert policy.broad_target_existing_devices is not None
+    assert policy.broad_target_existing_devices.latest_build == "26200.8524"
+    assert policy.broad_target_existing_devices.latest_observed_build == "26200.8524"
+    assert policy.broad_target_existing_devices.baseline_build == "26200.8457"
+    assert policy.broad_target_existing_devices.required_baseline_build == "26200.8457"
+    current_25h2 = next(entry for entry in policy.current_versions if entry.version == "25H2")
+    assert current_25h2.latest_build == "26200.8524"
+    assert current_25h2.latest_observed_build == "26200.8524"
+    assert current_25h2.baseline_build == "26200.8457"
+    assert current_25h2.required_baseline_build == "26200.8457"
 
 
 def test_parse_release_health_marks_26h1_special_new_devices_only():
@@ -337,6 +495,25 @@ def test_parse_release_health_keeps_ltsc_current_versions_separate_from_ga():
     assert EditionScope.HOME_PRO in ga.edition_scopes
     assert EditionScope.ENTERPRISE_LTSC in ltsc.edition_scopes
     assert EditionScope.IOT_ENTERPRISE_LTSC in ltsc.edition_scopes
+
+
+def test_release_health_parser_reports_missing_current_version_latest_header():
+    html = _fixture_html().replace("<th>Latest build</th>", "<th>Observed build</th>", 1)
+
+    with pytest.raises(PolicyParseError, match=r"current_versions table.*Latest build.*table\[0\]"):
+        parse_windows11_release_health_html(html)
+
+
+def test_release_health_parser_reports_missing_release_history_update_type_header():
+    html = _fixture_html().replace("<th>Update type</th>", "<th>Lifecycle marker</th>")
+
+    with pytest.raises(PolicyParseError, match=r"release_history tables.*Update type.*Lifecycle marker"):
+        parse_windows11_release_health_html(html)
+
+
+def test_release_health_parser_requires_26h1_special_note_when_26h1_is_current():
+    with pytest.raises(PolicyParseError, match="26H1 new-devices-only special release note"):
+        parse_windows11_release_health_html(_fixture_html_without_26h1_note())
 
 
 def test_non_json_non_html_source_raises_policy_parse_error():

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import re
+import unicodedata
 import urllib.request
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -17,6 +17,7 @@ from .config import (
     DEFAULT_USER_AGENT,
 )
 from .exceptions import PolicyError, PolicyFetchError, PolicyParseError
+from .json_utils import DEFAULT_MAX_JSON_BYTES, StrictJSONError, strict_json_object
 from .models import (
     EditionScope,
     QualityPolicy,
@@ -25,12 +26,77 @@ from .models import (
     ReleasePolicyEntry,
     ServicingChannel,
 )
+from .policy_schema import SUPPORTED_POLICY_SCHEMA_VERSION
 
 
 HttpGet = Callable[..., Any]
-SUPPORTED_POLICY_SCHEMA_VERSION = 1
 _RELEASE_PATTERN = re.compile(r"^\d{2}H[12]$", re.IGNORECASE)
 _BUILD_PATTERN = re.compile(r"^\d{5}\.\d+$")
+_CURRENT_VERSION_REQUIRED_FIELDS = ("version", "servicing_option", "latest_build")
+_RELEASE_HISTORY_REQUIRED_FIELDS = ("servicing_option", "update_type", "availability_date", "build")
+_FIELD_LABELS: Mapping[str, str] = {
+    "version": "Version",
+    "servicing_option": "Servicing option",
+    "latest_build": "Latest build",
+    "availability_date": "Availability date",
+    "latest_revision_date": "Latest revision date",
+    "build": "Build",
+    "update_type": "Update type",
+    "kb_article": "KB article",
+}
+_HEADER_ALIASES: Mapping[str, tuple[tuple[str, ...], ...]] = {
+    "version": (("version",), ("release",)),
+    "servicing_option": (
+        ("servicing", "option"),
+        ("servicing", "channel"),
+        ("service", "option"),
+        ("wartungsoption",),
+        ("serviceoption",),
+        ("wartungskanal",),
+    ),
+    "latest_build": (
+        ("latest", "build"),
+        ("latest", "os", "build"),
+        ("neuester", "build"),
+        ("aktuellster", "build"),
+        ("aktuelle", "build"),
+    ),
+    "availability_date": (
+        ("availability", "date"),
+        ("available", "date"),
+        ("release", "date"),
+        ("verfugbarkeitsdatum",),
+        ("veroffentlichungsdatum",),
+        ("freigabedatum",),
+    ),
+    "latest_revision_date": (
+        ("latest", "revision", "date"),
+        ("latest", "revision"),
+        ("latest", "revisioned"),
+        ("neueste", "revision"),
+        ("letzte", "revision"),
+        ("revisionsdatum",),
+    ),
+    "build": (
+        ("build",),
+        ("os", "build"),
+        ("betriebssystembuild",),
+        ("betriebssystem", "build"),
+    ),
+    "update_type": (
+        ("update", "type"),
+        ("update", "typ"),
+        ("updatetyp",),
+        ("typ", "update"),
+        ("release", "type"),
+        ("type",),
+    ),
+    "kb_article": (
+        ("kb", "article"),
+        ("kb", "artikel"),
+        ("kb",),
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -124,6 +190,13 @@ def _normalize_text(value: str | None) -> str:
     return re.sub(r"\s+", " ", (value or "").replace("\xa0", " ")).strip()
 
 
+def _fold_text(value: str | None) -> str:
+    text = _normalize_text(value).replace("ß", "ss")
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
 def _release_key(release: str | None) -> tuple[int, int]:
     if not release:
         return (-1, -1)
@@ -155,12 +228,61 @@ def _extract_build_family(build: str | None) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _field_aliases(field: str, extra_needles: tuple[str, ...]) -> tuple[tuple[str, ...], ...]:
+    if not extra_needles and field in _HEADER_ALIASES:
+        return _HEADER_ALIASES[field]
+    return ((field, *extra_needles),)
+
+
+def _header_matches(header: str, field: str, *extra_needles: str) -> bool:
+    folded = _fold_text(header)
+    return any(
+        all(_fold_text(needle) in folded for needle in alias)
+        for alias in _field_aliases(field, extra_needles)
+    )
+
+
+def _headers_have(headers: list[str], field: str) -> bool:
+    return any(_header_matches(header, field) for header in headers)
+
+
+def _missing_fields(headers: list[str], required_fields: tuple[str, ...]) -> list[str]:
+    return [field for field in required_fields if not _headers_have(headers, field)]
+
+
 def _row_value(row: Mapping[str, str], *needles: str) -> str | None:
+    if not needles:
+        return None
+    field, *extra = needles
     for key, value in row.items():
-        key_l = key.lower()
-        if all(needle.lower() in key_l for needle in needles):
+        if _header_matches(key, field, *extra):
             return value
     return None
+
+
+def _table_diagnostics(tables: list[_Table], required_fields: tuple[str, ...]) -> str:
+    if not tables:
+        return "found 0 tables"
+    diagnostics: list[str] = []
+    for index, table in enumerate(tables[:8]):
+        headers, _rows = _table_rows(table)
+        heading = " / ".join(table.headings[-3:]) or "none"
+        header_text = " | ".join(headers) or "none"
+        missing = ", ".join(_FIELD_LABELS.get(field, field) for field in _missing_fields(headers, required_fields))
+        diagnostics.append(
+            f"table[{index}] headings={heading!r} headers={header_text!r} missing={missing or 'none'}"
+        )
+    if len(tables) > 8:
+        diagnostics.append(f"{len(tables) - 8} additional tables not shown")
+    return "; ".join(diagnostics)
+
+
+def _missing_table_error(table_name: str, required_fields: tuple[str, ...], tables: list[_Table]) -> PolicyParseError:
+    required = ", ".join(_FIELD_LABELS.get(field, field) for field in required_fields)
+    return PolicyParseError(
+        f"Could not parse Windows 11 {table_name}: missing table with required headers {required}. "
+        f"Scanned {len(tables)} tables: {_table_diagnostics(tables, required_fields)}."
+    )
 
 
 def _table_rows(table: _Table) -> tuple[list[str], list[dict[str, str]]]:
@@ -192,7 +314,7 @@ def _table_rows(table: _Table) -> tuple[list[str], list[dict[str, str]]]:
 def _nearest_version_heading(table: _Table) -> tuple[str | None, int | None]:
     for heading in reversed(table.headings):
         match = re.search(
-            r"Version\s+(\d{2}H[12])\s+\(OS build\s+(\d+)\)",
+            r"Version\s+(\d{2}H[12])\s+\((?:OS\s*-?\s*build|Betriebssystem\s*-?\s*build|Build)\s+(\d+)\)",
             heading,
             flags=re.IGNORECASE,
         )
@@ -202,11 +324,11 @@ def _nearest_version_heading(table: _Table) -> tuple[str | None, int | None]:
 
 
 def _table_context(table: _Table, headers: list[str]) -> str:
-    return " | ".join((*table.headings, *headers)).lower()
+    return _fold_text(" | ".join((*table.headings, *headers)))
 
 
 def _row_context(row: Mapping[str, str]) -> str:
-    return " | ".join(str(value) for value in row.values()).lower()
+    return _fold_text(" | ".join(str(value) for value in row.values()))
 
 
 def _classify_current_version_table(
@@ -234,17 +356,12 @@ def _parse_current_versions(tables: list[_Table]) -> list[ReleasePolicyEntry]:
 
     for table in tables:
         headers, rows = _table_rows(table)
-        header_blob = " | ".join(headers).lower()
-        if not (
-            "version" in header_blob
-            and "servicing option" in header_blob
-            and "latest build" in header_blob
-        ):
+        if _missing_fields(headers, _CURRENT_VERSION_REQUIRED_FIELDS):
             continue
 
         for row in rows:
             release = _extract_release(_row_value(row, "version"))
-            latest_build = _row_value(row, "latest", "build")
+            latest_build = _row_value(row, "latest_build")
             build_family = _extract_build_family(latest_build)
             if not release or build_family is None:
                 continue
@@ -260,8 +377,8 @@ def _parse_current_versions(tables: list[_Table]) -> list[ReleasePolicyEntry]:
                     version=release,
                     build_family=build_family,
                     latest_build=latest_build,
-                    servicing_option=_row_value(row, "servicing", "option"),
-                    availability_date=_row_value(row, "availability", "date"),
+                    servicing_option=_row_value(row, "servicing_option"),
+                    availability_date=_row_value(row, "availability_date"),
                     edition_scopes=edition_scopes,
                     servicing_channel=servicing_channel,
                     metadata={
@@ -274,6 +391,7 @@ def _parse_current_versions(tables: list[_Table]) -> list[ReleasePolicyEntry]:
                         "ltsc_end": _row_value(row, "ltsc")
                         or _row_value(row, "long-term")
                         or _row_value(row, "iot"),
+                        "latest_revision_date": _row_value(row, "latest_revision_date"),
                         "raw": dict(row),
                     },
                 )
@@ -291,8 +409,7 @@ def _parse_release_history(tables: list[_Table]) -> list[ReleaseHistoryEntry]:
             continue
 
         headers, rows = _table_rows(table)
-        header_blob = " | ".join(headers).lower()
-        if "build" not in header_blob or "availability date" not in header_blob:
+        if _missing_fields(headers, _RELEASE_HISTORY_REQUIRED_FIELDS):
             continue
 
         for row in rows:
@@ -300,7 +417,7 @@ def _parse_release_history(tables: list[_Table]) -> list[ReleaseHistoryEntry]:
             if not build or not re.match(r"^\d+\.\d+$", build):
                 continue
 
-            update_type = _row_value(row, "update", "type") or ""
+            update_type = _row_value(row, "update_type") or ""
             update_type_match = re.search(r"\b(OOB|[A-D])\b", update_type.upper())
             update_type_letter = update_type_match.group(1) if update_type_match else None
             kb_article = (
@@ -313,8 +430,8 @@ def _parse_release_history(tables: list[_Table]) -> list[ReleaseHistoryEntry]:
                     release=release,
                     build_family=build_family,
                     build=build,
-                    availability_date=_row_value(row, "availability", "date"),
-                    servicing_option=_row_value(row, "servicing", "option"),
+                    availability_date=_row_value(row, "availability_date"),
+                    servicing_option=_row_value(row, "servicing_option"),
                     update_type=update_type,
                     update_type_letter=update_type_letter,
                     preview=update_type_letter == "D",
@@ -335,7 +452,7 @@ def _detect_special_release_reasons(document_text: str) -> dict[str, str]:
 
     sentences = re.split(r"(?<=[.!?])\s+", text)
     for sentence in sentences:
-        sentence_l = sentence.lower()
+        sentence_l = _fold_text(sentence)
         if (
             "new devices" in sentence_l
             and "existing devices" in sentence_l
@@ -349,6 +466,26 @@ def _detect_special_release_reasons(document_text: str) -> dict[str, str]:
                 normalized_release = release.upper()
                 if f"version {normalized_release.lower()}" in sentence_l:
                     reasons[normalized_release] = sentence
+
+    for match in re.finditer(r"\b(\d{2}H[12])\b", text, flags=re.IGNORECASE):
+        normalized_release = match.group(1).upper()
+        if normalized_release in reasons:
+            continue
+        context = text[max(0, match.start() - 240) : min(len(text), match.end() + 420)]
+        context_l = _fold_text(context)
+        mentions_release_as_subject = f"version {normalized_release.lower()}" in context_l
+        has_new_devices = "new devices" in context_l or "neue gerate" in context_l
+        has_existing_devices = "existing devices" in context_l or "bestehende gerate" in context_l
+        has_not_feature_update = (
+            "not designed as a feature update" in context_l
+            or "not offered as an in place update" in context_l
+            or "nicht als funktionsupdate" in context_l
+            or "nicht als feature update" in context_l
+            or "nicht als direktes update" in context_l
+            or "nicht angeboten" in context_l
+        )
+        if mentions_release_as_subject and has_new_devices and has_existing_devices and has_not_feature_update:
+            reasons[normalized_release] = _normalize_text(context)
 
     return reasons
 
@@ -373,13 +510,13 @@ def _with_special_metadata(entry: ReleasePolicyEntry, reason: str) -> ReleasePol
 def _is_ga_entry(entry: ReleasePolicyEntry) -> bool:
     if entry.servicing_channel is ServicingChannel.GENERAL_AVAILABILITY:
         return True
-    servicing = (entry.servicing_option or "").lower()
-    return "general availability" in servicing or "allgemeine" in servicing
+    servicing = _fold_text(entry.servicing_option)
+    return "general availability" in servicing or "allgemein" in servicing
 
 
 def _is_supported_for_home_pro(entry: ReleasePolicyEntry) -> bool:
-    home_pro_end = str(entry.metadata.get("home_pro_end") or "")
-    return "end of updates" not in home_pro_end.lower()
+    home_pro_end = _fold_text(str(entry.metadata.get("home_pro_end") or ""))
+    return "end of updates" not in home_pro_end and "ende der updates" not in home_pro_end
 
 
 def _kb_url(kb_article: str | None) -> str | None:
@@ -412,13 +549,27 @@ def _select_broad_target(
         and _is_supported_for_home_pro(entry)
     ]
     if not candidates:
-        raise PolicyParseError("No supported Windows 11 GA target candidate found.")
+        raise PolicyParseError(
+            "Could not select broad_target_existing_devices: no supported Windows 11 GA target candidate found."
+        )
 
     h2_candidates = [entry for entry in candidates if entry.version.endswith("H2")]
     if h2_candidates:
         candidates = h2_candidates
 
     return max(candidates, key=lambda entry: _release_key(entry.version))
+
+
+def _validate_special_release_notes(
+    current_versions: list[ReleasePolicyEntry],
+    special_reasons: Mapping[str, str],
+) -> None:
+    current_release_versions = {entry.version for entry in current_versions}
+    if "26H1" in current_release_versions and "26H1" not in special_reasons:
+        raise PolicyParseError(
+            "Suspicious Microsoft Release Health source shape: current_versions contains 26H1, "
+            "but the parser did not find the 26H1 new-devices-only special release note."
+        )
 
 
 def _select_quality_baseline(
@@ -447,6 +598,30 @@ def _select_quality_baseline(
             _build_key(row.build),
         ),
     )
+
+
+def _current_versions_with_quality_baselines(
+    current_versions: list[ReleasePolicyEntry],
+    release_history: list[ReleaseHistoryEntry],
+) -> list[ReleasePolicyEntry]:
+    enriched: list[ReleasePolicyEntry] = []
+    for entry in current_versions:
+        baseline = _select_quality_baseline(
+            release_history,
+            entry.version,
+            QualityPolicy.B_RELEASE_ONLY,
+        )
+        if baseline is None:
+            enriched.append(entry)
+            continue
+        enriched.append(
+            replace(
+                entry,
+                baseline_build=baseline.build,
+                required_baseline_build=baseline.build,
+            )
+        )
+    return enriched
 
 
 def _looks_like_json(text: str) -> bool:
@@ -537,6 +712,8 @@ def _validate_build(value: Any, field: str, *, required: bool = False) -> str | 
 def _entry_has_explicit_baseline(data: Mapping[str, Any], target: Mapping[str, Any]) -> bool:
     if _validate_build(target.get("baseline_build"), "broad_target_existing_devices.baseline_build"):
         return True
+    if _validate_build(target.get("required_baseline_build"), "broad_target_existing_devices.required_baseline_build"):
+        return True
     if _validate_build(data.get("baseline_build"), "baseline_build"):
         return True
     quality_baseline = data.get("quality_baseline")
@@ -544,6 +721,54 @@ def _entry_has_explicit_baseline(data: Mapping[str, Any], target: Mapping[str, A
         if _validate_build(quality_baseline.get("build"), "quality_baseline.build"):
             return True
     return bool(_validate_build(target.get("latest_build"), "broad_target_existing_devices.latest_build"))
+
+
+def _optional_int(data: Mapping[str, Any], key: str) -> int | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise PolicyParseError(f"{key} must be an integer.") from exc
+
+
+def _compatibility_warnings(data: Mapping[str, Any], allowed_keys: set[str]) -> list[str]:
+    warnings: list[str] = []
+    min_reader = _optional_int(data, "min_reader_schema_version")
+    max_reader = _optional_int(data, "max_reader_schema_version")
+    if min_reader is not None and min_reader > SUPPORTED_POLICY_SCHEMA_VERSION:
+        raise PolicyParseError(
+            f"Policy requires reader schema_version {min_reader}; "
+            f"this reader supports {SUPPORTED_POLICY_SCHEMA_VERSION}."
+        )
+    if max_reader is not None and max_reader < SUPPORTED_POLICY_SCHEMA_VERSION:
+        raise PolicyParseError(
+            f"Policy max_reader_schema_version {max_reader} excludes this reader "
+            f"schema_version {SUPPORTED_POLICY_SCHEMA_VERSION}."
+        )
+    if min_reader is not None and max_reader is not None and min_reader > max_reader:
+        raise PolicyParseError("min_reader_schema_version must not exceed max_reader_schema_version.")
+    api_version = data.get("api_version")
+    if api_version is not None and (not isinstance(api_version, str) or not api_version):
+        raise PolicyParseError("api_version must be a non-empty string.")
+    compatibility = data.get("compatibility")
+    if compatibility is not None and not isinstance(compatibility, Mapping):
+        raise PolicyParseError("compatibility must be an object.")
+    extensions = data.get("extensions")
+    if extensions is not None and not isinstance(extensions, Mapping):
+        raise PolicyParseError("extensions must be an object.")
+
+    unknown_keys = sorted(
+        str(key)
+        for key in data.keys()
+        if key not in allowed_keys and not str(key).startswith("x_")
+    )
+    warnings.extend(
+        f"Policy compatibility warning: unknown top-level key {key!r} ignored by this reader."
+        for key in unknown_keys
+    )
+    return warnings
 
 
 def _normalize_json_policy_data(
@@ -560,6 +785,7 @@ def _normalize_json_policy_data(
         "published_urls",
         "generator_version",
         "source_fetch_status",
+        "source_diagnostics",
         "quality_policy",
         "current_versions",
         "release_history",
@@ -576,10 +802,13 @@ def _normalize_json_policy_data(
         "known_notes",
         "validation_warnings",
         "metadata",
+        "min_reader_schema_version",
+        "max_reader_schema_version",
+        "api_version",
+        "compatibility",
+        "extensions",
     }
-    unknown_keys = sorted(str(key) for key in data.keys() - allowed_keys)
-    if unknown_keys:
-        raise PolicyParseError(f"JSON policy contains unknown top-level key(s): {', '.join(unknown_keys)}.")
+    warnings.extend(_compatibility_warnings(data, allowed_keys))
 
     schema_version = data.get("schema_version")
     if schema_version is None:
@@ -618,8 +847,20 @@ def _normalize_json_policy_data(
             raise PolicyParseError(f"current_versions[{index}] must be an object.")
         release = _validate_release(item.get("version"), f"current_versions[{index}].version")
         build_family = _validate_build_family(item.get("build_family"), f"current_versions[{index}].build_family")
-        _validate_build(item.get("latest_build"), f"current_versions[{index}].latest_build")
-        _validate_build(item.get("baseline_build"), f"current_versions[{index}].baseline_build")
+        latest_build = _validate_build(item.get("latest_build"), f"current_versions[{index}].latest_build")
+        latest_observed = _validate_build(
+            item.get("latest_observed_build"),
+            f"current_versions[{index}].latest_observed_build",
+        )
+        if latest_build and latest_observed and latest_observed != latest_build:
+            raise PolicyParseError(f"current_versions[{index}].latest_observed_build must match latest_build.")
+        baseline_build = _validate_build(item.get("baseline_build"), f"current_versions[{index}].baseline_build")
+        required_baseline = _validate_build(
+            item.get("required_baseline_build"),
+            f"current_versions[{index}].required_baseline_build",
+        )
+        if baseline_build and required_baseline and required_baseline != baseline_build:
+            raise PolicyParseError(f"current_versions[{index}].required_baseline_build must match baseline_build.")
         target_version_counts.setdefault(release, set()).add(build_family)
         normalized_current_versions.append(item)
 
@@ -643,8 +884,23 @@ def _normalize_json_policy_data(
         broad_target.get("build_family"),
         "broad_target_existing_devices.build_family",
     )
-    _validate_build(broad_target.get("latest_build"), "broad_target_existing_devices.latest_build")
-    _validate_build(broad_target.get("baseline_build"), "broad_target_existing_devices.baseline_build")
+    target_latest_build = _validate_build(broad_target.get("latest_build"), "broad_target_existing_devices.latest_build")
+    target_latest_observed = _validate_build(
+        broad_target.get("latest_observed_build"),
+        "broad_target_existing_devices.latest_observed_build",
+    )
+    if target_latest_build and target_latest_observed and target_latest_observed != target_latest_build:
+        raise PolicyParseError("broad_target_existing_devices.latest_observed_build must match latest_build.")
+    target_baseline_build = _validate_build(
+        broad_target.get("baseline_build"),
+        "broad_target_existing_devices.baseline_build",
+    )
+    target_required_baseline = _validate_build(
+        broad_target.get("required_baseline_build"),
+        "broad_target_existing_devices.required_baseline_build",
+    )
+    if target_baseline_build and target_required_baseline and target_required_baseline != target_baseline_build:
+        raise PolicyParseError("broad_target_existing_devices.required_baseline_build must match baseline_build.")
 
     if str(target_build_family) not in normalized_supported:
         raise PolicyParseError("broad_target_existing_devices build family is missing from supported_build_families.")
@@ -687,11 +943,9 @@ def _normalize_json_policy_data(
 
 def _load_json_policy(text: str, *, source_url: str | None = None) -> ReleasePolicy:
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
+        data = strict_json_object(text, label="JSON policy")
+    except StrictJSONError as exc:
         raise PolicyParseError(f"Malformed JSON policy: {exc}") from exc
-    if not isinstance(data, Mapping):
-        raise PolicyParseError("JSON policy top-level value must be an object.")
 
     normalized, warnings = _normalize_json_policy_data(data, source_url=source_url)
     try:
@@ -758,13 +1012,23 @@ def parse_windows11_release_health_html(html: str) -> ReleasePolicy:
 
     current_versions = _parse_current_versions(parser.tables)
     if not current_versions:
-        raise PolicyParseError("Could not parse Windows 11 current-version table.")
+        raise _missing_table_error(
+            "current_versions table",
+            _CURRENT_VERSION_REQUIRED_FIELDS,
+            parser.tables,
+        )
 
     release_history = _parse_release_history(parser.tables)
     if not release_history:
-        raise PolicyParseError("Could not parse Windows 11 release-history tables.")
+        raise _missing_table_error(
+            "release_history tables",
+            _RELEASE_HISTORY_REQUIRED_FIELDS,
+            parser.tables,
+        )
+    current_versions = _current_versions_with_quality_baselines(current_versions, release_history)
 
     special_reasons = _detect_special_release_reasons(" ".join(parser.document_text_parts))
+    _validate_special_release_notes(current_versions, special_reasons)
     special_versions = set(special_reasons)
     special_entries = tuple(
         _with_special_metadata(entry, special_reasons[entry.version])
@@ -773,13 +1037,19 @@ def parse_windows11_release_health_html(html: str) -> ReleasePolicy:
     )
 
     broad_target = _select_broad_target(current_versions, special_versions)
+    if broad_target is None:
+        raise PolicyParseError("Could not select broad_target_existing_devices from Release Health HTML.")
     baseline = _select_quality_baseline(
         release_history,
         broad_target.version,
         QualityPolicy.B_RELEASE_ONLY,
     )
     if baseline is not None:
-        broad_target = replace(broad_target, baseline_build=baseline.build)
+        broad_target = replace(
+            broad_target,
+            baseline_build=baseline.build,
+            required_baseline_build=baseline.build,
+        )
 
     return ReleasePolicy(
         generated_at_utc=datetime.now(timezone.utc).isoformat(),
@@ -812,7 +1082,12 @@ def _default_http_get(url: str, timeout: float) -> str:
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
-        return response.read().decode(charset, errors="replace")
+        data = response.read(DEFAULT_MAX_JSON_BYTES + 1)
+        if len(data) > DEFAULT_MAX_JSON_BYTES:
+            raise PolicyFetchError(
+                f"Release policy response is too large: exceeds {DEFAULT_MAX_JSON_BYTES} bytes."
+            )
+        return data.decode(charset, errors="replace")
 
 
 def _call_http_get(http_get: HttpGet, url: str, timeout: float) -> Any:
@@ -879,23 +1154,41 @@ def _response_bytes(response: Any) -> tuple[bytes, str | None]:
     content_type = _response_content_type(response)
 
     if isinstance(response, str):
-        return response.encode("utf-8"), content_type
+        data = response.encode("utf-8")
+        if len(data) > DEFAULT_MAX_JSON_BYTES:
+            raise PolicyFetchError(f"Release policy response is too large: exceeds {DEFAULT_MAX_JSON_BYTES} bytes.")
+        return data, content_type
     if isinstance(response, bytes):
+        if len(response) > DEFAULT_MAX_JSON_BYTES:
+            raise PolicyFetchError(f"Release policy response is too large: exceeds {DEFAULT_MAX_JSON_BYTES} bytes.")
         return response, content_type
 
     content = getattr(response, "content", None)
     if isinstance(content, bytes):
+        if len(content) > DEFAULT_MAX_JSON_BYTES:
+            raise PolicyFetchError(f"Release policy response is too large: exceeds {DEFAULT_MAX_JSON_BYTES} bytes.")
         return content, content_type
 
     text = getattr(response, "text", None)
     if isinstance(text, str):
-        return text.encode("utf-8"), content_type
+        data = text.encode("utf-8")
+        if len(data) > DEFAULT_MAX_JSON_BYTES:
+            raise PolicyFetchError(f"Release policy response is too large: exceeds {DEFAULT_MAX_JSON_BYTES} bytes.")
+        return data, content_type
 
     if hasattr(response, "read"):
-        data = response.read()
+        try:
+            data = response.read(DEFAULT_MAX_JSON_BYTES + 1)
+        except TypeError:
+            data = response.read()
         if isinstance(data, str):
-            return data.encode("utf-8"), content_type
+            encoded = data.encode("utf-8")
+            if len(encoded) > DEFAULT_MAX_JSON_BYTES:
+                raise PolicyFetchError(f"Release policy response is too large: exceeds {DEFAULT_MAX_JSON_BYTES} bytes.")
+            return encoded, content_type
         if isinstance(data, bytes):
+            if len(data) > DEFAULT_MAX_JSON_BYTES:
+                raise PolicyFetchError(f"Release policy response is too large: exceeds {DEFAULT_MAX_JSON_BYTES} bytes.")
             return data, content_type
 
     raise PolicyFetchError("Release policy fetcher returned an unsupported response type.")
@@ -939,8 +1232,13 @@ def fetch_policy_bytes(
 ) -> tuple[bytes, str | None]:
     try:
         if http_get is None and not _is_url(url):
+            policy_path = Path(url)
+            if policy_path.stat().st_size > DEFAULT_MAX_JSON_BYTES:
+                raise PolicyFetchError(
+                    f"Release policy file is too large: exceeds {DEFAULT_MAX_JSON_BYTES} bytes."
+                )
             content_type = _content_type_from_path(url)
-            return Path(url).read_bytes(), content_type
+            return policy_path.read_bytes(), content_type
         response = _call_http_get(http_get, url, timeout) if http_get else _default_http_get(url, timeout)
         return _response_bytes(response)
     except PolicyFetchError:

@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Iterable
 
 from .bundled_policy import load_bundled_policy
 from .cache import default_cache_path
@@ -31,6 +32,48 @@ class PolicySourceResult:
     warnings: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
     source_problems: tuple[SourceProblem, ...] = ()
+
+
+@dataclass(frozen=True)
+class SourceDegradationDecision:
+    source_status: SourceStatus
+    source_class: str
+    candidate_status: EvaluationStatus
+    allow_compliant_green: bool
+    force_check_incomplete: bool
+    must_exit_code_2: bool
+    mode: str
+    reason: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source_status": self.source_status.value,
+            "source_class": self.source_class,
+            "candidate_status": self.candidate_status.value,
+            "allow_compliant_green": self.allow_compliant_green,
+            "force_check_incomplete": self.force_check_incomplete,
+            "must_exit_code_2": self.must_exit_code_2,
+            "mode": self.mode,
+            "reason": self.reason,
+        }
+
+
+SOURCE_STATUS_CLASSES = {
+    SourceStatus.REMOTE_POLICY_OK: "remote",
+    SourceStatus.USING_FRESH_CACHE: "fresh_cache",
+    SourceStatus.USING_STALE_CACHE: "stale_cache",
+    SourceStatus.USING_BUNDLED_POLICY: "bundled",
+    SourceStatus.POLICY_UNAVAILABLE: "unavailable",
+    SourceStatus.RUNTIME_HTML_FALLBACK_USED: "runtime_html",
+    SourceStatus.REMOTE_POLICY_UNREACHABLE: "unavailable",
+    SourceStatus.REMOTE_POLICY_PARSE_FAILED: "unavailable",
+    SourceStatus.REMOTE_POLICY_SIGNATURE_FAILED: "unavailable",
+    SourceStatus.CHECK_INCOMPLETE: "unavailable",
+}
+
+
+def _dedupe_text(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(str(value) for value in values if str(value)))
 
 
 def _source_problem(
@@ -477,18 +520,31 @@ def _load_runtime_policy(config: ReleaseCheckerConfig) -> PolicySourceResult:
         source_status=SourceStatus.POLICY_UNAVAILABLE,
         is_source_check_complete=False,
         policy_signature_status="unavailable",
-        warnings=tuple(dict.fromkeys(warnings)),
-        errors=tuple(dict.fromkeys(errors or ["No valid release policy is available."])),
+        warnings=_dedupe_text(warnings),
+        errors=_dedupe_text(errors or ["No valid release policy is available."]),
         source_problems=tuple(dict.fromkeys(source_problems)),
     )
 
 
-def _with_source(result: EvaluationResult, source: PolicySourceResult) -> EvaluationResult:
-    warnings = tuple(dict.fromkeys(source.warnings + result.warnings + result.notes))
-    errors = tuple(dict.fromkeys(source.errors + result.errors))
+def _with_source(
+    result: EvaluationResult,
+    source: PolicySourceResult,
+    config: ReleaseCheckerConfig,
+) -> EvaluationResult:
+    errors = _dedupe_text([*source.errors, *result.errors])
+    warnings = _dedupe_text(
+        warning
+        for warning in (*source.warnings, *result.warnings, *result.notes)
+        if warning not in errors
+    )
+    notes = _dedupe_text(
+        note
+        for note in (*source.warnings, *result.notes)
+        if note not in errors
+    )
     return replace(
         result,
-        notes=warnings,
+        notes=notes,
         warnings=warnings,
         errors=errors,
         source_problems=source.source_problems,
@@ -498,10 +554,15 @@ def _with_source(result: EvaluationResult, source: PolicySourceResult) -> Evalua
         policy_source_url=source.policy_source_url,
         policy_source_kind=source.policy_source_kind,
         policy_signature_status=source.policy_signature_status,
+        strict_production=config.strict_production,
     )
 
 
-def _incomplete_result(local_state: LocalWindowsState, source: PolicySourceResult) -> EvaluationResult:
+def _incomplete_result(
+    local_state: LocalWindowsState,
+    source: PolicySourceResult,
+    config: ReleaseCheckerConfig,
+) -> EvaluationResult:
     return EvaluationResult(
         status=EvaluationStatus.CHECK_INCOMPLETE,
         local=local_state,
@@ -515,6 +576,7 @@ def _incomplete_result(local_state: LocalWindowsState, source: PolicySourceResul
         warnings=source.warnings,
         errors=source.errors,
         source_problems=source.source_problems,
+        strict_production=config.strict_production,
     )
 
 
@@ -544,13 +606,68 @@ def _with_audit_diagnostics(result: EvaluationResult, config: ReleaseCheckerConf
     return apply_silent_feature_update_diagnostics(result, audit)
 
 
+def _source_status_class(source_status: SourceStatus) -> str:
+    return SOURCE_STATUS_CLASSES.get(source_status, "unavailable")
+
+
+def decide_source_degradation(
+    config: ReleaseCheckerConfig,
+    source: PolicySourceResult,
+    *,
+    candidate_status: EvaluationStatus,
+) -> SourceDegradationDecision:
+    source_status = source.source_status
+    source_class = _source_status_class(source_status)
+    live_remote_json = (
+        source_status is SourceStatus.REMOTE_POLICY_OK
+        and source.policy_source_kind == "remote_json"
+        and source.is_source_check_complete
+    )
+
+    if config.strict_production:
+        force_check_incomplete = not live_remote_json
+        reason = None
+        if force_check_incomplete:
+            source_kind = source.policy_source_kind or "unknown"
+            reason = (
+                "Strict production requires a complete live signed remote JSON policy source before returning a production result. "
+                f"Current source is {source_status.value} / {source_kind}."
+            )
+        return SourceDegradationDecision(
+            source_status=source_status,
+            source_class=source_class,
+            candidate_status=candidate_status,
+            allow_compliant_green=candidate_status is EvaluationStatus.COMPLIANT and not force_check_incomplete,
+            force_check_incomplete=force_check_incomplete,
+            must_exit_code_2=force_check_incomplete,
+            mode="strict_production",
+            reason=reason,
+        )
+
+    force_for_green = (
+        config.source_check_required_for_green
+        and candidate_status is EvaluationStatus.COMPLIANT
+        and not source.is_source_check_complete
+    )
+    return SourceDegradationDecision(
+        source_status=source_status,
+        source_class=source_class,
+        candidate_status=candidate_status,
+        allow_compliant_green=candidate_status is EvaluationStatus.COMPLIANT and not force_for_green,
+        force_check_incomplete=force_for_green,
+        must_exit_code_2=force_for_green,
+        mode="source_check_required" if config.source_check_required_for_green else "normal",
+        reason="Source check incomplete; cannot return green result." if force_for_green else None,
+    )
+
+
 def check_current_system(config: ReleaseCheckerConfig | None = None) -> EvaluationResult:
     active_config = config or ReleaseCheckerConfig()
 
     local_state = _get_local_state(active_config)
     source = _load_runtime_policy(active_config)
     if source.policy is None:
-        return _incomplete_result(local_state, source)
+        return _incomplete_result(local_state, source, active_config)
     policy = source.policy
 
     wua_secondary = None
@@ -564,7 +681,7 @@ def check_current_system(config: ReleaseCheckerConfig | None = None) -> Evaluati
                 explicit_target_release=active_config.explicit_target_release,
             ).version
         except PolicyError:
-            target_release = None
+            pass
         try:
             wua_secondary = query_wua_secondary(
                 target_release,
@@ -595,20 +712,36 @@ def check_current_system(config: ReleaseCheckerConfig | None = None) -> Evaluati
         disallow_preview_installed=active_config.disallow_preview_installed,
     )
     result = _with_audit_diagnostics(result, active_config)
-    if (
-        active_config.source_check_required_for_green
-        and result.status is EvaluationStatus.COMPLIANT
-        and not source.is_source_check_complete
-    ):
+    degradation = decide_source_degradation(
+        active_config,
+        source,
+        candidate_status=result.status,
+    )
+    if degradation.force_check_incomplete:
+        source_gate_reason = degradation.reason or "Source check incomplete; cannot return production result."
         result = replace(
             result,
             status=EvaluationStatus.CHECK_INCOMPLETE,
             is_warning=False,
             is_error=True,
-            action="Source check incomplete; cannot return green result.",
+            action=source_gate_reason,
             summary="Check incomplete: source check did not complete.",
+            warnings=_dedupe_text([*result.warnings, source_gate_reason]),
+            notes=_dedupe_text([*result.notes, source_gate_reason]),
+            metadata={**dict(result.metadata), "source_degradation": degradation.to_dict()},
         )
-    return _with_source(result, source)
+    else:
+        result = replace(
+            result,
+            metadata={**dict(result.metadata), "source_degradation": degradation.to_dict()},
+        )
+    return _with_source(result, source, active_config)
 
 
-__all__ = ["PolicySourceResult", "check_current_system"]
+__all__ = [
+    "PolicySourceResult",
+    "SOURCE_STATUS_CLASSES",
+    "SourceDegradationDecision",
+    "check_current_system",
+    "decide_source_degradation",
+]

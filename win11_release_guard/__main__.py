@@ -39,19 +39,23 @@ from .config import (
     DEFAULT_WUA_TIMEOUT_SECONDS,
     POLICY_URL_ENV_VAR,
     ReleaseCheckerConfig,
+    STRICT_PRODUCTION_ENV_VAR,
     normalize_policy_url,
     policy_url_from_env,
+    strict_production_from_env,
 )
 from .exceptions import PolicyFetchError, PolicyParseError, PolicyTrustError, WindowsReleaseCheckerError
+from .json_utils import DEFAULT_MAX_JSON_BYTES, StrictJSONError, strict_json_object
 from .models import (
     EvaluationResult,
     EvaluationStatus,
     InstalledBuildClassification,
     InstalledBuildOrigin,
+    SourceStatus,
 )
 from .policy_schema import validate_policy_document
 from .remote_policy import fetch_policy_bytes
-from .signing import load_public_key, load_trusted_policy
+from .signing import load_public_key, load_trusted_policy, verify_policy_signature
 
 
 EXIT_COMPLIANT = 0
@@ -117,6 +121,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--check-public-pages",
         action="store_true",
         help="Validate the public GitHub Pages landing page and API aliases after policy source checks.",
+    )
+    parser.add_argument(
+        "--allow-missing-manifest",
+        action="store_true",
+        help="Allow --check-policy-source to pass when a remote policy manifest cannot be fetched.",
     )
     parser.add_argument("--cache-file", type=Path, default=None, help="Optional policy cache path.")
     parser.add_argument(
@@ -207,6 +216,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--source-check-required-for-green",
         action="store_true",
         help="Return CHECK_INCOMPLETE instead of COMPLIANT when live source check failed.",
+    )
+    parser.add_argument(
+        "--strict-production",
+        action="store_true",
+        help="Require a complete signed live remote JSON policy source before returning COMPLIANT.",
     )
     parser.add_argument(
         "--allow-major-upgrade-recommendation",
@@ -364,9 +378,40 @@ def _write_json_output(
     path.write_text(json_text + "\n", encoding="utf-8", newline="\n")
 
 
+def _source_degradation_warning(result: EvaluationResult) -> str | None:
+    source_status = result.source_status
+    source_kind = result.policy_source_kind or "unknown"
+    if source_status is SourceStatus.REMOTE_POLICY_OK and source_kind == "remote_json" and result.is_source_check_complete:
+        return None
+    if source_status is SourceStatus.USING_FRESH_CACHE:
+        return "using fresh cache; live remote policy was not used for this result."
+    if source_status is SourceStatus.USING_STALE_CACHE:
+        return "using stale cache; treat this as degraded evidence, not production green."
+    if source_status is SourceStatus.USING_BUNDLED_POLICY:
+        return "using bundled last-known-good policy; live policy source is unavailable."
+    if source_status is SourceStatus.POLICY_UNAVAILABLE:
+        return "policy unavailable; release compliance check is incomplete."
+    if source_kind != "remote_json" or not result.is_source_check_complete:
+        return "live signed remote JSON policy was not fully verified."
+    return None
+
+
+def _source_drift_warnings(result: EvaluationResult) -> list[str]:
+    warnings: list[str] = []
+    for warning in result.warnings:
+        if "source freshness warning" in warning.lower() or "source drift" in warning.lower():
+            warnings.append(warning)
+    metadata = result.metadata if isinstance(result.metadata, Mapping) else {}
+    source_diagnostics = metadata.get("source_diagnostics")
+    if isinstance(source_diagnostics, Mapping):
+        warnings.extend(str(item) for item in source_diagnostics.get("warnings", []) if item)
+    return list(dict.fromkeys(warnings))
+
+
 def _print_pretty(result: EvaluationResult) -> None:
     target_version = result.target.version if result.target else "unknown"
     target_build = result.baseline_build or (result.target.effective_baseline_build if result.target else None)
+    latest_observed = result.target.latest_observed_build if result.target else None
     source_status = result.source_status.value if result.source_status else "unknown"
     print(f"Status: {result.status.value}")
     print(f"Local: {result.installed_release or 'unknown'} / {result.installed_build or 'unknown'}")
@@ -375,9 +420,31 @@ def _print_pretty(result: EvaluationResult) -> None:
         if result.local_consensus.raw_product_name:
             print(f"Raw ProductName: {result.local_consensus.raw_product_name}")
     print(f"Target: {target_version} / {target_build or 'unknown'}")
+    if result.target:
+        print(f"Required baseline: {target_build or 'unknown'}")
+        print(f"Latest observed: {latest_observed or 'unknown'}")
     print(f"Source: {source_status} / {result.policy_source_kind or 'unknown'}")
+    source_warning = _source_degradation_warning(result)
+    if source_warning:
+        print(
+            "Source warning: live signed remote JSON policy was not fully verified; "
+            f"{source_warning}"
+        )
     if result.installed_build_origin:
         print(f"Build origin: {_format_build_origin(result.installed_build_origin, result)}")
+        if (
+            result.status is EvaluationStatus.COMPLIANT
+            and result.installed_build_origin.classification is InstalledBuildClassification.PREVIEW
+        ):
+            print(
+                "Preview warning: COMPLIANT means the installed build is at or above the required B-release "
+                "baseline, but a preview build is installed."
+            )
+    drift_warnings = _source_drift_warnings(result)
+    if drift_warnings:
+        print("Source drift warnings:")
+        for warning in drift_warnings:
+            print(f"- {warning}")
     print(f"Action: {result.action or 'Manual inspection required.'}")
     if result.notes:
         print("Notes:")
@@ -430,6 +497,7 @@ def _print_error(message: str, *, json_output: bool) -> None:
 
 def _config_from_args(args: argparse.Namespace) -> ReleaseCheckerConfig:
     policy_url, _policy_url_source = _policy_url_from_args(args)
+    strict_production = bool(args.strict_production or strict_production_from_env())
     return ReleaseCheckerConfig(
         policy_url=policy_url,
         cache_file=str(args.cache_file) if args.cache_file is not None else None,
@@ -448,6 +516,7 @@ def _config_from_args(args: argparse.Namespace) -> ReleaseCheckerConfig:
         trusted_policy_public_key=args.trusted_policy_public_key,
         use_bundled_policy_fallback=not args.no_bundled_policy_fallback,
         source_check_required_for_green=args.source_check_required_for_green,
+        strict_production=strict_production,
         allow_major_upgrade_recommendation=args.allow_major_upgrade_recommendation,
         allow_server_evaluation=args.allow_server_evaluation,
         warn_on_preview_installed=not args.no_preview_installed_warning,
@@ -562,6 +631,7 @@ def _source_check_payload(config: ReleaseCheckerConfig) -> dict[str, object]:
         "policy_source_url": source.policy_source_url,
         "policy_source_kind": source.policy_source_kind,
         "policy_signature_status": source.policy_signature_status,
+        "policy_age_hours": source.policy_age_hours,
         "warnings": list(source.warnings),
         "errors": list(source.errors),
         "source_problems": [problem.to_dict() for problem in source.source_problems],
@@ -577,12 +647,14 @@ def _diagnose_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "policy_url": policy_url,
         "policy_url_source": source,
         "policy_url_env_var": POLICY_URL_ENV_VAR,
+        "strict_production_env_var": STRICT_PRODUCTION_ENV_VAR,
         "cache_file": str(Path(config.cache_file)) if config.cache_file else str(default_cache_path()),
         "trusted_public_key_fingerprint": _trusted_public_key_fingerprint(config.trusted_policy_public_key),
         "wua_default_enabled": ReleaseCheckerConfig().enable_wua_probe,
         "wua_effective_enabled": config.enable_wua_probe,
         "runtime_html_fallback_enabled": config.allow_runtime_release_health_html,
         "source_check_required_for_green": config.source_check_required_for_green,
+        "strict_production": config.strict_production,
         "platform_summary": _platform_summary(),
         "remote_fetch_enabled": policy_url is not None,
         "live_remote_fetch_performed": bool(args.check_source),
@@ -672,7 +744,7 @@ def _fetch_public_url(url: str, *, timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS
             return PublicFetchResult(
                 url=url,
                 status_code=int(getattr(response, "status", 200)),
-                content=response.read(),
+                content=response.read(DEFAULT_MAX_JSON_BYTES + 1),
                 content_type=content_type,
                 headers=headers,
             )
@@ -681,7 +753,7 @@ def _fetch_public_url(url: str, *, timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS
         return PublicFetchResult(
             url=url,
             status_code=int(exc.code),
-            content=exc.read(),
+            content=exc.read(DEFAULT_MAX_JSON_BYTES + 1),
             content_type=headers.get("Content-Type"),
             headers=headers,
         )
@@ -691,12 +763,13 @@ def _fetch_public_url(url: str, *, timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS
 
 def _decode_json_bytes(data: bytes, *, label: str) -> Mapping[str, Any]:
     try:
-        decoded = json.loads(data.decode("utf-8-sig"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PolicyParseError(f"{label} is malformed JSON: {exc}") from exc
-    if not isinstance(decoded, Mapping):
-        raise PolicyParseError(f"{label} top-level value must be an object.")
-    return decoded
+        return strict_json_object(data, label=label)
+    except StrictJSONError as exc:
+        raise PolicyParseError(str(exc)) from exc
+
+
+def _sha256_hex_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def _manifest_url_for_policy(policy_url: str, policy) -> str | None:
@@ -714,6 +787,7 @@ def _manifest_check_payload(
     policy,
     policy_bytes: bytes,
     timeout_seconds: float,
+    allow_missing_manifest: bool = False,
 ) -> tuple[dict[str, object], bool]:
     manifest_url = _manifest_url_for_policy(policy_url, policy)
     if manifest_url is None:
@@ -730,14 +804,16 @@ def _manifest_check_payload(
     try:
         manifest_bytes, _manifest_content_type = fetch_policy_bytes(manifest_url, timeout=timeout_seconds)
     except Exception as exc:
+        policy_sha256 = hashlib.sha256(policy_bytes).hexdigest()
         return (
             {
                 "manifest_url": manifest_url,
                 "manifest_status": "unavailable",
                 "manifest_warning": f"Manifest unavailable: {exc}",
-                "policy_sha256": hashlib.sha256(policy_bytes).hexdigest(),
+                "manifest_missing_allowed": bool(allow_missing_manifest),
+                "policy_sha256": policy_sha256,
             },
-            True,
+            bool(allow_missing_manifest),
         )
 
     try:
@@ -791,7 +867,12 @@ def _manifest_check_payload(
 
 def _public_pages_urls(policy) -> dict[str, str]:
     published_urls = dict(DEFAULT_PUBLISHED_POLICY_URLS)
-    published_urls.update(dict(policy.published_urls or {}))
+    policy_published_urls = getattr(policy, "published_urls", None)
+    if isinstance(policy_published_urls, Mapping):
+        for key in DEFAULT_PUBLISHED_POLICY_URLS:
+            value = policy_published_urls.get(key)
+            if isinstance(value, str) and value:
+                published_urls[key] = value
     landing = published_urls["landing"].rstrip("/")
     return {
         "landing": published_urls["landing"],
@@ -806,6 +887,65 @@ def _public_pages_urls(policy) -> dict[str, str]:
     }
 
 
+def _public_page_fetch_check(
+    *,
+    name: str,
+    url: str,
+    timeout_seconds: float,
+    expect_json: bool = False,
+    expect_signature: bool = False,
+    expect_robots: bool = False,
+) -> tuple[dict[str, object], PublicFetchResult | None, Mapping[str, Any] | None]:
+    try:
+        response = _fetch_public_url(url, timeout=timeout_seconds)
+    except Exception as exc:
+        return (
+            {
+                "name": name,
+                "url": url,
+                "ok": False,
+                "status_code": None,
+                "error": str(exc),
+            },
+            None,
+            None,
+        )
+
+    errors: list[str] = []
+    decoded_json: Mapping[str, Any] | None = None
+    if response.status_code != 200:
+        errors.append(f"HTTP {response.status_code}")
+    if len(response.content) > DEFAULT_MAX_JSON_BYTES:
+        errors.append(f"response is too large: exceeds {DEFAULT_MAX_JSON_BYTES} bytes")
+    if response.auth_challenge:
+        errors.append("auth challenge present")
+
+    if (expect_json or expect_signature) and not errors:
+        try:
+            decoded_json = _decode_json_bytes(response.content, label=f"{name} endpoint")
+        except PolicyParseError as exc:
+            errors.append(str(exc))
+
+    if expect_signature and not errors and decoded_json is not None and not decoded_json.get("signature"):
+        errors.append("signature field is missing")
+
+    if expect_robots and not errors:
+        text = response.content.decode("utf-8", errors="replace")
+        if "User-agent: *" not in text or "Allow: /" not in text:
+            errors.append("robots.txt does not allow all")
+
+    check = {
+        "name": name,
+        "url": url,
+        "ok": not errors,
+        "status_code": response.status_code,
+        "errors": errors,
+    }
+    if response.status_code == 200:
+        check["sha256"] = _sha256_hex_bytes(response.content)
+    return check, response, decoded_json
+
+
 def _check_public_page_url(
     *,
     name: str,
@@ -815,64 +955,244 @@ def _check_public_page_url(
     expect_signature: bool = False,
     expect_robots: bool = False,
 ) -> dict[str, object]:
-    try:
-        response = _fetch_public_url(url, timeout=timeout_seconds)
-    except Exception as exc:
-        return {
-            "name": name,
-            "url": url,
-            "ok": False,
-            "status_code": None,
-            "error": str(exc),
-        }
+    check, _response, _decoded_json = _public_page_fetch_check(
+        name=name,
+        url=url,
+        timeout_seconds=timeout_seconds,
+        expect_json=expect_json,
+        expect_signature=expect_signature,
+        expect_robots=expect_robots,
+    )
+    return check
+
+
+def _public_consistency_check(
+    name: str,
+    errors: Sequence[str],
+    **metadata: object,
+) -> dict[str, object]:
+    check: dict[str, object] = {
+        "name": name,
+        "ok": not errors,
+        "errors": list(errors),
+    }
+    check.update({key: value for key, value in metadata.items() if value is not None})
+    return check
+
+
+def _manifest_policy_sha256_errors(
+    manifest: Mapping[str, Any] | None,
+    expected_policy_sha256: str | None,
+    *,
+    label: str,
+) -> list[str]:
+    if expected_policy_sha256 is None:
+        return [f"{label} policy bytes unavailable"]
+    if manifest is None:
+        return [f"{label} manifest unavailable"]
+    manifest_policy_sha256 = str(manifest.get("policy_sha256") or "")
+    if not manifest_policy_sha256:
+        return [f"{label} manifest missing policy_sha256"]
+    if manifest_policy_sha256 != expected_policy_sha256:
+        return [
+            f"{label} manifest policy_sha256 {manifest_policy_sha256} does not match policy SHA-256 {expected_policy_sha256}"
+        ]
+    return []
+
+
+def _manifest_documents_different_api_policy(
+    manifest: Mapping[str, Any] | None,
+    api_policy_sha256: str | None,
+) -> bool:
+    if manifest is None or api_policy_sha256 is None:
+        return False
+    marker = bool(
+        manifest.get("api_policy_differs_from_canonical")
+        or manifest.get("allow_different_api_policy_bytes")
+    )
+    return marker and str(manifest.get("api_policy_sha256") or "") == api_policy_sha256
+
+
+def _manifest_documents_different_api_signature(
+    manifest: Mapping[str, Any] | None,
+    api_signature_sha256: str | None,
+) -> bool:
+    if manifest is None or api_signature_sha256 is None:
+        return False
+    marker = bool(
+        manifest.get("api_policy_differs_from_canonical")
+        or manifest.get("allow_different_api_policy_bytes")
+    )
+    return marker and str(manifest.get("api_signature_sha256") or "") == api_signature_sha256
+
+
+def _published_url_errors(
+    policy_document: Mapping[str, Any] | None,
+    expected_urls: Mapping[str, str],
+    *,
+    label: str,
+) -> list[str]:
+    if policy_document is None:
+        return [f"{label} policy JSON unavailable"]
+    published_urls = policy_document.get("published_urls")
+    if not isinstance(published_urls, Mapping):
+        return [f"{label} policy JSON missing published_urls object"]
 
     errors: list[str] = []
-    if response.status_code != 200:
-        errors.append(f"HTTP {response.status_code}")
-    if response.auth_challenge:
-        errors.append("auth challenge present")
-
-    if expect_json and not errors:
-        try:
-            _decode_json_bytes(response.content, label=f"{name} endpoint")
-        except PolicyParseError as exc:
-            errors.append(str(exc))
-
-    if expect_signature and not errors:
-        try:
-            signature = _decode_json_bytes(response.content, label=f"{name} signature")
-            if not signature.get("signature"):
-                errors.append("signature field is missing")
-        except PolicyParseError as exc:
-            errors.append(str(exc))
-
-    if expect_robots and not errors:
-        text = response.content.decode("utf-8", errors="replace")
-        if "User-agent: *" not in text or "Allow: /" not in text:
-            errors.append("robots.txt does not allow all")
-
-    return {
-        "name": name,
-        "url": url,
-        "ok": not errors,
-        "status_code": response.status_code,
-        "errors": errors,
-    }
+    for key in DEFAULT_PUBLISHED_POLICY_URLS:
+        expected_url = expected_urls[key]
+        actual_url = published_urls.get(key)
+        if actual_url != expected_url:
+            errors.append(
+                f"{label} published_urls.{key} expected {expected_url!r}, got {actual_url!r}"
+            )
+    return errors
 
 
-def _check_public_pages_payload(policy, *, timeout_seconds: float) -> tuple[dict[str, object], bool]:
+def _check_public_pages_payload(
+    policy,
+    *,
+    timeout_seconds: float,
+    trusted_policy_public_key: str | bytes | None = None,
+) -> tuple[dict[str, object], bool]:
     urls = _public_pages_urls(policy)
-    checks = [
-        _check_public_page_url(name="landing", url=urls["landing"], timeout_seconds=timeout_seconds),
-        _check_public_page_url(name="policy", url=urls["policy"], timeout_seconds=timeout_seconds, expect_json=True),
-        _check_public_page_url(name="signature", url=urls["signature"], timeout_seconds=timeout_seconds, expect_signature=True),
-        _check_public_page_url(name="manifest", url=urls["manifest"], timeout_seconds=timeout_seconds, expect_json=True),
-        _check_public_page_url(name="api_policy", url=urls["api_policy"], timeout_seconds=timeout_seconds, expect_json=True),
-        _check_public_page_url(name="api_signature", url=urls["api_signature"], timeout_seconds=timeout_seconds, expect_signature=True),
-        _check_public_page_url(name="api_manifest", url=urls["api_manifest"], timeout_seconds=timeout_seconds, expect_json=True),
-        _check_public_page_url(name="robots", url=urls["robots"], timeout_seconds=timeout_seconds, expect_robots=True),
-        _check_public_page_url(name="sitemap", url=urls["sitemap"], timeout_seconds=timeout_seconds),
+    endpoint_specs = [
+        ("landing", urls["landing"], False, False, False),
+        ("policy", urls["policy"], True, False, False),
+        ("signature", urls["signature"], False, True, False),
+        ("manifest", urls["manifest"], True, False, False),
+        ("api_policy", urls["api_policy"], True, False, False),
+        ("api_signature", urls["api_signature"], False, True, False),
+        ("api_manifest", urls["api_manifest"], True, False, False),
+        ("robots", urls["robots"], False, False, True),
+        ("sitemap", urls["sitemap"], False, False, False),
     ]
+    checks: list[dict[str, object]] = []
+    responses: dict[str, PublicFetchResult] = {}
+    decoded_documents: dict[str, Mapping[str, Any]] = {}
+    for name, url, expect_json, expect_signature, expect_robots in endpoint_specs:
+        check, response, decoded_json = _public_page_fetch_check(
+            name=name,
+            url=url,
+            timeout_seconds=timeout_seconds,
+            expect_json=expect_json,
+            expect_signature=expect_signature,
+            expect_robots=expect_robots,
+        )
+        checks.append(check)
+        if response is not None:
+            responses[name] = response
+        if decoded_json is not None:
+            decoded_documents[name] = decoded_json
+
+    policy_bytes = responses.get("policy").content if responses.get("policy") else None
+    signature_bytes = responses.get("signature").content if responses.get("signature") else None
+    api_policy_bytes = responses.get("api_policy").content if responses.get("api_policy") else None
+    api_signature_bytes = responses.get("api_signature").content if responses.get("api_signature") else None
+
+    policy_sha256 = _sha256_hex_bytes(policy_bytes) if policy_bytes is not None else None
+    api_policy_sha256 = _sha256_hex_bytes(api_policy_bytes) if api_policy_bytes is not None else None
+    signature_sha256 = _sha256_hex_bytes(signature_bytes) if signature_bytes is not None else None
+    api_signature_sha256 = _sha256_hex_bytes(api_signature_bytes) if api_signature_bytes is not None else None
+
+    canonical_signature_ok = False
+    canonical_signature_errors: list[str] = []
+    if policy_bytes is None:
+        canonical_signature_errors.append("canonical policy bytes unavailable")
+    if signature_bytes is None:
+        canonical_signature_errors.append("canonical signature bytes unavailable")
+    if policy_bytes is not None and signature_bytes is not None:
+        canonical_signature_ok = verify_policy_signature(
+            policy_bytes,
+            signature_bytes,
+            trusted_policy_public_key,
+        )
+        if not canonical_signature_ok:
+            canonical_signature_errors.append("canonical policy signature verification failed")
+    checks.append(
+        _public_consistency_check(
+            "canonical_signature",
+            canonical_signature_errors,
+            policy_sha256=policy_sha256,
+            signature_sha256=signature_sha256,
+        )
+    )
+
+    api_signature_ok = False
+    api_signature_errors: list[str] = []
+    if api_policy_bytes is None:
+        api_signature_errors.append("API policy bytes unavailable")
+    if api_signature_bytes is None:
+        api_signature_errors.append("API signature bytes unavailable")
+    if api_policy_bytes is not None and api_signature_bytes is not None:
+        api_signature_ok = verify_policy_signature(
+            api_policy_bytes,
+            api_signature_bytes,
+            trusted_policy_public_key,
+        )
+        if not api_signature_ok:
+            api_signature_errors.append("API policy signature verification failed")
+    checks.append(
+        _public_consistency_check(
+            "api_signature_integrity",
+            api_signature_errors,
+            policy_sha256=api_policy_sha256,
+            signature_sha256=api_signature_sha256,
+        )
+    )
+
+    manifest = decoded_documents.get("manifest")
+    api_manifest = decoded_documents.get("api_manifest")
+    documented_api_difference = _manifest_documents_different_api_policy(manifest, api_policy_sha256)
+
+    policy_alias_errors: list[str] = []
+    if policy_bytes is None or api_policy_bytes is None:
+        policy_alias_errors.append("canonical or API policy bytes unavailable")
+    elif policy_bytes != api_policy_bytes and not documented_api_difference:
+        policy_alias_errors.append(
+            "canonical policy bytes differ from API policy bytes without manifest api_policy_sha256 "
+            "and api_policy_differs_from_canonical=true"
+        )
+    checks.append(_public_consistency_check("policy_api_alias", policy_alias_errors))
+
+    signature_alias_errors: list[str] = []
+    if signature_bytes is None or api_signature_bytes is None:
+        signature_alias_errors.append("canonical or API signature bytes unavailable")
+    elif signature_bytes != api_signature_bytes:
+        same_policy_hash = policy_sha256 == api_policy_sha256
+        documented_signature_difference = _manifest_documents_different_api_signature(
+            manifest,
+            api_signature_sha256,
+        )
+        if same_policy_hash and canonical_signature_ok and api_signature_ok:
+            pass
+        elif documented_api_difference and documented_signature_difference and canonical_signature_ok and api_signature_ok:
+            pass
+        else:
+            signature_alias_errors.append(
+                "canonical signature bytes differ from API signature bytes and do not verify the same policy hash"
+            )
+    checks.append(_public_consistency_check("signature_api_alias", signature_alias_errors))
+
+    checks.append(
+        _public_consistency_check(
+            "manifest_policy_sha256",
+            _manifest_policy_sha256_errors(manifest, policy_sha256, label="canonical"),
+        )
+    )
+    checks.append(
+        _public_consistency_check(
+            "api_manifest_policy_sha256",
+            _manifest_policy_sha256_errors(api_manifest, api_policy_sha256, label="API"),
+        )
+    )
+
+    published_url_errors = [
+        *_published_url_errors(decoded_documents.get("policy"), urls, label="canonical"),
+        *_published_url_errors(decoded_documents.get("api_policy"), urls, label="API"),
+    ]
+    checks.append(_public_consistency_check("published_urls", published_url_errors))
+
     ok = all(bool(check.get("ok")) for check in checks)
     return (
         {
@@ -918,10 +1238,12 @@ def _policy_source_success_payload(
             "version": target.version,
             "build_family": target.build_family,
             "latest_build": target.latest_build,
-            "baseline_build": target.effective_baseline_build,
+            "latest_observed_build": target.latest_observed_build,
+            "baseline_build": target.baseline_build,
+            "required_baseline_build": target.required_baseline_build,
             "servicing_channel": target.servicing_channel.value,
         }
-        baseline = target.effective_baseline_build
+        baseline = target.required_baseline_build
 
     excluded_releases = [
         {
@@ -929,12 +1251,19 @@ def _policy_source_success_payload(
             "build_family": entry.build_family,
             "reason": entry.reason or entry.metadata.get("reason"),
             "latest_build": entry.latest_build,
-            "baseline_build": entry.effective_baseline_build,
+            "latest_observed_build": entry.latest_observed_build,
+            "baseline_build": entry.baseline_build,
+            "required_baseline_build": entry.required_baseline_build,
         }
         for entry in policy.excluded_for_existing_devices
     ]
     status = "OK"
     if manifest_payload.get("manifest_status") in {"invalid", "sha256_mismatch"}:
+        status = "INVALID"
+    if (
+        manifest_payload.get("manifest_status") == "unavailable"
+        and not manifest_payload.get("manifest_missing_allowed")
+    ):
         status = "INVALID"
     if public_pages_payload and public_pages_payload.get("status") != "OK":
         status = "PUBLIC_PAGES_FAILED"
@@ -947,6 +1276,7 @@ def _policy_source_success_payload(
         "signature_status": trusted_signature_status,
         "generated_at_utc": policy.generated_at_utc,
         "source_urls": list(policy.source_urls),
+        "source_diagnostics": dict(policy.source_diagnostics),
         "published_urls": dict(policy.published_urls),
         "manifest_url": manifest_payload.get("manifest_url"),
         "manifest_status": manifest_payload.get("manifest_status"),
@@ -1106,6 +1436,7 @@ def _check_policy_source_payload(args: argparse.Namespace) -> tuple[dict[str, ob
         policy=trusted.policy,
         policy_bytes=policy_bytes,
         timeout_seconds=args.timeout_seconds,
+        allow_missing_manifest=bool(args.allow_missing_manifest),
     )
 
     public_pages_payload = None
@@ -1114,6 +1445,7 @@ def _check_policy_source_payload(args: argparse.Namespace) -> tuple[dict[str, ob
         public_pages_payload, public_pages_ok = _check_public_pages_payload(
             trusted.policy,
             timeout_seconds=args.timeout_seconds,
+            trusted_policy_public_key=args.trusted_policy_public_key,
         )
 
     return (
@@ -1156,6 +1488,27 @@ def _print_policy_source_payload(payload: dict[str, object]) -> None:
     emit("Source URLs:")
     for source_url in payload.get("source_urls") or []:
         emit(f"- {source_url}")
+    source_diagnostics = payload.get("source_diagnostics") or {}
+    if isinstance(source_diagnostics, dict) and source_diagnostics:
+        emit("Source freshness:")
+        release_health = source_diagnostics.get("release_health_html")
+        if isinstance(release_health, dict):
+            emit(
+                "- release_health_html: "
+                f"fetched_at={release_health.get('fetched_at_utc') or 'unknown'}, "
+                f"bytes={release_health.get('bytes') if release_health.get('bytes') is not None else 'unknown'}, "
+                f"newest_current_revision={release_health.get('newest_current_version_revision_date') or 'unknown'}, "
+                f"newest_history_availability={release_health.get('newest_release_history_availability_date') or 'unknown'}"
+            )
+        atom_feed = source_diagnostics.get("atom_feed")
+        if isinstance(atom_feed, dict):
+            emit(
+                "- atom_feed: "
+                f"fetched_at={atom_feed.get('fetched_at_utc') or 'unknown'}, "
+                f"bytes={atom_feed.get('bytes') if atom_feed.get('bytes') is not None else 'unknown'}, "
+                f"newest_atom_updated={atom_feed.get('newest_atom_updated') or 'unknown'}, "
+                f"newest_atom_published={atom_feed.get('newest_atom_published') or 'unknown'}"
+            )
     published_urls = payload.get("published_urls") or {}
     if isinstance(published_urls, dict) and published_urls:
         emit("Published URLs:")
@@ -1167,12 +1520,13 @@ def _print_policy_source_payload(payload: dict[str, object]) -> None:
         emit(
             "Broad target: "
             f"{broad_target.get('version')} / "
-            f"{broad_target.get('build_family')} / "
-            f"{broad_target.get('latest_build') or 'unknown'}"
+            f"{broad_target.get('build_family')}"
         )
+        emit(f"Latest observed build: {broad_target.get('latest_observed_build') or broad_target.get('latest_build') or 'unknown'}")
+        emit(f"Required baseline build: {broad_target.get('required_baseline_build') or 'unknown'}")
     else:
         emit("Broad target: unknown")
-    emit(f"Baseline: {payload.get('baseline') or 'unknown'}")
+    emit(f"Required baseline: {payload.get('baseline') or 'unknown'}")
 
     emit("Excluded releases:")
     excluded_releases = payload.get("excluded_releases") or []
@@ -1185,6 +1539,8 @@ def _print_policy_source_payload(payload: dict[str, object]) -> None:
         emit("- none")
 
     warnings = payload.get("validation_warnings") or []
+    if isinstance(source_diagnostics, dict):
+        warnings = list(dict.fromkeys([*warnings, *(source_diagnostics.get("warnings") or [])]))
     manifest_warning = payload.get("manifest_warning")
     if manifest_warning:
         warnings = [*warnings, manifest_warning]
@@ -1202,7 +1558,10 @@ def _print_policy_source_payload(payload: dict[str, object]) -> None:
             status = "OK" if check.get("ok") else "FAILED"
             status_code = check.get("status_code")
             suffix = f" HTTP {status_code}" if status_code is not None else ""
-            emit(f"- {check.get('name')}: {status}{suffix} {check.get('url')}")
+            line = f"- {check.get('name')}: {status}{suffix}"
+            if check.get("url"):
+                line = f"{line} {check['url']}"
+            emit(line)
             for error in check.get("errors") or []:
                 emit(f"  - {error}")
             if check.get("error"):

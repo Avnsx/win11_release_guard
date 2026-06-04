@@ -24,7 +24,12 @@ from .config import (
 )
 from .exceptions import PolicyFetchError, PolicyParseError
 from .models import QualityPolicy, ReleaseHistoryEntry, ReleasePolicy, ReleasePolicyEntry
-from .policy_schema import GENERATOR_VERSION, policy_document_to_json, validate_policy_document
+from .policy_schema import (
+    GENERATOR_VERSION,
+    SUPPORTED_POLICY_SCHEMA_VERSION,
+    policy_document_to_json,
+    validate_policy_document,
+)
 from .remote_policy import parse_windows11_release_health_html
 from .signing import sign_policy_bytes as sign_ed25519_policy_bytes
 
@@ -158,6 +163,7 @@ def load_source_text(
                     "path": str(path),
                     "status": "error",
                     "error": str(exc),
+                    "fetched_at_utc": _utc_now(),
                 },
             )
         return SourceText(
@@ -168,6 +174,7 @@ def load_source_text(
                 "path": str(path),
                 "status": "ok",
                 "bytes": len(text.encode("utf-8")),
+                "fetched_at_utc": _utc_now(),
             },
         )
 
@@ -183,6 +190,7 @@ def load_source_text(
                 "source": "network",
                 "status": "error",
                 "error": str(exc),
+                "fetched_at_utc": _utc_now(),
             },
         )
     return SourceText(
@@ -192,6 +200,7 @@ def load_source_text(
             "source": "network",
             "status": "ok",
             "bytes": len(text.encode("utf-8")),
+            "fetched_at_utc": _utc_now(),
         },
     )
 
@@ -405,6 +414,250 @@ def _quality_baselines(release_history: tuple[ReleaseHistoryEntry, ...]) -> dict
     return baselines
 
 
+def _parse_source_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            parsed = datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+        else:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _newest_timestamp(values: list[str | None]) -> str | None:
+    candidates = [(parsed, value) for value in values if (parsed := _parse_source_timestamp(value))]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def _newest_current_version_revision_date(entries: tuple[ReleasePolicyEntry, ...]) -> str | None:
+    values: list[str | None] = []
+    for entry in entries:
+        raw = entry.metadata.get("raw") if isinstance(entry.metadata.get("raw"), Mapping) else {}
+        if isinstance(raw, Mapping):
+            values.append(str(raw.get("Latest revision date") or "") or None)
+        values.append(str(entry.metadata.get("latest_revision_date") or "") or None)
+    return _newest_timestamp(values)
+
+
+def _newest_release_history_availability_date(rows: tuple[ReleaseHistoryEntry, ...]) -> str | None:
+    return _newest_timestamp([row.availability_date for row in rows])
+
+
+def _newest_atom_timestamp(entries: tuple[AtomFeedEntry, ...], field: str) -> str | None:
+    return _newest_timestamp([getattr(entry, field) for entry in entries])
+
+
+def _history_build_maps(rows: tuple[ReleaseHistoryEntry, ...]) -> tuple[dict[int, tuple[int, int]], set[str], set[str]]:
+    newest_by_family: dict[int, tuple[int, int]] = {}
+    builds: set[str] = set()
+    kbs: set[str] = set()
+    for row in rows:
+        builds.add(row.build)
+        kb = _extract_kb(row.kb_article)
+        if kb:
+            kbs.add(kb)
+        current = newest_by_family.get(row.build_family, (-1, -1))
+        newest_by_family[row.build_family] = max(current, _build_key(row.build))
+    return newest_by_family, builds, kbs
+
+
+def _atom_newer_than_history(
+    atom_entries: tuple[AtomFeedEntry, ...],
+    release_history: tuple[ReleaseHistoryEntry, ...],
+) -> tuple[dict[str, Any], ...]:
+    newest_by_family, history_builds, history_kbs = _history_build_maps(release_history)
+    missing: list[dict[str, Any]] = []
+    seen: set[tuple[str, str | None]] = set()
+    for entry in atom_entries:
+        kb = _extract_kb(entry.kb_article)
+        for build in entry.builds:
+            family = _build_key(build)[0]
+            if family < 0:
+                continue
+            if build in history_builds:
+                continue
+            if _build_key(build) <= newest_by_family.get(family, (-1, -1)):
+                continue
+            key = (build, kb)
+            if key in seen:
+                continue
+            seen.add(key)
+            missing.append(
+                {
+                    "build": build,
+                    "build_family": family,
+                    "kb_article": kb,
+                    "kb_missing_from_release_history": bool(kb and kb not in history_kbs),
+                    "published": entry.published,
+                    "updated": entry.updated,
+                    "title": entry.title,
+                }
+            )
+    return tuple(missing)
+
+
+def _current_version_latest_older_than_history(
+    current_versions: tuple[ReleasePolicyEntry, ...],
+    release_history: tuple[ReleaseHistoryEntry, ...],
+) -> tuple[dict[str, Any], ...]:
+    newest_by_family, _history_builds, _history_kbs = _history_build_maps(release_history)
+    stale: list[dict[str, Any]] = []
+    for entry in current_versions:
+        newest_history_key = newest_by_family.get(entry.build_family)
+        if newest_history_key is None or _build_key(entry.latest_build) >= newest_history_key:
+            continue
+        newest_history_build = max(
+            (row.build for row in release_history if row.build_family == entry.build_family),
+            key=_build_key,
+        )
+        stale.append(
+            {
+                "version": entry.version,
+                "build_family": entry.build_family,
+                "latest_build": entry.latest_build,
+                "newest_release_history_build": newest_history_build,
+            }
+        )
+    return tuple(stale)
+
+
+def _newest_atom_build(entries: tuple[AtomFeedEntry, ...]) -> str | None:
+    builds = [build for entry in entries for build in entry.builds]
+    if not builds:
+        return None
+    return max(builds, key=_build_key)
+
+
+def _source_status(
+    source_fetch_status: Mapping[str, Any],
+    key: str,
+    *,
+    source_url: str | None,
+    text: str | None = None,
+    generated_at_utc: str,
+) -> dict[str, Any]:
+    status = dict(source_fetch_status.get(key) or {})
+    status.setdefault("url", source_url)
+    status.setdefault("source", "direct")
+    status.setdefault("status", "ok" if text else "missing")
+    if text is not None:
+        status.setdefault("bytes", len(text.encode("utf-8")))
+    status.setdefault("fetched_at_utc", generated_at_utc)
+    return status
+
+
+def _source_diagnostics(
+    *,
+    current_versions: tuple[ReleasePolicyEntry, ...],
+    release_history: tuple[ReleaseHistoryEntry, ...],
+    atom_entries: tuple[AtomFeedEntry, ...],
+    source_fetch_status: Mapping[str, Any],
+    release_health_url: str,
+    atom_feed_url: str | None,
+    release_health_html: str,
+    atom_feed_xml: str | None,
+    generated_at_utc: str,
+) -> dict[str, Any]:
+    release_health_status = _source_status(
+        source_fetch_status,
+        "release_health_html",
+        source_url=release_health_url,
+        text=release_health_html,
+        generated_at_utc=generated_at_utc,
+    )
+    atom_status = _source_status(
+        source_fetch_status,
+        "atom_feed",
+        source_url=atom_feed_url,
+        text=atom_feed_xml,
+        generated_at_utc=generated_at_utc,
+    )
+    newest_current_revision = _newest_current_version_revision_date(current_versions)
+    newest_history_availability = _newest_release_history_availability_date(release_history)
+    newest_atom_updated = _newest_atom_timestamp(atom_entries, "updated")
+    newest_atom_published = _newest_atom_timestamp(atom_entries, "published")
+    atom_newer = _atom_newer_than_history(atom_entries, release_history)
+    current_stale = _current_version_latest_older_than_history(current_versions, release_history)
+
+    source_times = [
+        newest_current_revision,
+        newest_history_availability,
+        newest_atom_updated,
+        newest_atom_published,
+    ]
+    newest_source_timestamp = _newest_timestamp(source_times)
+    generated_after_hours = None
+    generated_dt = _parse_source_timestamp(generated_at_utc)
+    newest_source_dt = _parse_source_timestamp(newest_source_timestamp)
+    if generated_dt and newest_source_dt:
+        generated_after_hours = round((generated_dt - newest_source_dt).total_seconds() / 3600, 2)
+
+    warnings: list[str] = []
+    if atom_newer:
+        newest = atom_newer[0]
+        warnings.append(
+            "Source freshness warning: Atom feed has newer build/KB entries not present in Release Health "
+            f"release_history, including {newest.get('kb_article') or 'unknown KB'} "
+            f"build {newest.get('build')}."
+        )
+    if current_stale:
+        stale = current_stale[0]
+        warnings.append(
+            "Source freshness warning: Current Versions latest_build appears older than Release History for "
+            f"{stale['version']}/{stale['build_family']}: {stale.get('latest_build') or 'unknown'} < "
+            f"{stale['newest_release_history_build']}."
+        )
+    if generated_after_hours is not None and generated_after_hours >= 24 and (atom_newer or current_stale):
+        warnings.append(
+            "Source freshness warning: policy was generated more than 24 hours after the newest source timestamp "
+            "while source drift diagnostics remain unresolved."
+        )
+    if (
+        generated_after_hours is not None
+        and generated_after_hours >= 24
+        and not atom_entries
+        and atom_status.get("status") != "ok"
+    ):
+        warnings.append(
+            "Source freshness warning: policy was generated more than 24 hours after the newest Release Health "
+            "timestamp and Atom diagnostics are unavailable; preview/out-of-band enrichment may be incomplete."
+        )
+
+    return {
+        "release_health_html": {
+            "source_url": release_health_status.get("url"),
+            "fetched_at_utc": release_health_status.get("fetched_at_utc"),
+            "bytes": release_health_status.get("bytes"),
+            "status": release_health_status.get("status"),
+            "newest_current_version_revision_date": newest_current_revision,
+            "newest_release_history_availability_date": newest_history_availability,
+        },
+        "atom_feed": {
+            "source_url": atom_status.get("url"),
+            "fetched_at_utc": atom_status.get("fetched_at_utc"),
+            "bytes": atom_status.get("bytes"),
+            "status": atom_status.get("status"),
+            "newest_atom_updated": newest_atom_updated,
+            "newest_atom_published": newest_atom_published,
+            "newest_atom_build": _newest_atom_build(atom_entries),
+        },
+        "drift": {
+            "atom_newer_than_release_history": [dict(item) for item in atom_newer],
+            "current_version_latest_older_than_release_history": [dict(item) for item in current_stale],
+            "newest_source_timestamp": newest_source_timestamp,
+            "generated_after_newest_source_hours": generated_after_hours,
+        },
+        "warnings": warnings,
+    }
+
+
 def _known_notes(policy: ReleasePolicy) -> tuple[dict[str, Any], ...]:
     notes: list[dict[str, Any]] = []
     for entry in policy.special_releases:
@@ -429,25 +682,52 @@ def _known_notes(policy: ReleasePolicy) -> tuple[dict[str, Any], ...]:
     return tuple(notes)
 
 
+def _entry_with_b_release_baseline(
+    entry: ReleasePolicyEntry,
+    quality_baselines: Mapping[str, Mapping[str, Mapping[str, Any]]],
+) -> ReleasePolicyEntry:
+    baseline = quality_baselines.get(entry.version, {}).get(QualityPolicy.B_RELEASE_ONLY.value)
+    if not isinstance(baseline, Mapping):
+        return entry
+    build = baseline.get("build")
+    if not build:
+        return entry
+    baseline_build = str(build)
+    return replace(
+        entry,
+        baseline_build=baseline_build,
+        required_baseline_build=baseline_build,
+    )
+
+
 def _policy_with_enrichment(
     base_policy: ReleasePolicy,
     *,
     release_history: tuple[ReleaseHistoryEntry, ...],
+    atom_entries: tuple[AtomFeedEntry, ...],
     generated_at_utc: str,
     release_health_url: str,
     atom_feed_url: str | None,
+    release_health_html: str,
+    atom_feed_xml: str | None,
     source_fetch_status: Mapping[str, Any],
     validation_warnings: tuple[str, ...],
     signature_status: str,
     published_urls: Mapping[str, str] | None = None,
 ) -> ReleasePolicy:
-    special_releases = tuple(_entry_with_special_flag(entry) for entry in base_policy.special_releases)
-    excluded = tuple(_entry_with_special_flag(entry) for entry in base_policy.excluded_for_existing_devices)
+    quality_baselines = _quality_baselines(release_history)
+    special_releases = tuple(
+        _entry_with_b_release_baseline(_entry_with_special_flag(entry), quality_baselines)
+        for entry in base_policy.special_releases
+    )
+    excluded = tuple(
+        _entry_with_b_release_baseline(_entry_with_special_flag(entry), quality_baselines)
+        for entry in base_policy.excluded_for_existing_devices
+    )
     current_versions = tuple(
-        _entry_with_special_flag(entry)
+        _entry_with_b_release_baseline(_entry_with_special_flag(entry), quality_baselines)
         for entry in base_policy.current_versions
     )
-    quality_baselines = _quality_baselines(release_history)
     preview_builds = tuple(row.to_dict() for row in release_history if row.preview)
     out_of_band_builds = tuple(row.to_dict() for row in release_history if row.out_of_band)
     source_urls = [release_health_url]
@@ -458,30 +738,61 @@ def _policy_with_enrichment(
     if target is not None:
         baseline = quality_baselines.get(target.version, {}).get(QualityPolicy.B_RELEASE_ONLY.value)
         if isinstance(baseline, Mapping):
-            target = replace(target, baseline_build=str(baseline.get("build")))
+            build = baseline.get("build")
+            if build:
+                baseline_build = str(build)
+                target = replace(
+                    target,
+                    baseline_build=baseline_build,
+                    required_baseline_build=baseline_build,
+                )
 
     metadata = dict(base_policy.metadata)
     metadata["signature_status"] = signature_status
     metadata["generator"] = GENERATOR_VERSION
+    source_diagnostics = _source_diagnostics(
+        current_versions=current_versions,
+        release_history=release_history,
+        atom_entries=atom_entries,
+        source_fetch_status=source_fetch_status,
+        release_health_url=release_health_url,
+        atom_feed_url=atom_feed_url,
+        release_health_html=release_health_html,
+        atom_feed_xml=atom_feed_xml,
+        generated_at_utc=generated_at_utc,
+    )
+    combined_warnings = tuple(
+        dict.fromkeys([*validation_warnings, *source_diagnostics.get("warnings", [])])
+    )
 
     enriched = replace(
         base_policy,
-        schema_version=1,
+        schema_version=SUPPORTED_POLICY_SCHEMA_VERSION,
+        min_reader_schema_version=SUPPORTED_POLICY_SCHEMA_VERSION,
+        max_reader_schema_version=SUPPORTED_POLICY_SCHEMA_VERSION,
+        api_version="v1",
+        compatibility={
+            "additive_unknown_top_level_keys": "warning",
+            "extension_namespaces": ["extensions", "x_*"],
+            "required_core_schema_version": SUPPORTED_POLICY_SCHEMA_VERSION,
+        },
         generated_at_utc=generated_at_utc,
         generator_version=GENERATOR_VERSION,
         source_urls=tuple(source_urls),
         published_urls=dict(published_urls or DEFAULT_PUBLISHED_POLICY_URLS),
         source_fetch_status=dict(source_fetch_status),
+        source_diagnostics=source_diagnostics,
         current_versions=current_versions,
         release_history=release_history,
         special_releases=special_releases,
+        supported_releases=current_versions,
         excluded_for_existing_devices=excluded,
         broad_target_existing_devices=target,
         quality_baselines=quality_baselines,
         preview_builds=preview_builds,
         out_of_band_builds=out_of_band_builds,
         known_notes=_known_notes(replace(base_policy, special_releases=special_releases)),
-        validation_warnings=validation_warnings,
+        validation_warnings=combined_warnings,
         metadata=metadata,
     )
     return enriched
@@ -499,6 +810,23 @@ def generate_policy(
     published_urls: Mapping[str, str] | None = None,
 ) -> ReleasePolicy:
     warnings: list[str] = []
+    generated = generated_at_utc or _utc_now()
+    effective_source_fetch_status = {
+        "release_health_html": _source_status(
+            source_fetch_status or {},
+            "release_health_html",
+            source_url=release_health_url,
+            text=release_health_html,
+            generated_at_utc=generated,
+        ),
+        "atom_feed": _source_status(
+            source_fetch_status or {},
+            "atom_feed",
+            source_url=atom_feed_url,
+            text=atom_feed_xml,
+            generated_at_utc=generated,
+        ),
+    }
     base_policy = parse_windows11_release_health_html(release_health_html)
     atom_entries: tuple[AtomFeedEntry, ...] = ()
     if atom_feed_xml:
@@ -516,10 +844,13 @@ def generate_policy(
     policy = _policy_with_enrichment(
         base_policy,
         release_history=release_history,
-        generated_at_utc=generated_at_utc or _utc_now(),
+        atom_entries=atom_entries,
+        generated_at_utc=generated,
         release_health_url=release_health_url,
         atom_feed_url=atom_feed_url,
-        source_fetch_status=source_fetch_status or {},
+        release_health_html=release_health_html,
+        atom_feed_xml=atom_feed_xml,
+        source_fetch_status=effective_source_fetch_status,
         validation_warnings=tuple(dict.fromkeys(warnings)),
         signature_status=signature_status,
         published_urls=published_urls,
@@ -734,7 +1065,8 @@ def render_policy_index(
     )
     target_release = target.version if target else "unknown"
     target_family = str(target.build_family) if target else "unknown"
-    target_baseline = target.effective_baseline_build if target else None
+    target_latest_observed = target.latest_observed_build if target else None
+    target_baseline = target.required_baseline_build if target else None
     return (
         "<!doctype html>\n"
         "<html lang=\"en\">\n"
@@ -767,10 +1099,10 @@ def render_policy_index(
         f"<div class=\"metric\">{escape(target_release)}</div><span class=\"label\">broad target</span></article>\n"
         "      <article class=\"panel\"><h2>Build family</h2>"
         f"<div class=\"metric\">{escape(target_family)}</div><span class=\"label\">Windows build line</span></article>\n"
-        "      <article class=\"panel\"><h2>Baseline</h2>"
-        f"<div class=\"metric\">{escape(target_baseline or 'unknown')}</div><span class=\"label\">approved quality floor</span></article>\n"
-        "      <article class=\"panel\"><h2>Quality policy</h2>"
-        f"<div class=\"metric\">{escape(policy.quality_policy.value)}</div><span class=\"label\">selection rule</span></article>\n"
+        "      <article class=\"panel\"><h2>Latest observed</h2>"
+        f"<div class=\"metric\">{escape(target_latest_observed or 'unknown')}</div><span class=\"label\">Microsoft current table</span></article>\n"
+        "      <article class=\"panel\"><h2>Required baseline</h2>"
+        f"<div class=\"metric\">{escape(target_baseline or 'unknown')}</div><span class=\"label\">{escape(policy.quality_policy.value)} floor</span></article>\n"
         "      <section class=\"panel span-2\"><h2>Excluded release</h2><ul class=\"clean\">"
         f"{excluded_items}</ul></section>\n"
         "      <section class=\"panel span-2\"><h2>Last updated</h2><dl class=\"kv\">"
@@ -861,6 +1193,11 @@ def render_policy_manifest(
         "generated_at_human": _generated_at_human(policy.generated_at_utc),
         "timezone": PAGES_TIMEZONE,
         "generator_version": policy.generator_version,
+        "policy_schema_version": policy.schema_version,
+        "min_reader_schema_version": policy.min_reader_schema_version,
+        "max_reader_schema_version": policy.max_reader_schema_version,
+        "api_version": policy.api_version,
+        "compatibility": dict(policy.compatibility),
         "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
         "commit_sha": os.environ.get("GITHUB_SHA"),
         "policy_sha256": policy_sha256,
@@ -868,18 +1205,23 @@ def render_policy_manifest(
         "signature_algorithm": _signature_field(signature, "algorithm"),
         "key_id": _signature_field(signature, "key_id"),
         "source_urls": list(policy.source_urls),
+        "source_diagnostics": dict(policy.source_diagnostics),
         "published_urls": dict(policy.published_urls or _published_urls_for_base_url(base_url)),
         "broad_target_existing_devices": (
             {
                 "version": target.version,
                 "build_family": target.build_family,
                 "latest_build": target.latest_build,
-                "baseline_build": target.effective_baseline_build,
+                "latest_observed_build": target.latest_observed_build,
+                "baseline_build": target.baseline_build,
+                "required_baseline_build": target.required_baseline_build,
             }
             if target
             else None
         ),
-        "baseline": target.effective_baseline_build if target else None,
+        "latest_observed_build": target.latest_observed_build if target else None,
+        "baseline": target.required_baseline_build if target else None,
+        "required_baseline_build": target.required_baseline_build if target else None,
         "warnings": list(policy.validation_warnings),
         "status": status,
     }

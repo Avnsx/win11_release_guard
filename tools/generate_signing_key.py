@@ -48,6 +48,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--status", default="active", choices=["active", "retiring", "retired"])
     parser.add_argument("--created-at-utc", default=None, help="Override created_at_utc for reproducible metadata.")
+    parser.add_argument("--valid-from-utc", default=None, help="Override valid_from_utc; defaults to created_at_utc.")
+    parser.add_argument(
+        "--verify-not-after-utc",
+        default=None,
+        help="Required for retiring/retired key skeletons; omitted for active keys unless provided.",
+    )
     parser.add_argument(
         "--allow-outside-tmp",
         action="store_true",
@@ -78,17 +84,27 @@ def _is_under_runner_temp(path: Path) -> bool:
     return True
 
 
-def _trusted_keys_document(*, key_id: str, public_key_b64: str, created_at_utc: str, status: str) -> dict[str, object]:
+def _trusted_keys_document(
+    *,
+    key_id: str,
+    public_key_b64: str,
+    created_at_utc: str,
+    status: str,
+    valid_from_utc: str,
+    verify_not_after_utc: str | None,
+) -> dict[str, object]:
+    record = {
+        "key_id": key_id,
+        "algorithm": "ed25519",
+        "public_key_b64": public_key_b64,
+        "created_at_utc": created_at_utc,
+        "valid_from_utc": valid_from_utc,
+        "status": status,
+    }
+    if verify_not_after_utc:
+        record["verify_not_after_utc"] = verify_not_after_utc
     return {
-        "trusted_policy_keys": [
-            {
-                "key_id": key_id,
-                "algorithm": "ed25519",
-                "public_key_b64": public_key_b64,
-                "created_at_utc": created_at_utc,
-                "status": status,
-            }
-        ]
+        "trusted_policy_keys": [record]
     }
 
 
@@ -127,12 +143,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     created_at_utc = args.created_at_utc or _utc_now()
+    valid_from_utc = args.valid_from_utc or created_at_utc
+    if args.status in {"retiring", "retired"} and not args.verify_not_after_utc:
+        print(
+            f"--verify-not-after-utc is required for {args.status} trusted key skeletons.",
+            file=sys.stderr,
+        )
+        return 2
     private_key_b64, public_key_b64 = _generate_key_material()
     trusted_keys = _trusted_keys_document(
         key_id=args.key_id,
         public_key_b64=public_key_b64,
         created_at_utc=created_at_utc,
         status=args.status,
+        valid_from_utc=valid_from_utc,
+        verify_not_after_utc=args.verify_not_after_utc,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
