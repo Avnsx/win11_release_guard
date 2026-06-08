@@ -2120,6 +2120,102 @@ def _seo_meta_html(
     )
 
 
+def _wiki_section_scrollspy_script_html() -> str:
+    return """  <script>
+    (function () {
+      var sidebar = document.querySelector(".wiki-sidebar");
+      var content = document.getElementById("wiki-content");
+      if (!sidebar || !content) return;
+
+      function isVersionMetaLink(link) {
+        var node = link;
+        while (node && node !== sidebar) {
+          if (node.classList && node.classList.contains("version-meta")) return true;
+          node = node.parentElement;
+        }
+        return false;
+      }
+
+      function samePageHash(link) {
+        var href = link.getAttribute("href") || "";
+        if (!href || isVersionMetaLink(link)) return "";
+        if (href.charAt(0) === "#") return href;
+        if (typeof URL === "undefined") return "";
+        try {
+          var url = new URL(href, window.location.href);
+          if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return "";
+          return url.hash || "";
+        } catch (error) {
+          return "";
+        }
+      }
+
+      function hashId(hash) {
+        try {
+          return decodeURIComponent(hash.slice(1));
+        } catch (error) {
+          return hash.slice(1);
+        }
+      }
+
+      var items = Array.prototype.slice.call(sidebar.querySelectorAll("a[href]")).map(function (link) {
+        var hash = samePageHash(link);
+        if (!hash || hash === "#") return null;
+        var target = document.getElementById(hashId(hash));
+        if (!target || !content.contains(target)) return null;
+        return { link: link, item: link.closest ? link.closest("li") : null, target: target };
+      }).filter(Boolean);
+      if (!items.length) return;
+
+      function setActive(active) {
+        items.forEach(function (entry) {
+          var selected = entry === active;
+          entry.link.classList.toggle("is-active-section", selected);
+          if (entry.item) entry.item.classList.toggle("is-active-section", selected);
+          if (selected) {
+            entry.link.setAttribute("aria-current", "location");
+          } else {
+            entry.link.removeAttribute("aria-current");
+          }
+        });
+      }
+
+      function updateActiveSection() {
+        var activationLine = Math.min(window.innerHeight * 0.28, 180);
+        var active = items[0];
+        items.forEach(function (entry) {
+          if (entry.target.getBoundingClientRect().top <= activationLine) active = entry;
+        });
+        if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+          active = items[items.length - 1];
+        }
+        setActive(active);
+      }
+
+      var requestFrame = window.requestAnimationFrame || function (callback) { return window.setTimeout(callback, 16); };
+      var scheduled = false;
+      function scheduleUpdate() {
+        if (scheduled) return;
+        scheduled = true;
+        requestFrame(function () {
+          scheduled = false;
+          updateActiveSection();
+        });
+      }
+
+      window.addEventListener("scroll", scheduleUpdate, { passive: true });
+      window.addEventListener("resize", scheduleUpdate);
+      window.addEventListener("hashchange", scheduleUpdate);
+      if ("IntersectionObserver" in window) {
+        var observer = new IntersectionObserver(scheduleUpdate, { rootMargin: "-18% 0px -70% 0px", threshold: [0, 1] });
+        items.forEach(function (entry) { observer.observe(entry.target); });
+      }
+      updateActiveSection();
+    })();
+  </script>
+"""
+
+
 def _wiki_page_html(
     source: WikiPageSource,
     body_html: str,
@@ -2144,6 +2240,7 @@ def _wiki_page_html(
     broken_html = _render_wiki_broken_links(broken_links)
     warning_html = _render_wiki_warnings(warnings)
     content_class = "wiki-content changelog-content" if source.slug.startswith("changelog") else "wiki-content"
+    scrollspy_script = _wiki_section_scrollspy_script_html()
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -2258,6 +2355,22 @@ def _wiki_page_html(
     .wiki-sidebar ul, .wiki-sidebar ol {{ margin: 0; padding-left: 1.2rem; }}
     .wiki-sidebar li {{ margin: 0.32rem 0; }}
     .wiki-sidebar a {{ overflow-wrap: anywhere; }}
+    .wiki-sidebar a.is-active-section {{
+      display: inline-flex;
+      align-items: center;
+      max-width: 100%;
+      margin-left: -0.35rem;
+      border-radius: 6px;
+      background: linear-gradient(90deg, rgba(15, 108, 189, 0.14), rgba(232, 243, 255, 0.52));
+      box-shadow: inset 3px 0 0 var(--brand);
+      color: var(--brand-strong);
+      font-weight: 800;
+      padding: 0.1rem 0.35rem;
+      text-decoration: none;
+    }}
+    .wiki-sidebar li.is-active-section > a {{
+      text-decoration: none;
+    }}
     .wiki-primary-nav {{
       border-bottom: 1px solid var(--border);
       padding-bottom: 0.9rem;
@@ -2438,7 +2551,7 @@ def _wiki_page_html(
     </nav>
   </header>
   <main class="wiki-layout">
-    <aside class="wiki-sidebar" aria-label="Wiki navigation">
+    <aside class="wiki-sidebar" aria-label="Wiki navigation" data-section-scrollspy="true">
       <nav aria-label="Wiki pages">{navigation_html}</nav>
       {toc_html}
     </aside>
@@ -2450,7 +2563,7 @@ def _wiki_page_html(
     </article>
   </main>
   <footer class="wiki-footer">{footer_html}</footer>
-</body>
+{scrollspy_script}</body>
 </html>
 """
 

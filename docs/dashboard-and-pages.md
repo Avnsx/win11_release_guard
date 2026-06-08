@@ -33,6 +33,7 @@ The Pages Wiki renderer is first-party Python inside `win11_release_guard.policy
 - GitHub Wiki links such as `[[Home]]`, `[[Page Name]]`, and `[[Label|Page-Name]]` become Pages Wiki links.
 - Raw HTML in Markdown is escaped; no external JS, CSS, fonts, CDN, npm, or browser GitHub write path is used.
 - Broken internal Wiki links, missing `wiki/Home.md`, missing `_Sidebar.md` or `_Footer.md`, missing/empty Wiki sources, and empty Wiki pages are rendered as visible generator warnings instead of being silently dropped. If `wiki/Home.md` is missing, the generator writes a fallback `site/wiki/index.html` so the Pages Wiki root stays reachable while source Markdown is repaired.
+- Wiki and changelog pages include a small first-party, inline scroll helper that only marks same-page hash links inside the generated `.wiki-sidebar`. As readers scroll, the active sidebar section link becomes heavier and receives `aria-current="location"`. Without JavaScript, the sidebar and anchor links remain normal static navigation.
 
 ## Static Pages Changelog
 

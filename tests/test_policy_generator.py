@@ -276,9 +276,19 @@ def test_changelog_renderer_preserves_history_order_and_links(tmp_path: Path) ->
     assert 'href="https://github.com/Avnsx/win11_release_guard/releases/tag/v0.3.0"' in index
     assert 'href="https://avnsx.github.io/win11_release_guard/wiki/changelog/#unreleased"' in index
     assert 'href="https://avnsx.github.io/win11_release_guard/wiki/changelog/v0.3.1/"' in index
+    assert 'data-section-scrollspy="true"' in index
+    assert ".wiki-sidebar a.is-active-section" in index
+    assert 'entry.link.setAttribute("aria-current", "location")' in index
+    assert 'entry.item.classList.toggle("is-active-section", selected)' in index
+    assert 'if (!sidebar || !content) return;' in index
+    assert 'if (!items.length) return;' in index
+    assert 'node.classList.contains("version-meta")' in index
+    assert 'new IntersectionObserver(scheduleUpdate' in index
     assert "script src" not in index.lower()
     assert 'rel="stylesheet"' not in index.lower()
     assert "cdn.jsdelivr" not in index.lower()
+    assert "esm.sh" not in index.lower()
+    assert "fonts.googleapis" not in index.lower()
 
 
 def test_changelog_renderer_handles_missing_unreleased_without_warning(tmp_path: Path) -> None:
@@ -314,6 +324,9 @@ def test_changelog_renderer_warns_for_empty_and_nonstandard_sections(tmp_path: P
     assert "Generator warnings" in empty_index
     assert "CHANGELOG.md is empty" in empty_index
     assert "No changelog versions found." in empty_index
+    assert 'data-section-scrollspy="true"' in empty_index
+    assert 'if (!items.length) return;' in empty_index
+    assert "script src" not in empty_index.lower()
 
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
@@ -364,7 +377,10 @@ def test_changelog_renderer_uses_duplicate_safe_anchors_and_escapes_long_section
 
     assert 'id="v0.3.1"' in index
     assert 'id="v0.3.1-2"' in index
+    assert 'href="#v0.3.1"' in index
     assert 'href="#v0.3.1-2"' in index
+    assert 'document.getElementById(hashId(hash))' in index
+    assert 'return hash.slice(1);' in index
     assert "duplicate version headings" in index
     assert "Long release note" in index
     assert "&lt;script&gt;alert(&#x27;blocked&#x27;)&lt;/script&gt;" in index
@@ -1323,7 +1339,9 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
         assert generated_html.count("</style>") == 1
     for rendered_changelog in (changelog, changelog_version):
         lower_changelog = rendered_changelog.lower()
-        assert "<script" not in lower_changelog
+        assert 'data-section-scrollspy="true"' in rendered_changelog
+        assert ".wiki-sidebar a.is-active-section" in rendered_changelog
+        assert 'if (!sidebar || !content) return;' in rendered_changelog
         assert "script src" not in lower_changelog
         assert 'rel="stylesheet"' not in lower_changelog
         assert "cdn.jsdelivr" not in lower_changelog
