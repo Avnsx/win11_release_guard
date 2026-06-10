@@ -58,23 +58,11 @@ def _metadata_version() -> tuple[str | None, Path | None]:
     return version, location
 
 
-def _is_local_source_metadata(location: Path | None, source_root: Path | None) -> bool:
-    if location is None or source_root is None:
-        return False
-    try:
-        location.relative_to(source_root)
-        return True
-    except ValueError:
-        return False
-
-
 def package_version() -> str:
-    metadata_version, metadata_location = _metadata_version()
     source_root = _source_tree_root()
     source_version = source_tree_package_version(source_root)
+    metadata_version, _metadata_location = _metadata_version()
 
-    if metadata_version and not _is_local_source_metadata(metadata_location, source_root):
-        return metadata_version
     if source_version:
         return source_version
     if metadata_version:

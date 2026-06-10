@@ -51,6 +51,7 @@ Version 0.3.2 is the compatibility and documentation-alignment release for the c
 * Fixed Source Diagnostics GitHub Issue sync so Notice events remain dashboard-only; automatic issue creation, update, and reopen now applies only to Warning and Error events, while legacy managed Notice issues can be closed as stale.
 * Fixed dashboard Source Diagnostics rows so closed managed issue metadata suppresses stale rows, real warning/error issue links remain static hover/focus links, and derived display rows stay filterable without ticket links.
 * Fixed project identity scans so allowed normalized PyPI and Shields endpoints are not mistaken for legacy hyphenated project identity drift.
+* Fixed source-tree version resolution so clean source archives and source checkouts prefer their own `pyproject.toml` version over stale installed distribution metadata.
 * Added compact Markdown tips with Pages Wiki follow-up links to managed Source Diagnostics warning/error GitHub Issues.
 * Excluded GitHub Wiki helper files `_Sidebar.md` and `_Footer.md` from standalone Pages Wiki page and sitemap generation while preserving them as navigation/footer inputs.
 

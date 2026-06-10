@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from win11_release_guard.version import source_tree_package_version
+from win11_release_guard.version import package_version, source_tree_package_version
 
 from win11_release_guard.config import ReleaseCheckerConfig
 from win11_release_guard.exceptions import PolicyFetchError
@@ -59,6 +59,15 @@ def test_source_tree_package_version_handles_unreadable_pyproject(tmp_path):
     (tmp_path / "pyproject.toml").write_bytes(b"\xff")
 
     assert source_tree_package_version(tmp_path) is None
+
+
+def test_package_version_prefers_source_tree_pyproject_over_external_metadata(monkeypatch):
+    import win11_release_guard.version as version_module
+
+    external_location = Path(__file__).resolve().parents[2] / "external-site-packages"
+    monkeypatch.setattr(version_module, "_metadata_version", lambda: ("0.3.1", external_location))
+
+    assert package_version() == "0.3.2"
 
 
 def test_import_has_no_side_effects(monkeypatch):
