@@ -61,7 +61,8 @@ That table can lag behind public Update History Atom entries and their linked
 Microsoft Support articles. `latest_observed_build` records the newest official
 build the generator found in supported public evidence. It is context only and
 does not become `required_baseline_build` unless the signed baseline rules
-select it.
+select it. When Release Health has caught up and those rules select the same
+build, all three values can legitimately match.
 
 ## Related Pages
 

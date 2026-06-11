@@ -53,7 +53,9 @@ README is the quick entry. This wiki is the deep dive. Code, tests, workflows, a
 | Broad target | Existing devices currently target Windows 11 25H2. |
 | Special release | 26H1 is new-devices-only / excluded for existing devices. |
 | Quality baseline | `required_baseline_build` is the required B-release baseline. |
-| Latest observed | `latest_observed_build` can include newer Microsoft-observed rows. |
+| Release Health latest | `latest_build` is the Microsoft Release Health Current Versions value. |
+| Latest observed | `latest_observed_build` is newest supported public Microsoft evidence and can be newer. |
+| Caught-up state | `latest_build`, `latest_observed_build`, and `required_baseline_build` can all match when sources and baseline rules align. |
 | Local evidence | Build signals outrank display labels. |
 | WUA | Optional read-only explanatory signal. |
 | Trust | Public feed plus Ed25519 signature, not repository privacy. |

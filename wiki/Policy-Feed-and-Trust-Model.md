@@ -73,6 +73,9 @@ fleet baseline, but it does not decide compliance by itself.
 requires for existing Windows 11 fleet devices. Devices below that build need a
 quality update. A newer Atom/support observed build can appear as
 `latest_observed_build` without becoming the required baseline for the fleet.
+When Release Health Current Versions has caught up and the baseline rules select
+that same build, `latest_build`, `latest_observed_build`, and
+`required_baseline_build` can all legitimately carry the same build number.
 
 | Field / term | Meaning |
 | --- | --- |

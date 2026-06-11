@@ -89,7 +89,17 @@ belong only to GitHub Actions issue-sync workflows using the built-in
 Versions table value. The dashboard's `Latest observed` card can show a newer
 `latest_observed_build` from an Atom-linked Support article and labels that
 evidence source. This is informational context only; it does not change
-`required_baseline_build`.
+`required_baseline_build`. Once Release Health has caught up and baseline rules
+select the same build, all three build fields can legitimately show that same
+value.
+
+Atom is discovery for Support article hrefs, not a synthesized `/help/<KB>`
+resolver. The generator uses safe Atom `alternate` support article links,
+validates fetched Support article URL, KB, build, and parseable applicability
+before trusting article facts, and keeps mismatch/degraded status visible in
+Source Diagnostics. MSRC CVRF joins require exact KB-token matches; substring
+matches and malformed/unavailable CVRF data must not silently become
+non-security proof.
 
 ## Rules
 

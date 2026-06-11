@@ -45,7 +45,15 @@ verdict or required baseline semantics.
 `latest_observed_build` can be newer when the generator proves a newer official
 build from supported public evidence such as an Atom-linked Support article.
 That observation remains informational until the signed baseline rules select a
-`required_baseline_build`.
+`required_baseline_build`. When Release Health has caught up and baseline rules
+select that same build, all three fields can legitimately report the same
+build.
+
+Atom discovers Support article hrefs; it is not a `/help/<KB>` fallback
+resolver. Atom-linked Support article facts are trusted only after URL, KB,
+build, and parseable applicability validation against the Atom record. MSRC
+CVRF enrichment requires exact KB-token matching, and unavailable or malformed
+CVRF data remains unknown instead of proving that a KB is non-security.
 
 ## Rules
 

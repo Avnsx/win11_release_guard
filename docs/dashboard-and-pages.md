@@ -67,7 +67,9 @@ Release Health Current Versions table; `latest_observed_build` can move ahead
 when the generator finds a newer non-preview broad-target build through an Atom
 entry with a safe `support.microsoft.com` article href. That observed value is
 informational until the signed baseline rules select it as
-`required_baseline_build`.
+`required_baseline_build`. When Release Health catches up and baseline rules
+select the same build, `latest_build`, `latest_observed_build`, and
+`required_baseline_build` can all be the same value without indicating drift.
 
 Atom is discovery, not a KB resolver. The generator selects only safe Atom
 `alternate` links to `https://support.microsoft.com` article paths. It ignores
@@ -137,6 +139,12 @@ source order inside the same severity. The feed may include derived
 dashboard-only rows such as `No source issues reported`, existing-device
 exclusion notes, or freshness notices. Those rows are filterable and may carry
 deterministic DOM IDs, but they are not GitHub Issue-sync inputs.
+
+Source Diagnostic IDs shown in row attributes and copied JSON can be either the
+deterministic hash form or the durable Atom form. When one Atom entry produces
+multiple build/release events, only the canonical event keeps the unambiguous
+Atom-form ID; sibling rows use unique deterministic hash-form IDs while keeping
+Atom entry and support-article metadata visible.
 
 Optional source-diagnostic issue status must be static generated metadata, not
 browser-fetched data. Issue sync tracks warning and error events only; notice

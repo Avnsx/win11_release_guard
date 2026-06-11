@@ -46,7 +46,17 @@ the generator can prove from supported public evidence, including Atom-linked
 Support articles, and can be newer than `latest_build`. `required_baseline_build`
 remains selected by the existing signed quality-baseline rules; Source
 Diagnostics, Support articles, and MSRC CVRF enrichment do not promote a build
-to the required baseline by themselves.
+to the required baseline by themselves. When Release Health has caught up and
+baseline rules select the same build, all three fields can legitimately report
+the same build.
+
+Atom is discovery for Support article hrefs, not a fallback URL resolver. The
+generator does not synthesize `/help/<KB>` when Atom lacks a usable support
+href. Atom-linked Support article facts must match the selected Atom URL, KB,
+expected build, and parseable release/applicability before they are trusted for
+summaries or Support-derived security labels. MSRC CVRF enrichment requires an
+exact KB-token match; unavailable or malformed CVRF data remains unknown rather
+than becoming proof that a KB is non-security.
 
 ## Release Targeting
 

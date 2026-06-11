@@ -53,6 +53,13 @@ out-of-band, unknown-family, non-broad-target, or incomplete Atom rows, so those
 rows stay `notice`. Missing KB metadata is an uncertainty marker, not permanent
 proof that a row is harmless.
 
+`latest_build` remains the Microsoft Release Health Current Versions value.
+`latest_observed_build` is the newest official observed public Microsoft build
+from supported sources and can be newer. `required_baseline_build` remains the
+compliance floor selected by signed baseline rules; latest-observed evidence
+alone does not change it. When Release Health catches up and the baseline rules
+select the same build, all three fields can legitimately be the same.
+
 Atom is discovery for public Support article hrefs. The generator fetches only
 safe Atom `alternate` links to `https://support.microsoft.com` article paths.
 It ignores `self` links, feed/API/search/download/static paths, non-support
@@ -95,6 +102,12 @@ Supported ID forms are:
 
 Malformed, duplicate, missing, or legacy Atom IDs do not break generation; they
 fall back to the deterministic hash form.
+
+When one Atom entry produces multiple build/release diagnostic events, only the
+canonical unambiguous event keeps the full Atom-form ID. Sibling events use
+unique deterministic hash-form IDs built from Atom entry, release, build, kind,
+severity, KB, and source URL context while retaining `atom_entry_id`,
+`atom_support_article_id`, support URL, source URL, and article-id tag metadata.
 
 ## Publish Gate
 

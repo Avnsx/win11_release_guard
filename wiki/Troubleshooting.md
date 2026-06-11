@@ -89,6 +89,8 @@ pytest -q tests/test_remote_policy.py tests/test_policy_generator.py
 A newer latest-observed build can explain why a local machine is ahead of the
 normal fleet baseline. It does not make the device noncompliant and does not
 raise the required baseline unless the policy baseline rules select that build.
+When Release Health has caught up and the baseline rules select that same
+build, all three fields can legitimately show the same build number.
 
 ## Related Pages
 

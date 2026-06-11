@@ -154,6 +154,10 @@ and non-Atom diagnostics keep the compact form
 the durable public Atom entry form
 `wrg-source-diagnostic-v1:uuid:<canonical uuid>;id=<positive decimal>` when the
 entry ID is valid; malformed or legacy Atom IDs fall back to the hash form.
+If one Atom entry produces multiple release/build events, only the canonical
+unambiguous event keeps the Atom-form ID; sibling events use unique
+deterministic hash-form IDs while preserving Atom entry and support-article
+metadata in the diagnostic payload.
 
 An issue is considered managed only when its body contains exactly one internal
 HTML comment marker of the form

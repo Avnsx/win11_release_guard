@@ -6,6 +6,7 @@
 
 * Documented the split between Release Health `latest_build`, informational `latest_observed_build`, and signed `required_baseline_build`; Atom-linked Support article evidence can advance latest-observed context without changing the required fleet baseline.
 * Documented Source Diagnostics enrichment from Atom-linked Microsoft Support articles and unauthenticated MSRC CVRF data, including no `/help/<KB>` fallback when Atom lacks a support href, Atom-form diagnostic IDs, and GitHub Issue title suffixes such as `[id=968480]`.
+* Aligned repository docs and Wiki pages with the caught-up build case, validated Support/MSRC enrichment, unique hash-form or Atom-form Source Diagnostic IDs, dashboard-only notices, static dashboard constraints, and anti patch-only handoff rules.
 
 ### Fixed
 

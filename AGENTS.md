@@ -99,6 +99,19 @@ Canonical repository and feed:
 - Pages dashboard/UI changes must not alter signed policy semantics, Windows
   release targeting, evaluator verdicts, WUA-secondary behavior, JSON
   `schema_version`, API `api_version`, or signature trust.
+- `latest_build` is the Microsoft Release Health Current Versions value;
+  `latest_observed_build` is newest official observed public Microsoft evidence
+  from supported sources and can be newer; `required_baseline_build` is the
+  compliance floor selected by baseline rules. Latest-observed evidence alone
+  must not promote the required baseline, and when Release Health catches up all
+  three build fields can legitimately be the same.
+- Atom is discovery for Support article hrefs, not a `/help/<KB>` resolver.
+  Atom-linked Support article facts must be validated against Atom URL, KB,
+  build, and parseable applicability before use in summaries or Support-derived
+  security labels. MSRC CVRF joins require exact KB-token matches.
+- Source Diagnostic IDs may be deterministic hash-form or Atom-form. When one
+  Atom entry produces multiple events, sibling events must keep unique IDs while
+  retaining Atom metadata for triage.
 - The static Pages dashboard must remain no-token, no-secret, no-CDN, and
   GitHub-Pages-compatible. Do not add external JavaScript, external CSS,
   external fonts, or backend runtime assumptions.
