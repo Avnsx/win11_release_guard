@@ -70,9 +70,9 @@ python -m win11_release_guard --json-pretty --wua --include-raw-local-diagnostic
 | Headers | Compare Release Health table headings with fixtures. |
 | 26H1 note | Confirm special/new-devices-only text is still detected. |
 | B baseline | Confirm broad target has a B-release baseline. |
-| Atom support href | If an Atom KB row lacks a safe Support article href, keep the Source Diagnostic evidence; do not add a `/help/<KB>` fallback resolver. |
+| Atom support href | Use only safe Atom `alternate` links to `https://support.microsoft.com` article paths. If an Atom KB row lacks a safe Support article href, keep the Source Diagnostic evidence; do not add a `/help/<KB>` fallback resolver. |
 | Support article mismatch | If Support article KB, build, URL, or parseable `Applies to` evidence disagrees with Atom, trust Atom KB/build/release and exact MSRC KB evidence; treat Support-derived summary/security wording as untrusted. |
-| Security classification | Use exact MSRC CVRF KB evidence or validated explicit Support article wording; do not infer security status from generic Atom title text. |
+| Security classification | Use exact MSRC CVRF KB-token evidence or validated explicit Support article wording; do not infer security status from generic Atom title text or KB substrings embedded in larger tokens. |
 
 ```powershell
 pytest -q tests/test_remote_policy.py tests/test_policy_generator.py

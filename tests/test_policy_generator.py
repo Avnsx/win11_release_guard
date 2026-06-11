@@ -406,6 +406,26 @@ def _atom_entry_with_raw_id(
   </entry>"""
 
 
+def _atom_entry_with_links(
+    title: str,
+    links: tuple[str, ...],
+    *,
+    entry_id: str = ATOM_ENTRY_ID,
+    published: str = "2026-06-09T17:04:01Z",
+    updated: str = "2026-06-10T17:20:31Z",
+    content: str = "",
+) -> str:
+    link_markup = "\n".join(f"    {link}" for link in links)
+    return f"""  <entry>
+    <id>{entry_id}</id>
+    <title type="text">{title}</title>
+    <published>{published}</published>
+    <updated>{updated}</updated>
+{link_markup}
+    <content type="text">{content}</content>
+  </entry>"""
+
+
 def test_source_label_requires_exact_upstream_hosts() -> None:
     release_health_url = "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information"
     localized_release_health_url = (
@@ -424,6 +444,145 @@ def test_source_label_requires_exact_upstream_hosts() -> None:
     assert _source_label(localized_atom_url) == "Microsoft Atom feed"
     assert _source_label(spoofed_release_health_url) == spoofed_release_health_url
     assert _source_label(spoofed_atom_url) == spoofed_atom_url
+
+
+def test_atom_link_selection_prefers_safe_alternate_after_self_feed_url() -> None:
+    atom = _atom_feed_with_entries(
+        _atom_entry_with_links(
+            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
+            (
+                '<link rel="self" href="https://support.microsoft.com/en-us/feed/atom/not-an-article" />',
+                f'<link rel="alternate" href="{KB5094126_SUPPORT_URL}?utm_source=feed" />',
+            ),
+        )
+    )
+
+    entry = parse_atom_feed(atom)[0]
+
+    assert entry.link == KB5094126_SUPPORT_URL
+
+
+def test_atom_link_selection_skips_unsafe_alternate_before_safe_alternate() -> None:
+    atom = _atom_feed_with_entries(
+        _atom_entry_with_links(
+            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
+            (
+                '<link rel="alternate" href="https://evil.example/topic/kb5094126" />',
+                '<link rel="alternate" href="https://support.microsoft.com/help/5094126" />',
+            ),
+        )
+    )
+
+    entry = parse_atom_feed(atom)[0]
+
+    assert entry.link == "https://support.microsoft.com/help/5094126"
+
+
+def test_atom_unsafe_links_create_missing_href_without_latest_observed_advancement() -> None:
+    atom = _atom_feed_with_entries(
+        _atom_entry_with_links(
+            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
+            (
+                '<link rel="self" href="https://support.microsoft.com/en-us/feed/atom/not-an-article" />',
+                '<link rel="alternate" href="https://support.microsoft.com/en-us/search?query=KB5094126" />',
+                '<link rel="alternate" href="https://evil.example/topic/kb5094126" />',
+            ),
+        )
+    )
+
+    policy = generate_policy(
+        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
+        atom_feed_xml=atom,
+        generated_at_utc="2026-06-11T00:00:00+00:00",
+    )
+    target = policy.broad_target_existing_devices
+
+    assert parse_atom_feed(atom)[0].link is None
+    assert target is not None
+    assert target.latest_build == "26200.8524"
+    assert target.latest_observed_build == "26200.8524"
+    assert "latest_observed_source_url" not in target.metadata
+    assert not policy.source_diagnostics["support_articles"]
+    missing = next(
+        event
+        for event in policy.source_diagnostics["events"]
+        if event["kind"] == "atom_support_article_href_missing"
+    )
+    assert missing["kb_article"] == "KB5094126"
+    assert missing["build"] == "26200.8655"
+    assert "support_url" not in missing
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    (
+        (
+            f"{KB5094126_SUPPORT_URL}?utm_source=feed&ocid=tracking",
+            KB5094126_SUPPORT_URL,
+        ),
+        ("https://SUPPORT.MICROSOFT.COM/help/5094126?utm_source=feed", "https://support.microsoft.com/help/5094126"),
+        ("https://support.microsoft.com/en-us/help/5094126", "https://support.microsoft.com/en-us/help/5094126"),
+    ),
+)
+def test_safe_atom_support_article_url_accepts_articles_and_strips_queries(url: str, expected: str) -> None:
+    assert policy_generator_module._safe_atom_support_article_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "https://evil.example/en-us/topic/kb5094126",
+        "http://support.microsoft.com/en-us/topic/kb5094126",
+        "https://user@support.microsoft.com/en-us/topic/kb5094126",
+        f"{KB5094126_SUPPORT_URL}#section",
+        "https://support.microsoft.com/",
+        "https://support.microsoft.com/en-us/feed/atom/example",
+        "https://support.microsoft.com/en-us/api/article/5094126",
+        "https://support.microsoft.com/en-us/search?query=KB5094126",
+        "https://support.microsoft.com/en-us/download/5094126",
+        "https://support.microsoft.com/en-us/assets/file.js",
+        "https://support.microsoft.com/en-us/static/file.js",
+        "https://support.microsoft.com/en-us/topic/../admin",
+        "https://support.microsoft.com/en-us/topic/%2e%2e/admin",
+        "https://support.microsoft.com/en-us/topic/kb%2f5094126",
+        "https://support.microsoft.com/en-us/topic/kb%5c5094126",
+        "https://support.microsoft.com/en-us/topic/" + ("a" * 1100),
+    ),
+)
+def test_safe_atom_support_article_url_rejects_unsafe_sources(url: str) -> None:
+    assert policy_generator_module._safe_atom_support_article_url(url) is None
+
+
+def test_default_support_article_fetcher_rejects_redirect_to_non_support_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Headers:
+        def get_content_charset(self) -> str:
+            return "utf-8"
+
+        def get(self, name: str) -> None:
+            return None
+
+    class Response:
+        headers = Headers()
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def geturl(self) -> str:
+            return "https://evil.example/en-us/topic/kb5094126"
+
+        def read(self, size: int) -> bytes:
+            return b"<html></html>"
+
+    def fake_urlopen(request: object, timeout: float) -> Response:
+        return Response()
+
+    monkeypatch.setattr(policy_generator_module.urllib.request, "urlopen", fake_urlopen)
+
+    with pytest.raises(PolicyFetchError, match="unsafe URL"):
+        policy_generator_module._default_support_article_fetcher(KB5094126_SUPPORT_URL, 1.0, 1024)
 
 
 def _with_26h2_ga(html: str) -> str:
@@ -1457,6 +1616,65 @@ def test_support_article_fact_extraction_for_kb5094126() -> None:
     assert "ignored" not in json.dumps(facts)
 
 
+def test_support_article_applies_to_extraction_preserves_multi_release_and_server_values() -> None:
+    multi_release = policy_generator_module._extract_support_article_facts(
+        KB5094126_SUPPORT_URL,
+        _support_article_html(
+            applies_to="Windows 11, version 25H2; Windows 11, version 24H2",
+            security=False,
+        ),
+    )
+    server = policy_generator_module._extract_support_article_facts(
+        KB5094126_SUPPORT_URL,
+        _support_article_html(applies_to="Windows Server 2025", security=False),
+    )
+
+    assert multi_release["applies_to"] == "Windows 11, version 25H2; Windows 11, version 24H2"
+    assert server["applies_to"] == "Windows Server 2025"
+
+
+@pytest.mark.parametrize(
+    ("applies_to", "release", "expected"),
+    (
+        ("Windows 11, version 25H2", "25H2", "compatible"),
+        ("Windows 11, version 25H2; Windows 11, version 24H2", "24H2", "compatible"),
+        ("Windows 10, version 22H2", "25H2", "incompatible"),
+        ("", "25H2", "unknown"),
+        ("Windows 11", "25H2", "unknown"),
+    ),
+)
+def test_support_article_applies_to_compatibility(applies_to: str, release: str, expected: str) -> None:
+    assert (
+        policy_generator_module._support_article_applies_to_compatibility(
+            applies_to,
+            release=release,
+            build_family=26200,
+        )
+        == expected
+    )
+
+
+def test_support_article_missing_applies_to_is_degraded_not_mismatch() -> None:
+    validation = policy_generator_module._support_article_validation_for_record(
+        {
+            "kb_article": "KB5094126",
+            "build": "26200.8655",
+            "release": "25H2",
+            "build_family": 26200,
+            "support_url": KB5094126_SUPPORT_URL,
+        },
+        {
+            "url": KB5094126_SUPPORT_URL,
+            "status": "ok",
+            "kb_article": "KB5094126",
+            "builds": ["26200.8655"],
+        },
+    )
+
+    assert validation["support_article_validation_status"] == "degraded"
+    assert validation["support_article_validation_reasons"] == ["applies_to_missing"]
+
+
 @pytest.mark.parametrize(
     ("title", "bucket"),
     (
@@ -1499,6 +1717,67 @@ def test_msrc_cvrf_kb_join_collects_cves_severities_and_products() -> None:
         "severities": ["Critical", "Important"],
         "products": ["11568", "11569", "11570"],
         "evidence_source": "msrc_cvrf",
+    }
+
+
+def _fake_cvrf_with_remediation_text(text: str) -> dict[str, object]:
+    return {
+        "Vulnerability": [
+            {
+                "CVE": "CVE-2026-1234",
+                "Threats": [{"Type": "Severity", "Description": {"Value": "Important"}}],
+                "Remediations": [{"Description": {"Value": text}, "ProductID": ["11568"]}],
+            }
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "Security Update for KB5094126",
+        "https://catalog.update.microsoft.com/Search.aspx?q=KB5094126",
+        "Article 5094126",
+    ),
+)
+def test_msrc_cvrf_kb_join_matches_exact_kb_tokens(text: str) -> None:
+    result = policy_generator_module._cvrf_kb_join(_fake_cvrf_with_remediation_text(text), "5094126")
+
+    assert result["is_security"] is True
+    assert result["cves"] == ["CVE-2026-1234"]
+    assert result["evidence_source"] == "msrc_cvrf"
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "Security Update for KB50941260",
+        "Security Update for 15094126",
+        "Security Update for 5094126a",
+        "https://catalog.update.microsoft.com/Search.aspx?q=KB50941260",
+    ),
+)
+def test_msrc_cvrf_kb_join_rejects_substring_false_positives(text: str) -> None:
+    result = policy_generator_module._cvrf_kb_join(_fake_cvrf_with_remediation_text(text), "KB5094126")
+
+    assert result == {
+        "is_security": False,
+        "cves": [],
+        "severities": [],
+        "products": [],
+        "evidence_source": "none",
+    }
+
+
+def test_msrc_cvrf_kb_join_malformed_payload_is_unknown_not_false() -> None:
+    result = policy_generator_module._cvrf_kb_join(["not", "a", "mapping"], "KB5094126")  # type: ignore[arg-type]
+
+    assert result == {
+        "is_security": None,
+        "cves": [],
+        "severities": [],
+        "products": [],
+        "evidence_source": "unavailable",
     }
 
 
@@ -2166,13 +2445,18 @@ def test_malformed_or_non_support_atom_href_is_not_fetched(href: str) -> None:
 
     target = policy.broad_target_existing_devices
     assert target is not None
+    assert parse_atom_feed(atom)[0].link is None
     assert target.latest_observed_build == "26200.8524"
     assert not policy.source_diagnostics["support_articles"]
-    assert any(
-        event["kind"] == "atom_support_article_href_missing"
-        and event["atom_feed_url"] == href
+    missing = next(
+        event
         for event in policy.source_diagnostics["events"]
+        if event["kind"] == "atom_support_article_href_missing"
     )
+    assert missing["kb_article"] == "KB5094126"
+    assert missing["build"] == "26200.8655"
+    assert "atom_feed_url" not in missing
+    assert "support_url" not in missing
 
 
 def test_preview_atom_support_entry_does_not_update_latest_observed() -> None:

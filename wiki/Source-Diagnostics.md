@@ -54,22 +54,29 @@ rows stay `notice`. Missing KB metadata is an uncertainty marker, not permanent
 proof that a row is harmless.
 
 Atom is discovery for public Support article hrefs. The generator fetches only
-Atom-provided `support.microsoft.com` article URLs that pass safe URL checks. If
-an Atom KB row lacks a usable support href, the generator records
-`atom_support_article_href_missing` evidence instead of resolving through
-`/help/<KB>`. Support article text can provide human-readable KB context and
+safe Atom `alternate` links to `https://support.microsoft.com` article paths.
+It ignores `self` links, feed/API/search/download/static paths, non-support
+hosts, userinfo, fragments, traversal patterns, and overlong URLs. Accepted
+evidence URLs are canonicalized without tracking query strings. Legacy
+`/help/<digits>` paths remain valid only when Atom provided them directly; the
+generator does not synthesize `/help/<KB>` fallbacks. If an Atom KB row lacks a
+usable support href, the generator records `atom_support_article_href_missing`
+evidence. Support article text can provide human-readable KB context and
 explicit security wording only after validation confirms that the article URL,
-KB, expected build, and parseable applicability match the Atom record. Public
-MSRC CVRF data provides higher-confidence exact-KB security classification and
-compact CVE context when available. Atom title buckets remain low-confidence
-labels; generic `OS Build(s)` wording is not security evidence. If validation is
-`mismatch`, the technical Atom diagnostic remains visible and the mismatch
-reasons are recorded, but article KB/title/build facts and Support-derived
-security wording are not trusted for the dashboard summary or `Security patch`
-tag. If validation is `degraded`, summaries stay Atom-grounded and include the
-compact degradation reason. The `source_drift_unresolved_after_24h` event is
-reserved for warning/error drift that remains unresolved after the newest source
-timestamp, not for normal notice-only feed lag.
+KB, expected build, and parseable applicability match the Atom record. Empty or
+unknown `Applies to` values are degraded, not mismatch proof by themselves.
+Public MSRC CVRF data provides higher-confidence exact-KB-token security
+classification and compact CVE context when available; substring values such as
+`KB50941260`, `15094126`, or `5094126a` do not match `KB5094126`. Atom title
+buckets remain low-confidence labels; generic `OS Build(s)` wording is not
+security evidence. If validation is `mismatch`, the technical Atom diagnostic
+remains visible and the mismatch reasons are recorded, but article
+KB/title/build facts and Support-derived security wording are not trusted for
+the dashboard summary or `Security patch` tag. If validation is `degraded`,
+summaries stay Atom-grounded and include the compact degradation reason. The
+`source_drift_unresolved_after_24h` event is reserved for warning/error drift
+that remains unresolved after the newest source timestamp, not for normal
+notice-only feed lag.
 
 ## Diagnostic IDs
 
@@ -176,6 +183,7 @@ Issues or writing tokens.
 | Current Versions parser fails. | Release Health table headers changed. | Update parser tests and code together. |
 | Atom feed has newer build than Release Health. | `atom_newer_than_release_history` event. | Inspect the KB, Support article href, build family, and whether latest observed remains informational. |
 | Atom KB row has no Support article href. | `atom_support_article_href_missing` event. | Treat as source evidence gap; do not add a `/help/<KB>` resolver. |
+| Atom row links only to feed/API/search/download/static, non-support, or traversal URL. | `atom_support_article_href_missing` event with no latest-observed advancement. | Treat as unsafe or non-article evidence; use only a safe Atom `alternate` Support article URL. |
 | Support article KB/build/applies-to disagrees with Atom. | `support_article_enrichment_mismatch` event and validation reason codes. | Trust Atom KB/build/release and MSRC exact-KB evidence; do not use the mismatched article for summaries or Support-derived security labels. |
 | Source diagnostics warning appears on dashboard. | Event kind and affected release/build. | Keep visible; only block if severity is error. |
 

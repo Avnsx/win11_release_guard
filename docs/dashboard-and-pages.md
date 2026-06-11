@@ -69,24 +69,33 @@ entry with a safe `support.microsoft.com` article href. That observed value is
 informational until the signed baseline rules select it as
 `required_baseline_build`.
 
-Atom is discovery, not a KB resolver. If an Atom KB row lacks a usable Support
-article href, the generator records `atom_support_article_href_missing` evidence
-instead of fetching `/help/<KB>`. MSRC CVRF and validated explicit Support
-article wording provide higher-confidence security classification; Atom titles
-are kept as low-confidence update buckets only. Source Diagnostics and
-enrichment can explain observed builds and KB classification, but they do not
-override signed policy verdicts or required baseline semantics.
+Atom is discovery, not a KB resolver. The generator selects only safe Atom
+`alternate` links to `https://support.microsoft.com` article paths. It ignores
+`self` links, feed/API/search/download/static paths, non-support hosts,
+userinfo, fragments, traversal patterns, and overlong URLs; accepted evidence
+URLs are canonicalized without tracking query strings. If an Atom KB row lacks a
+usable Support article href, the generator records
+`atom_support_article_href_missing` evidence instead of fetching `/help/<KB>`.
+Legacy `/help/<digits>` paths remain valid only when they came directly from
+Atom. MSRC CVRF and validated explicit Support article wording provide
+higher-confidence security classification; Atom titles are kept as
+low-confidence update buckets only. Source Diagnostics and enrichment can
+explain observed builds and KB classification, but they do not override signed
+policy verdicts or required baseline semantics.
 `source_drift_unresolved_after_24h` is reserved for warning/error drift that
 remains unresolved after the newest source timestamp, not for notice-only source
 lag.
 
 Support article enrichment is trusted only after the fetched article matches the
 Atom record's selected support URL, KB, expected build, and parseable
-applicability. Mismatched article KB/build/release evidence remains visible as
-Source Diagnostics validation metadata, but it is not used for administrator
-summaries, Support-derived security labels, or `Security patch` tags. If a
-partial article is compatible but incomplete, rows carry a compact degraded
-reason and stay grounded in Atom KB/build/release facts.
+applicability. Empty or unknown `Applies to` evidence is degraded, not treated
+as proof of mismatch by itself. Mismatched article KB/build/release evidence
+remains visible as Source Diagnostics validation metadata, but it is not used
+for administrator summaries, Support-derived security labels, or `Security
+patch` tags. MSRC CVRF joins use exact KB tokens only, so values such as
+`KB50941260`, `15094126`, or `5094126a` do not classify `KB5094126` as security
+evidence. If a partial article is compatible but incomplete, rows carry a
+compact degraded reason and stay grounded in Atom KB/build/release facts.
 
 Small info icons beside dashboard section labels are static links to the related
 Pages Wiki sections. Their hover/focus panels contain a compact explanation plus

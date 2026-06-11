@@ -12,7 +12,7 @@ from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
 from .config import (
@@ -470,6 +470,7 @@ def _fetch_url(
     *,
     timeout: float,
     max_bytes: int = DEFAULT_MAX_MICROSOFT_SOURCE_BYTES,
+    final_url_validator: Callable[[str], str | None] | None = None,
 ) -> str:
     request = urllib.request.Request(
         url,
@@ -479,6 +480,10 @@ def _fetch_url(
         },
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
+        if final_url_validator is not None:
+            final_url = response.geturl() if hasattr(response, "geturl") else url
+            if final_url_validator(final_url) is None:
+                raise PolicyFetchError("Microsoft source response redirected to an unsafe URL.")
         charset = response.headers.get_content_charset() or "utf-8"
         content_length = _content_length_from_headers(response.headers)
         if content_length is not None and content_length > max_bytes:
@@ -568,13 +573,21 @@ def _text(element: ElementTree.Element, name: str, ns: Mapping[str, str]) -> str
 
 def _link(element: ElementTree.Element, ns: Mapping[str, str]) -> str | None:
     for link in element.findall("atom:link", ns):
+        rel = str(link.attrib.get("rel") or "alternate").strip().lower()
+        if rel != "alternate":
+            continue
         href = link.attrib.get("href")
-        if href:
-            return href
+        safe_href = _safe_atom_support_article_url(href)
+        if safe_href:
+            return safe_href
     for link in element.findall("link"):
+        rel = str(link.attrib.get("rel") or "alternate").strip().lower()
+        if rel != "alternate":
+            continue
         href = link.attrib.get("href")
-        if href:
-            return href
+        safe_href = _safe_atom_support_article_url(href)
+        if safe_href:
+            return safe_href
     return None
 
 
@@ -681,21 +694,56 @@ def _kb_url(kb_article: str | None, feed_entry: AtomFeedEntry | None = None) -> 
     return f"https://support.microsoft.com/help/{kb[2:]}"
 
 
+_MAX_SUPPORT_ARTICLE_URL_LENGTH = 2048
+_MAX_SUPPORT_ARTICLE_PATH_LENGTH = 1024
+_SUPPORT_ARTICLE_BLOCKED_PATH_PREFIXES = ("/api", "/assets", "/download", "/feed", "/search", "/static")
+
+
+def _support_article_content_path(path: str) -> str:
+    match = re.fullmatch(r"/[a-z]{2}-[a-z]{2}(/.*)", path, flags=re.IGNORECASE)
+    return match.group(1) if match else path
+
+
 def _safe_atom_support_article_url(value: str | None) -> str | None:
     url = str(value or "").strip()
-    if not url:
+    if not url or len(url) > _MAX_SUPPORT_ARTICLE_URL_LENGTH:
         return None
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower().rstrip(".")
     path = parsed.path or ""
     if parsed.scheme.lower() != "https" or host != "support.microsoft.com":
         return None
-    if not path.startswith("/") or path == "/":
+    try:
+        if parsed.port is not None:
+            return None
+    except ValueError:
         return None
+    if parsed.username or parsed.password or parsed.fragment:
+        return None
+    if not path.startswith("/") or path == "/" or len(path) > _MAX_SUPPORT_ARTICLE_PATH_LENGTH:
+        return None
+
     lowered_path = path.lower()
-    if lowered_path.startswith("/feed/") or lowered_path.startswith("/api/") or "/feed/" in lowered_path:
+    if "\\" in path or "%2e" in lowered_path or "%2f" in lowered_path or "%5c" in lowered_path:
         return None
-    return url
+    decoded_path = unquote(path)
+    if "\\" in decoded_path or any(part == ".." for part in decoded_path.split("/")):
+        return None
+
+    content_path = _support_article_content_path(path)
+    lowered_content_path = content_path.lower()
+    if any(
+        lowered_content_path == prefix or lowered_content_path.startswith(f"{prefix}/")
+        for prefix in _SUPPORT_ARTICLE_BLOCKED_PATH_PREFIXES
+    ):
+        return None
+    if "/api/" in lowered_content_path or "/feed/" in lowered_content_path:
+        return None
+    if re.fullmatch(r"/help/[1-9][0-9]{5,7}", lowered_content_path):
+        return f"https://support.microsoft.com{path}"
+    if re.fullmatch(r"/topic/[A-Za-z0-9][A-Za-z0-9._~!$&'()*+,;=:@%-]{1,900}", content_path):
+        return f"https://support.microsoft.com{path}"
+    return None
 
 
 class _SupportArticleTextExtractor(HTMLParser):
@@ -904,7 +952,15 @@ def _extract_support_article_facts(url: str, html_text: str) -> dict[str, Any]:
 
 
 def _default_support_article_fetcher(url: str, timeout: float, max_bytes: int) -> str:
-    return _fetch_url(url, timeout=timeout, max_bytes=max_bytes)
+    safe_url = _safe_atom_support_article_url(url)
+    if safe_url is None:
+        raise PolicyFetchError("Support article URL failed safety validation.")
+    return _fetch_url(
+        safe_url,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        final_url_validator=_safe_atom_support_article_url,
+    )
 
 
 def _msrc_cvrf_url(month_id: str) -> str:
@@ -1070,8 +1126,30 @@ def _cvrf_vulnerability_severities(vulnerability: Mapping[str, Any]) -> tuple[st
     return tuple(dict.fromkeys(item for item in severities if item))
 
 
+def _normalize_cvrf_kb_article(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    match = re.fullmatch(r"(?:KB)?([1-9][0-9]{5,7})", text, flags=re.IGNORECASE)
+    if match:
+        return f"KB{match.group(1)}"
+    return _extract_kb(text)
+
+
+def _cvrf_text_matches_kb(text: str, kb: str) -> bool:
+    bare_kb = kb[2:]
+    pattern = re.compile(rf"(?<![A-Za-z0-9])(?:{re.escape(kb)}|{re.escape(bare_kb)})(?![A-Za-z0-9])", re.IGNORECASE)
+    return pattern.search(text) is not None
+
+
 def _cvrf_kb_join(cvrf: Mapping[str, Any], kb_article: str | None) -> dict[str, Any]:
-    kb = _extract_kb(kb_article)
+    if not isinstance(cvrf, Mapping):
+        return {
+            "is_security": None,
+            "cves": [],
+            "severities": [],
+            "products": [],
+            "evidence_source": "unavailable",
+        }
+    kb = _normalize_cvrf_kb_article(kb_article)
     if not kb:
         return {
             "is_security": False,
@@ -1080,8 +1158,6 @@ def _cvrf_kb_join(cvrf: Mapping[str, Any], kb_article: str | None) -> dict[str, 
             "products": [],
             "evidence_source": "none",
         }
-    bare_kb = kb[2:]
-    needles = (kb, bare_kb)
     cves: list[str] = []
     severities: list[str] = []
     products: list[str] = []
@@ -1089,7 +1165,7 @@ def _cvrf_kb_join(cvrf: Mapping[str, Any], kb_article: str | None) -> dict[str, 
         matching_remediations = []
         for remediation in _cvrf_remediations(vulnerability):
             text = " ".join(_nested_text_values(remediation))
-            if any(needle in text for needle in needles):
+            if _cvrf_text_matches_kb(text, kb):
                 matching_remediations.append(remediation)
         if not matching_remediations:
             continue
@@ -1558,6 +1634,30 @@ def _support_article_releases_from_applies_to(value: Any) -> tuple[str, ...] | N
     return ()
 
 
+def _support_article_applies_to_compatibility(
+    value: Any,
+    *,
+    release: str | None,
+    build_family: Any = None,
+) -> str:
+    del build_family
+    text = _compact_article_text(str(value or ""))
+    if not text:
+        return "unknown"
+    normalized = text.lower()
+    if "windows" not in normalized:
+        return "unknown"
+    releases = _support_article_releases_from_applies_to(text)
+    expected_release = str(release or "").strip().upper()
+    if expected_release and releases:
+        return "compatible" if expected_release in releases else "incompatible"
+    if "windows 10" in normalized and "windows 11" not in normalized:
+        return "incompatible"
+    if "windows 11" in normalized:
+        return "unknown"
+    return "incompatible"
+
+
 def _support_article_validation_for_record(
     record: Mapping[str, Any],
     article: Mapping[str, Any] | None,
@@ -1609,14 +1709,16 @@ def _support_article_validation_for_record(
 
     expected_release = expected.get("release")
     applies_to = article.get("applies_to")
-    if expected_release and applies_to not in (None, ""):
-        applies_releases = _support_article_releases_from_applies_to(applies_to)
-        if applies_releases is None:
-            degraded_reasons.append("applies_to_unparseable")
-        elif applies_releases and expected_release not in applies_releases:
+    if expected_release:
+        applies_compatibility = _support_article_applies_to_compatibility(
+            applies_to,
+            release=expected_release,
+            build_family=record.get("build_family"),
+        )
+        if applies_compatibility == "incompatible":
             mismatch_reasons.append("applies_to_mismatch")
-        elif not applies_releases:
-            mismatch_reasons.append("applies_to_mismatch")
+        elif applies_compatibility == "unknown" and status == "ok":
+            degraded_reasons.append("applies_to_missing" if applies_to in (None, "") else "applies_to_unknown")
 
     if mismatch_reasons:
         validation_status = "mismatch"
