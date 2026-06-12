@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
@@ -717,7 +717,7 @@ def _history_sort_key(row: ReleaseHistoryEntry) -> tuple[str, tuple[int, int]]:
 
 def _kb_url(kb_article: str | None, feed_entry: AtomFeedEntry | None = None) -> str | None:
     if feed_entry is not None:
-        return feed_entry.link
+        return _atom_entry_support_url(feed_entry)
     kb = _extract_kb(kb_article)
     if not kb:
         return None
@@ -775,6 +775,12 @@ def _safe_atom_support_article_url(value: str | None) -> str | None:
     if re.fullmatch(r"/topic/[A-Za-z0-9][A-Za-z0-9._~!$&'()*+,;=:@%-]{1,900}", content_path):
         return f"https://support.microsoft.com{path}"
     return None
+
+
+def _atom_entry_support_url(entry: AtomFeedEntry | None) -> str | None:
+    if entry is None:
+        return None
+    return _safe_atom_support_article_url(entry.link)
 
 
 class _SupportArticleTextExtractor(HTMLParser):
@@ -1414,15 +1420,68 @@ def _catalog_url(kb_article: str | None) -> str | None:
     return f"https://www.catalog.update.microsoft.com/Search.aspx?q={kb}"
 
 
+def _atom_entry_preference_key(entry: AtomFeedEntry) -> tuple[float, float, str, str]:
+    updated = _parse_source_timestamp(entry.updated)
+    published = _parse_source_timestamp(entry.published)
+    return (
+        updated.timestamp() if updated is not None else float("-inf"),
+        published.timestamp() if published is not None else float("-inf"),
+        str(entry.entry_id or ""),
+        str(entry.title or ""),
+    )
+
+
+def _preferred_atom_entry(entries: Iterable[AtomFeedEntry]) -> AtomFeedEntry | None:
+    candidates = tuple(entries)
+    if not candidates:
+        return None
+    return max(candidates, key=_atom_entry_preference_key)
+
+
+def _unambiguous_kb_only_atom_entries(
+    row: ReleaseHistoryEntry,
+    entries: tuple[AtomFeedEntry, ...],
+) -> tuple[AtomFeedEntry, ...]:
+    if not entries:
+        return ()
+
+    safe_urls = {_atom_entry_support_url(entry) for entry in entries}
+    if len(safe_urls) > 1:
+        return ()
+
+    flags = {(bool(entry.preview), bool(entry.out_of_band)) for entry in entries}
+    if len(flags) > 1:
+        return ()
+    atom_flags = next(iter(flags))
+    row_flags = (bool(row.preview), bool(row.out_of_band))
+    if atom_flags != row_flags:
+        return ()
+
+    buckets = {_atom_title_bucket(entry.title).get("bucket") for entry in entries}
+    if len(buckets) > 1:
+        return ()
+
+    return entries
+
+
 def _match_atom(row: ReleaseHistoryEntry, entries: tuple[AtomFeedEntry, ...]) -> AtomFeedEntry | None:
     row_kb = _extract_kb(row.kb_article)
     if row_kb:
-        for entry in entries:
-            if entry.kb_article == row_kb:
-                return entry
-    for entry in entries:
-        if row.build in entry.builds:
-            return entry
+        kb_and_build_matches = tuple(
+            entry for entry in entries if entry.kb_article == row_kb and row.build in entry.builds
+        )
+        match = _preferred_atom_entry(kb_and_build_matches)
+        if match is not None:
+            return match
+
+    build_matches = tuple(entry for entry in entries if row.build in entry.builds)
+    match = _preferred_atom_entry(build_matches)
+    if match is not None:
+        return match
+
+    if row_kb:
+        kb_matches = tuple(entry for entry in entries if entry.kb_article == row_kb)
+        return _preferred_atom_entry(_unambiguous_kb_only_atom_entries(row, kb_matches))
     return None
 
 
@@ -1443,15 +1502,17 @@ def _enrich_history(
 
         metadata = dict(row.metadata)
         if atom_entry:
+            atom_support_url = _atom_entry_support_url(atom_entry)
             metadata.update(
                 {
                     "atom_enriched": True,
                     "atom_feed_title": atom_entry.title,
-                    "atom_feed_url": atom_entry.link,
                     "atom_published": atom_entry.published,
                     "atom_updated": atom_entry.updated,
                 }
             )
+            if atom_support_url:
+                metadata["atom_feed_url"] = atom_support_url
             for key, value in (
                 ("atom_entry_id", atom_entry.entry_id),
                 ("atom_support_article_id", atom_entry.support_article_id),
@@ -1592,6 +1653,7 @@ def _atom_newer_than_history(
     missing_by_key: dict[tuple[str, str | None], dict[str, Any]] = {}
     for entry in atom_entries:
         kb = _extract_kb(entry.kb_article)
+        support_url = _atom_entry_support_url(entry)
         for build in entry.builds:
             family = _build_key(build)[0]
             if family < 0:
@@ -1614,10 +1676,11 @@ def _atom_newer_than_history(
                 "title": entry.title,
                 "atom_entry_id": entry.entry_id,
                 "atom_support_article_id": entry.support_article_id,
-                "atom_feed_url": entry.link,
-                "support_url": entry.link,
                 "diagnostic_id_hint": entry.diagnostic_id_hint,
             }
+            if support_url:
+                record["atom_feed_url"] = support_url
+                record["support_url"] = support_url
             current = missing_by_key.get(key)
             if current is None or _atom_drift_record_is_preferred(record, current):
                 missing_by_key[key] = record
@@ -1645,6 +1708,7 @@ def _atom_support_href_missing_event(
     build: str,
     kb_article: str,
 ) -> dict[str, Any]:
+    support_url = _atom_entry_support_url(entry)
     event = {
         "severity": "warning",
         "kind": "atom_support_article_href_missing",
@@ -1663,9 +1727,10 @@ def _atom_support_href_missing_event(
         "title": entry.title,
         "atom_entry_id": entry.entry_id,
         "atom_support_article_id": entry.support_article_id,
-        "atom_feed_url": entry.link,
-        "support_url": entry.link,
     }
+    if support_url:
+        event["atom_feed_url"] = support_url
+        event["support_url"] = support_url
     return {key: value for key, value in event.items() if value not in (None, "")}
 
 
@@ -1880,6 +1945,28 @@ def _baseline_notice_visibility_window(
     visible_from = datetime.fromisoformat(official_date).replace(tzinfo=timezone.utc)
     visible_until = visible_from + timedelta(days=_BASELINE_UPDATE_NOTICE_WINDOW_DAYS)
     return official_date, "date", _datetime_utc_z(visible_from), _datetime_utc_z(visible_until)
+
+
+def _baseline_notice_is_active(
+    row: ReleaseHistoryEntry | None,
+    *,
+    generated_at_utc: str,
+) -> bool:
+    if row is None:
+        return False
+    visibility = _baseline_notice_visibility_window(row)
+    if visibility is None:
+        return False
+    _, _, visible_from_utc, visible_until_utc = visibility
+    generated_dt = _parse_source_timestamp(generated_at_utc)
+    visible_from_dt = _parse_source_timestamp(visible_from_utc)
+    visible_until_dt = _parse_source_timestamp(visible_until_utc)
+    return bool(
+        generated_dt
+        and visible_from_dt
+        and visible_until_dt
+        and visible_from_dt <= generated_dt < visible_until_dt
+    )
 
 
 def _baseline_notice_security_evidence_status(
@@ -2144,7 +2231,7 @@ def _support_article_applies_to_compatibility(
     releases = explicit_releases or _support_article_releases_from_applies_to(text)
     expected_release = str(release or "").strip().upper()
     if expected_release and releases:
-        return "compatible" if expected_release in releases else "release_unmatched"
+        return "compatible" if expected_release in releases else "incompatible"
     if text and "windows 11" in normalized:
         return "unknown"
     return "incompatible"
@@ -3250,12 +3337,18 @@ def _policy_with_enrichment(
 
     baseline_update_row = _required_baseline_history_row(target, release_history)
     baseline_update_record = _baseline_update_notice_record(target, baseline_update_row)
+    baseline_update_enrichment_record = (
+        baseline_update_record
+        if baseline_update_record is not None
+        and _baseline_notice_is_active(baseline_update_row, generated_at_utc=generated_at_utc)
+        else None
+    )
     support_article_records = _records_for_support_article_enrichment(
         target=target,
         atom_entries=atom_entries,
         release_history=release_history,
         observed_record=observed_record,
-        baseline_update_record=baseline_update_record,
+        baseline_update_record=baseline_update_enrichment_record,
     )
     support_articles = _support_article_enrichments(
         support_article_records,
@@ -7921,7 +8014,14 @@ def render_policy_index(
         "        function updateBaselineNoticeVisibility(){\n"
         "          if(!uiActive||!notice.isConnected){return;}\n"
         "          var remaining=expiry-Date.now();\n"
-        "          if(remaining<=0){notice.hidden=true;notice.setAttribute('aria-hidden','true');return;}\n"
+        "          if(remaining<=0){\n"
+        "            notice.hidden=true;\n"
+        "            notice.setAttribute('aria-hidden','true');\n"
+        "            var grid=notice.closest ? notice.closest('.dashboard-grid') : null;\n"
+        "            if(grid&&grid.isConnected){grid.classList.remove('has-baseline-notice');}\n"
+        "            else{reportMissingNode('baseline update notice timer','dashboard grid');}\n"
+        "            return;\n"
+        "          }\n"
         "          safeSetTimeout(updateBaselineNoticeVisibility,Math.min(Math.max(remaining+1000,1000),3600000));\n"
         "        }\n"
         "        updateBaselineNoticeVisibility();\n"

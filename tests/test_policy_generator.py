@@ -688,6 +688,182 @@ def test_atom_unsafe_links_create_missing_href_without_latest_observed_advanceme
     assert "support_url" not in missing
 
 
+def test_kb_url_rejects_unsafe_direct_atom_link() -> None:
+    entry = policy_generator_module.AtomFeedEntry(
+        title="June 9, 2026-KB5094126 (OS Build 26200.8655)",
+        link="https://evil.example/topic/kb5094126",
+        kb_article="KB5094126",
+        builds=("26200.8655",),
+    )
+
+    assert policy_generator_module._kb_url("KB5094126", entry) is None
+
+
+def test_enrich_history_does_not_copy_unsafe_direct_atom_link() -> None:
+    row = policy_generator_module.ReleaseHistoryEntry(
+        release="25H2",
+        build_family=26200,
+        build="26200.8655",
+        availability_date="2026-06-09",
+        update_type="2026-06 B",
+        update_type_letter="B",
+        kb_article="KB5094126",
+        kb_url="https://support.microsoft.com/help/5094126",
+    )
+    atom_entry = policy_generator_module.AtomFeedEntry(
+        title="June 9, 2026-KB5094126 (OS Build 26200.8655)",
+        entry_id="tag:test,unsafe",
+        link="https://evil.example/topic/kb5094126",
+        kb_article="KB5094126",
+        builds=("26200.8655",),
+        published="2026-06-09T17:04:01Z",
+        updated="2026-06-10T17:20:31Z",
+    )
+
+    enriched = policy_generator_module._enrich_history((row,), (atom_entry,))[0]
+
+    assert enriched.kb_url == "https://support.microsoft.com/help/5094126"
+    assert "atom_feed_url" not in enriched.metadata
+    assert "evil.example" not in json.dumps(enriched.to_dict(), sort_keys=True)
+
+
+def test_match_atom_prefers_same_kb_and_build_over_wrong_build_first() -> None:
+    row = policy_generator_module.ReleaseHistoryEntry(
+        release="25H2",
+        build_family=26200,
+        build="26200.8655",
+        availability_date="2026-06-09",
+        update_type="2026-06 B",
+        update_type_letter="B",
+        kb_article="KB5094126",
+    )
+    wrong_build = policy_generator_module.AtomFeedEntry(
+        title="Wrong build",
+        entry_id="tag:test,wrong",
+        link=KB5094126_SUPPORT_URL,
+        kb_article="KB5094126",
+        builds=("26100.8655",),
+        updated="2026-06-11T00:00:00Z",
+    )
+    matching_build = policy_generator_module.AtomFeedEntry(
+        title="Matching build",
+        entry_id="tag:test,matching",
+        link=KB5094126_SUPPORT_URL,
+        kb_article="KB5094126",
+        builds=("26200.8655",),
+        updated="2026-06-10T00:00:00Z",
+    )
+
+    assert policy_generator_module._match_atom(row, (wrong_build, matching_build)) is matching_build
+
+
+def test_match_atom_uses_newest_valid_timestamp_then_stable_tie_breaker() -> None:
+    row = policy_generator_module.ReleaseHistoryEntry(
+        release="25H2",
+        build_family=26200,
+        build="26200.8655",
+        availability_date="2026-06-09",
+        update_type="2026-06 B",
+        update_type_letter="B",
+        kb_article="KB5094126",
+    )
+    stale = policy_generator_module.AtomFeedEntry(
+        title="Stale match",
+        entry_id="tag:test,stale",
+        link=KB5094126_SUPPORT_URL,
+        kb_article="KB5094126",
+        builds=("26200.8655",),
+        updated="2026-06-09T00:00:00Z",
+    )
+    newest = policy_generator_module.AtomFeedEntry(
+        title="Newest match",
+        entry_id="tag:test,newest",
+        link=KB5094126_SUPPORT_URL,
+        kb_article="KB5094126",
+        builds=("26200.8655",),
+        updated="2026-06-11T00:00:00Z",
+    )
+    tie_low = policy_generator_module.AtomFeedEntry(
+        title="A tie",
+        entry_id="tag:test,a",
+        link=KB5094126_SUPPORT_URL,
+        kb_article="KB5094126",
+        builds=("26200.8655",),
+        updated="not-a-date",
+    )
+    tie_high = policy_generator_module.AtomFeedEntry(
+        title="B tie",
+        entry_id="tag:test,b",
+        link=KB5094126_SUPPORT_URL,
+        kb_article="KB5094126",
+        builds=("26200.8655",),
+        updated="not-a-date",
+    )
+
+    assert policy_generator_module._match_atom(row, (stale, newest)) is newest
+    assert policy_generator_module._match_atom(row, (tie_low, tie_high)) is tie_high
+
+
+def test_match_atom_skips_ambiguous_preview_kb_only_fallback() -> None:
+    row = policy_generator_module.ReleaseHistoryEntry(
+        release="25H2",
+        build_family=26200,
+        build="26200.8655",
+        availability_date="2026-06-09",
+        update_type="2026-06 B",
+        update_type_letter="B",
+        kb_article="KB5094126",
+    )
+    preview_only = policy_generator_module.AtomFeedEntry(
+        title="Preview-only KB match",
+        entry_id="tag:test,preview",
+        link=KB5094126_SUPPORT_URL,
+        kb_article="KB5094126",
+        builds=("26200.9000",),
+        preview=True,
+    )
+
+    assert policy_generator_module._match_atom(row, (preview_only,)) is None
+
+
+def test_match_atom_skips_ambiguous_kb_only_source_or_security_fallback() -> None:
+    row = policy_generator_module.ReleaseHistoryEntry(
+        release="25H2",
+        build_family=26200,
+        build="26200.8655",
+        availability_date="2026-06-09",
+        update_type="2026-06 B",
+        update_type_letter="B",
+        kb_article="KB5094126",
+    )
+    support_a = "https://support.microsoft.com/en-us/topic/kb5094126-alpha"
+    support_b = "https://support.microsoft.com/en-us/topic/kb5094126-beta"
+    source_a = policy_generator_module.AtomFeedEntry(
+        title="June 9, 2026-KB5094126 (OS Build 26200.9000)",
+        entry_id="tag:test,a",
+        link=support_a,
+        kb_article="KB5094126",
+        builds=("26200.9000",),
+    )
+    source_b = policy_generator_module.AtomFeedEntry(
+        title="June 9, 2026-KB5094126 (OS Build 26200.9001)",
+        entry_id="tag:test,b",
+        link=support_b,
+        kb_article="KB5094126",
+        builds=("26200.9001",),
+    )
+    security_bucket = policy_generator_module.AtomFeedEntry(
+        title="Security intelligence update for KB5094126",
+        entry_id="tag:test,security",
+        link=support_a,
+        kb_article="KB5094126",
+        builds=("26200.9002",),
+    )
+
+    assert policy_generator_module._match_atom(row, (source_a, source_b)) is None
+    assert policy_generator_module._match_atom(row, (source_a, security_bucket)) is None
+
+
 @pytest.mark.parametrize(
     ("url", "expected"),
     (
@@ -1882,7 +2058,7 @@ def test_support_article_heading_paragraph_applies_to_extraction() -> None:
     (
         ("Windows 11, version 25H2", "25H2", "compatible"),
         ("Windows 11, version 25H2; Windows 11, version 24H2", "24H2", "compatible"),
-        ("Windows 11, version 24H2", "25H2", "release_unmatched"),
+        ("Windows 11, version 24H2", "25H2", "incompatible"),
         ("Windows 10, version 22H2", "25H2", "incompatible"),
         ("", "25H2", "unknown"),
         ("Windows 11", "25H2", "unknown"),
@@ -1920,7 +2096,7 @@ def test_support_article_missing_applies_to_is_degraded_not_mismatch() -> None:
     assert validation["support_article_validation_reasons"] == ["applies_to_missing"]
 
 
-def test_support_article_applies_to_release_miss_degrades_windows11_event() -> None:
+def test_support_article_applies_to_release_miss_is_untrusted_for_windows11_event() -> None:
     validation = policy_generator_module._support_article_validation_for_record(
         {
             "kb_article": "KB5094126",
@@ -1939,8 +2115,53 @@ def test_support_article_applies_to_release_miss_degrades_windows11_event() -> N
         },
     )
 
-    assert validation["support_article_validation_status"] == "degraded"
-    assert validation["support_article_validation_reasons"] == ["applies_to_release_unmatched"]
+    assert validation["support_article_validation_status"] == "mismatch"
+    assert validation["support_article_validation_reasons"] == ["applies_to_mismatch"]
+
+
+def test_applies_to_release_mismatch_blocks_support_summary_but_not_msrc_security() -> None:
+    atom = _atom_feed_with_entries(
+        _atom_entry_with_links(
+            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
+            (f'<link rel="alternate" href="{KB5094126_SUPPORT_URL}" />',),
+        )
+    )
+
+    def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        assert url == KB5094126_SUPPORT_URL
+        return _support_article_html(
+            applies_to="Windows 11, version 24H2",
+            builds=("26200.8655",),
+            security=True,
+        )
+
+    def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> dict[str, object]:
+        return FAKE_MSRC_CVRF_WITH_KB5094126
+
+    policy = generate_policy(
+        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
+        atom_feed_xml=atom,
+        generated_at_utc="2026-06-11T00:00:00+00:00",
+        support_article_fetcher=support_fetcher,
+        msrc_cvrf_fetcher=msrc_fetcher,
+    )
+
+    event = next(
+        item
+        for item in policy.source_diagnostics["events"]
+        if item.get("kind") == "atom_newer_than_release_history"
+        and item.get("release") == "25H2"
+        and item.get("build") == "26200.8655"
+    )
+
+    assert event["support_article_validation_status"] == "mismatch"
+    assert event["support_article_validation_reasons"] == ["applies_to_mismatch"]
+    assert event["is_security"] is True
+    assert event["security_evidence_source"] == "msrc_cvrf"
+    assert "support_article_title" not in event
+    assert "support_article_improvement_labels" not in event
+    assert "Secure Boot" not in str(event.get("user_message") or "")
+    assert "Secure Boot" not in str(event.get("summary") or "")
 
 
 @pytest.mark.parametrize(
@@ -2599,6 +2820,77 @@ def test_kb5094126_generated_output_when_release_health_has_caught_up(tmp_path: 
     assert "Atom feed shows a newer non-preview build for the broad target" not in index
 
 
+def test_generated_output_hardens_unsafe_atom_and_expired_notice_paths(tmp_path: Path) -> None:
+    unsafe_atom = _atom_feed_with_entries(
+        _atom_entry_with_links(
+            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
+            (
+                '<link rel="self" href="https://support.microsoft.com/en-us/feed/atom/not-an-article" />',
+                '<link rel="alternate" href="https://evil.example/topic/kb5094126" />',
+            ),
+        )
+    )
+    unsafe_policy = generate_policy(
+        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
+        atom_feed_xml=unsafe_atom,
+        generated_at_utc="2026-06-11T00:00:00+00:00",
+    )
+    unsafe_outputs = _generated_output_bundle(unsafe_policy, tmp_path / "unsafe")
+    unsafe_data = unsafe_outputs["policy"]
+    unsafe_combined = "\n".join(
+        str(unsafe_outputs[key]) for key in ("policy_text", "manifest_text", "index")
+    )
+
+    assert isinstance(unsafe_data, dict)
+    _assert_unique_source_diagnostic_ids(unsafe_data, str(unsafe_outputs["index"]))
+    validate_policy_document(unsafe_data)
+    assert "evil.example" not in unsafe_combined
+    assert "https://support.microsoft.com/help/5094126" not in unsafe_combined
+    assert unsafe_data["source_diagnostics"]["support_articles"] == {}
+
+    support_calls: list[str] = []
+    msrc_calls: list[str] = []
+    safe_single_build_atom = _atom_feed_with_entries(
+        _atom_entry_with_links(
+            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
+            (f'<link rel="alternate" href="{KB5094126_SUPPORT_URL}" />',),
+        )
+    )
+
+    def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        support_calls.append(url)
+        raise PolicyFetchError("support fetch should not run")
+
+    def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> dict[str, object]:
+        msrc_calls.append(url)
+        raise PolicyFetchError("msrc fetch should not run")
+
+    expired_policy = generate_policy(
+        release_health_html=_release_health_caught_up_to_kb5094126(),
+        atom_feed_xml=safe_single_build_atom,
+        generated_at_utc="2026-07-01T00:00:00+00:00",
+        support_article_fetcher=support_fetcher,
+        msrc_cvrf_fetcher=msrc_fetcher,
+    )
+    expired_outputs = _generated_output_bundle(expired_policy, tmp_path / "expired")
+    expired_data = expired_outputs["policy"]
+    assert isinstance(expired_data, dict)
+    _assert_no_raw_support_article_leakage(expired_outputs, _kb5094126_support_fixture())
+    validate_policy_document(expired_data)
+    expired_ids = [
+        str(event["id"])
+        for event in expired_data["source_diagnostics"]["events"]
+        if isinstance(event, dict) and "id" in event
+    ]
+    assert len(expired_ids) == len(set(expired_ids))
+    assert support_calls == []
+    assert msrc_calls == []
+    assert not any(
+        event["kind"] == "msrc_cvrf_enrichment_unavailable"
+        for event in expired_data["source_diagnostics"]["events"]
+    )
+
+
 def test_caught_up_kb5094126_creates_active_baseline_update_notice(tmp_path: Path) -> None:
     policy = _kb5094126_generated_fixture_policy(_release_health_caught_up_to_kb5094126())
     outputs = _generated_output_bundle(policy, tmp_path)
@@ -2728,6 +3020,8 @@ def test_caught_up_kb5094126_renders_baseline_update_notice_before_operational_p
     assert "update-guide/vulnerability/CVE-2026-0001" not in index
     assert "baseline update notice timer" in index
     assert "Date.parse(until)" in index
+    assert "grid.classList.remove('has-baseline-notice')" in index
+    assert "baseline update notice timer','dashboard grid" in index
     assert ".baseline-update-notice{position:relative" in index
     assert '<span class="baseline-chip">KB5094126</span>' in index
     assert '<span class="baseline-chip security">Security confirmed by MSRC</span>' in index
@@ -2741,6 +3035,7 @@ def test_caught_up_kb5094126_renders_baseline_update_notice_before_operational_p
     assert ".dashboard-grid.has-baseline-notice #live-freshness-panel{grid-row:2/span 2}" in index
     assert ".dashboard-grid.has-baseline-notice .source-diagnostics{grid-row:2/span 2}" in index
     assert ".dashboard-grid.has-baseline-notice.diagnostics-expanded .source-diagnostics{grid-row:2/span 3}" in index
+    assert ".dashboard-grid.diagnostics-expanded .source-diagnostics{grid-row:1/span 3;align-self:stretch}" in index
     assert "script src" not in index.lower()
     assert "rel=\"stylesheet\"" not in index.lower()
     assert "github_token" not in index.lower()
@@ -2767,17 +3062,44 @@ def test_not_caught_up_kb5094126_does_not_create_baseline_update_notice() -> Non
 
 
 def test_caught_up_baseline_update_notice_expires_after_visibility_window() -> None:
-    policy = _kb5094126_generated_fixture_policy(
-        _release_health_caught_up_to_kb5094126(),
-        generated_at_utc="2026-07-01T00:00:00+00:00",
+    support_calls: list[str] = []
+    msrc_calls: list[str] = []
+
+    def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        support_calls.append(url)
+        raise PolicyFetchError("support fetch should not run for expired notice")
+
+    def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> dict[str, object]:
+        msrc_calls.append(url)
+        raise PolicyFetchError("msrc fetch should not run for expired notice")
+
+    atom = _atom_feed_with_entries(
+        _atom_entry_with_links(
+            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
+            (f'<link rel="alternate" href="{KB5094126_SUPPORT_URL}" />',),
+        )
     )
 
+    policy = generate_policy(
+        release_health_html=_release_health_caught_up_to_kb5094126(),
+        atom_feed_xml=atom,
+        generated_at_utc="2026-07-01T00:00:00+00:00",
+        support_article_fetcher=support_fetcher,
+        msrc_cvrf_fetcher=msrc_fetcher,
+    )
+
+    assert support_calls == []
+    assert msrc_calls == []
     notice = policy.source_diagnostics["baseline_update_notice"]
     assert notice["active"] is False
     assert notice["visible_from_utc"] == "2026-06-09T00:00:00Z"
     assert notice["visible_until_utc"] == "2026-06-23T00:00:00Z"
     assert not any(
         event["kind"] == "required_baseline_matched_latest_observed"
+        for event in policy.source_diagnostics["events"]
+    )
+    assert not any(
+        event["kind"] == "msrc_cvrf_enrichment_unavailable"
         for event in policy.source_diagnostics["events"]
     )
     index = policy_generator_module.render_policy_index(policy, policy_bytes=None, signature=None)
