@@ -127,9 +127,10 @@ B-release row and now matches `latest_observed_build`. The notice uses
 deterministic local summary text from Release Health, Atom, validated Support
 article facts, and exact MSRC KB evidence; it does not use an LLM, cloud API,
 browser token, or external JavaScript. Microsoft date-only source precision is
-shown as date-only, the visibility window is 21 days from the source-derived
+shown as date-only, the visibility window is 14 days from the source-derived
 official baseline date, and a small inline script hides stale static notices
-after `visible_until_utc` without fetching network resources. The notice is
+after the hidden `visible_until_utc` marker without fetching network resources.
+The expiry marker is not rendered as a user-facing badge. The notice is
 dashboard-only: it does not alter signed policy verdicts, required-baseline
 selection, `/api/v1` aliases, runtime client behavior, or GitHub Issue sync.
 

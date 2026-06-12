@@ -107,9 +107,9 @@ When the broad target's required baseline is selected from a real non-preview,
 non-OOB Release Health B-release row and catches up to
 `latest_observed_build`, the dashboard can render a blue/white baseline-update
 notice above `Policy Feed Currency` and `Source Diagnostics`. It is
-informational only, lasts 21 days from the source-derived official baseline
+informational only, lasts 14 days from the source-derived official baseline
 date, labels Release Health date-only precision when Microsoft provides only a
-date, and uses deterministic local summary text from Release Health, Atom,
+date, keeps the expiry marker hidden from the UI, and uses deterministic local summary text from Release Health, Atom,
 validated Support facts, and exact MSRC evidence. It never calls an LLM, cloud
 API, GitHub runtime API, external JS/CSS/font/CDN, or changes the signed
 policy verdict, required baseline selection, issue sync, runtime client

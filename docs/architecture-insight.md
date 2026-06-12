@@ -60,7 +60,7 @@ than becoming proof that a KB is non-security.
 
 When baseline rules select a real Release Health B-release row and that
 `required_baseline_build` matches the broad target's `latest_observed_build`,
-the generator can add a dashboard-only baseline-update notice for 21 days from
+the generator can add a dashboard-only baseline-update notice for 14 days from
 the source-derived official baseline date. The notice is deterministic local
 HTML/policy metadata from Release Health, Atom, validated Support, and exact
 MSRC facts. It is not an LLM/cloud summary and it does not change verdicts,

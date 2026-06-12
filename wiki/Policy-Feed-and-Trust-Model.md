@@ -78,7 +78,7 @@ that same build, `latest_build`, `latest_observed_build`, and
 `required_baseline_build` can all legitimately carry the same build number.
 When the selected `required_baseline_build` comes from a real non-preview,
 non-OOB Release Health B-release row and matches `latest_observed_build`, the
-dashboard may show a 21-day informational baseline-update notice. That notice
+dashboard may show a 14-day informational baseline-update notice. That notice
 is generated from local Release Health, Atom, validated Support, and exact MSRC
 facts; it does not change the signed policy verdict, baseline selection,
 runtime client behavior, issue sync, or public `/api/v1` contract.

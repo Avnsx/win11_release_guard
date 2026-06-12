@@ -2633,7 +2633,7 @@ def test_caught_up_kb5094126_creates_active_baseline_update_notice(tmp_path: Pat
         "official_release_precision": "date",
         "release_health_latest_revision_date": "2026-06-09",
         "visible_from_utc": "2026-06-09T00:00:00Z",
-        "visible_until_utc": "2026-06-30T00:00:00Z",
+        "visible_until_utc": "2026-06-23T00:00:00Z",
         "policy_generated_at_utc": "2026-06-11T18:00:00+00:00",
         "is_security": True,
         "security_evidence_source": "msrc_cvrf",
@@ -2689,7 +2689,7 @@ def test_caught_up_kb5094126_renders_baseline_update_notice_before_operational_p
     assert 'role="status" aria-live="polite" data-baseline-notice="active"' in index
     assert 'data-baseline-notice-build="26200.8655"' in index
     assert 'data-baseline-notice-kb="KB5094126"' in index
-    assert 'data-baseline-notice-visible-until="2026-06-30T00:00:00Z"' in index
+    assert 'data-baseline-notice-visible-until="2026-06-23T00:00:00Z"' in index
     assert f'data-baseline-notice-source-url="{KB5094126_SUPPORT_URL}"' in index
     assert 'data-baseline-notice-security-url="https://msrc.microsoft.com/update-guide"' in index
     assert "New required baseline: 25H2 build 26200.8655" in index
@@ -2711,12 +2711,12 @@ def test_caught_up_kb5094126_renders_baseline_update_notice_before_operational_p
     assert "Atom first spotted June 9, 2026 at 19:04 CEST / 17:04 UTC" in index
     assert "Support updated June 10, 2026 at 19:20 CEST / 17:20 UTC" in index
     assert "Official baseline date: 2026-06-09 (Release Health date-only)" in index
-    assert "Visible until June 30, 2026 at 02:00 CEST / 00:00 UTC" in index
+    assert "Visible until" not in index
     assert 'baseline source. Security evidence: Security confirmed by MSRC.</p>' in index
     assert "Atom first spotted 2026-06-09T17:04:01Z" not in index
     assert "Support updated 2026-06-10T17:20:31Z" not in index
     assert "update-guide/vulnerability/CVE-2026-0001" not in index
-    assert "baseline update notice expiry" in index
+    assert "baseline update notice timer" in index
     assert "Date.parse(until)" in index
     assert ".baseline-update-notice{position:relative" in index
     assert '<span class="baseline-chip">KB5094126</span>' in index
@@ -2765,7 +2765,7 @@ def test_caught_up_baseline_update_notice_expires_after_visibility_window() -> N
     notice = policy.source_diagnostics["baseline_update_notice"]
     assert notice["active"] is False
     assert notice["visible_from_utc"] == "2026-06-09T00:00:00Z"
-    assert notice["visible_until_utc"] == "2026-06-30T00:00:00Z"
+    assert notice["visible_until_utc"] == "2026-06-23T00:00:00Z"
     assert not any(
         event["kind"] == "required_baseline_matched_latest_observed"
         for event in policy.source_diagnostics["events"]

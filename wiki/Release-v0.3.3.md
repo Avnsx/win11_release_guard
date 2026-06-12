@@ -23,7 +23,7 @@ Compact human summary of the `0.3.3` corrective source-evidence hardening releas
 | Atom diagnostics | Multi-build Atom entries keep unique diagnostic IDs; canonical warnings can keep Atom-form IDs while sibling rows use deterministic hash-form IDs. |
 | Support validation | Support article URL, KB, build, and parseable applicability are validated before article facts enrich summaries or Support-derived security labels. |
 | MSRC joins | CVRF matching requires exact KB tokens; unavailable or malformed CVRF stays unknown/unavailable, and context lists are capped. |
-| Baseline notice | Caught-up real B-release baselines can show a 21-day dashboard-only notice without changing verdicts or issue sync. |
+| Baseline notice | Caught-up real B-release baselines can show a 14-day dashboard-only notice without changing verdicts or issue sync. |
 | Dashboard | Static Pages keeps unique row IDs, visible validation status, copy/export JSON, no raw Support HTML, no tokens, no CDN, and no external JS/CSS/fonts. |
 | Handoff | `.tmp/prompt-chain/*.patch` files are local hints only; tracked edits, tests, docs where needed, and logical commits are required. |
 | PyPI lane | `pypi-publish.yml` builds wheel/sdist and publishes through Trusted Publishing / GitHub OIDC only after tag or published-release gates. |
