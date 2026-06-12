@@ -140,7 +140,10 @@ def test_source_diagnostic_issue_metadata_keeps_enriched_atom_row_fields() -> No
             "build": "26200.8655",
             "kb_article": "KB5094126",
             "message": "Atom feed shows a newer non-preview build 26200.8655 for 25H2.",
-            "user_message": "Security Patch June 2026: Windows 11 KB5094126 moves 25H2 to 26200.8655.",
+            "user_message": (
+                "Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655. This looks like the "
+                "next stable broad-fleet baseline candidate."
+            ),
             "kb_update_bucket": "OS Build Update",
             "kb_update_bucket_confidence": "low",
             "is_security": True,
@@ -168,7 +171,10 @@ def test_source_diagnostic_issue_metadata_keeps_enriched_atom_row_fields() -> No
     HTMLParser().feed(index)
 
     assert f'data-diagnostic-id="{ATOM_SOURCE_DIAGNOSTIC_ID}"' in index
-    assert 'data-user-message="Security Patch June 2026: Windows 11 KB5094126 moves 25H2 to 26200.8655."' in index
+    assert (
+        'data-user-message="Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655. '
+        'This looks like the next stable broad-fleet baseline candidate."'
+    ) in index
     assert 'data-kb-update-bucket="OS Build Update"' in index
     assert 'data-kb-update-bucket-confidence="low"' in index
     assert 'data-is-security="true"' in index
@@ -178,7 +184,8 @@ def test_source_diagnostic_issue_metadata_keeps_enriched_atom_row_fields() -> No
     assert f'data-atom-entry-id="{ATOM_ENTRY_ID}"' in index
     assert 'data-atom-support-article-id="968480"' in index
     assert (
-        f'<p class="diag-user-message">Security Patch June 2026: Windows 11 KB5094126 moves 25H2 to 26200.8655. '
+        '<p class="diag-user-message">Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655. '
+        'This looks like the next stable broad-fleet baseline candidate. '
         f'<a class="diag-read-more-inline" href="{KB5094126_SUPPORT_URL}" '
         'rel="noopener noreferrer">Read more</a></p>'
     ) in index
@@ -186,6 +193,7 @@ def test_source_diagnostic_issue_metadata_keeps_enriched_atom_row_fields() -> No
     assert 'class="diag-read-more"' not in index
     assert "diag-tag-link" not in index
     assert "<span>Security patch</span>" in index
+    assert '<span class="security-evidence">Security confirmed by Microsoft Support</span>' in index
     assert '<span>id=968480</span>' in index
     assert "#Ticket 42" in index
     assert "message:compactText(row.querySelector('.diag-technical-message'))" in index

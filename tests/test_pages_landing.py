@@ -843,7 +843,7 @@ def test_pages_index_source_diagnostics_render_structured_warning_event() -> Non
     HTMLParser().feed(index)
 
     assert _diag_row_marker("warning") in index
-    assert "Atom Newer Than Release History" in index
+    assert "New baseline candidate for Windows 11 25H2" in index
     assert "Atom feed" in index
     assert "Warning" in index
     assert "Release 25H2" in index
@@ -861,7 +861,9 @@ def test_pages_index_source_diagnostics_render_structured_warning_event() -> Non
 
 def test_pages_index_source_diagnostics_render_enriched_atom_summary_and_export_fields() -> None:
     user_message = (
-        "Security Patch June 2026: Windows 11 KB5094126 moves 25H2 to 26200.8655; "
+        "Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655. This looks like the next "
+        "stable broad-fleet baseline candidate, but this policy waits for Release Health baseline "
+        "rules before requiring it (security update, June 2026); "
         "public notes mention Secure Boot."
     )
     technical_message = (
@@ -901,6 +903,7 @@ def test_pages_index_source_diagnostics_render_enriched_atom_summary_and_export_
 
     assert _diag_row_marker("warning") in index
     assert f'data-diagnostic-id="{ATOM_SOURCE_DIAGNOSTIC_ID}"' in index
+    assert "New baseline candidate for Windows 11 25H2" in index
     assert f'data-user-message="{user_message}"' in index
     assert 'data-kb-update-bucket="OS Build Update"' in index
     assert 'data-kb-update-bucket-confidence="low"' in index
@@ -930,6 +933,7 @@ def test_pages_index_source_diagnostics_render_enriched_atom_summary_and_export_
         assert f"<span>{tag}</span>" in index
     assert "<span>KB5094126</span>" in index
     assert "<span>Security patch</span>" in index
+    assert '<span class="security-evidence">Security confirmed by MSRC</span>' in index
     assert "<span>CVEs 2</span>" not in index
     assert "update-guide/vulnerability/CVE-2026-0001" not in index
     assert "This patch contains" not in index
@@ -1193,8 +1197,8 @@ def test_pages_index_source_diagnostics_render_warning_and_error_color_states() 
     assert '<article class="diag-row error" data-diagnostic-severity="error" hidden' not in index
     assert '<span class="severity-badge warning">Warning</span>' in index
     assert '<span class="severity-badge error">Error</span>' in index
-    assert "Current Versions Lag Release History" in index
-    assert "Missing Broad Target Baseline" in index
+    assert "Release Health lag for Windows 11 25H2" in index
+    assert "Missing baseline for Windows 11 25H2" in index
     assert "Current Versions is behind Release History." in index
     assert "Required baseline cannot be derived." in index
     assert "No source issues reported" not in index
@@ -1227,8 +1231,8 @@ def test_pages_index_source_diagnostics_rows_sort_by_severity_priority() -> None
     index = render_policy_index(policy, policy_bytes=None, signature=None)
     HTMLParser().feed(index)
 
-    assert index.index("Release Health Parser Failed") < index.index("Atom Newer Than Release History")
-    assert index.index("Atom Newer Than Release History") < index.index("Policy Feed Current")
+    assert index.index("Release Health Parser Failed") < index.index("Microsoft update spotted")
+    assert index.index("Microsoft update spotted") < index.index("Policy Feed Current")
     rendered_severities = re.findall(
         r'<article class="diag-row (notice|warning|error)" data-diagnostic-severity="(?:notice|warning|error)"',
         index,

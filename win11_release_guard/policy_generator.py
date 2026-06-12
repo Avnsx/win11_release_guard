@@ -1893,6 +1893,19 @@ def _baseline_notice_security_evidence_status(
     return "unknown"
 
 
+def _security_evidence_display_label(*, is_security: Any, evidence_source: Any) -> str | None:
+    source = str(evidence_source or "").strip().lower()
+    if is_security is True:
+        if source == "msrc_cvrf":
+            return "Security confirmed by MSRC"
+        if source == "support_article":
+            return "Security confirmed by Microsoft Support"
+        return "Security confirmed"
+    if is_security is False:
+        return "Non-security according to trusted evidence"
+    return None
+
+
 def _baseline_notice_summary(
     *,
     release: str,
@@ -1900,20 +1913,18 @@ def _baseline_notice_summary(
     kb_article: str | None,
     update_type: str | None,
     official_release_date: str,
-    first_spotted_atom_published_utc: str | None,
     is_security: Any,
     security_evidence_status: str,
 ) -> str:
-    baseline_kind = "security baseline" if is_security is True else "required baseline"
     kb_text = kb_article or "The selected KB"
     update_text = update_type or "B-release"
+    security_clause = " MSRC confirms it as a security update" if is_security is True else ""
     summary = (
-        f"New required baseline: Windows 11 {release} build {build} now matches the latest "
-        f"observed Microsoft build. {kb_text} is the {update_text} {baseline_kind}"
+        f"New required baseline: Windows 11 {release} build {build} now matches Microsoft evidence "
+        f"and the signed fleet baseline. For broad-fleet {release} devices, this likely marks the "
+        f"stable rollout floor for {kb_text} / {update_text}.{security_clause}"
     )
     details: list[str] = []
-    if first_spotted_atom_published_utc:
-        details.append(f"Atom first spotted it at {first_spotted_atom_published_utc}")
     details.append(f"Release Health lists the baseline date as {official_release_date}")
     if is_security is not True:
         details.append(f"security evidence is {security_evidence_status}")
@@ -2006,15 +2017,19 @@ def _baseline_update_notice_payload(
         kb_article=kb_article,
         update_type=row.update_type,
         official_release_date=official_release_date,
-        first_spotted_atom_published_utc=first_spotted,
         is_security=is_security,
         security_evidence_status=security_evidence_status,
     )
-    technical_summary = (
-        f"Release Health B-release row {row.update_type or 'unknown update type'} selected "
-        f"{target.version}/{target.build_family} build {row.build}; support validation "
-        f"{validation_status}; security evidence {security_evidence_status} via {security_evidence_source}."
+    security_detail = _security_evidence_display_label(
+        is_security=is_security,
+        evidence_source=security_evidence_source,
     )
+    technical_summary = (
+        f"Release Health selected {row.update_type or 'unknown update type'} for Windows 11 "
+        f"{target.version} build {row.build}; support validation {validation_status}."
+    )
+    if security_detail:
+        technical_summary += f" {security_detail}."
     payload: dict[str, Any] = {
         "schema": _BASELINE_UPDATE_NOTICE_SCHEMA,
         "active": active,
@@ -2679,19 +2694,35 @@ def _support_article_notice_summary(event: Mapping[str, Any], article: Mapping[s
     kb_article = str(event.get("kb_article") or article.get("kb_article") or "unknown KB")
     release = str(event.get("release") or "").strip()
     build = str(event.get("build") or "").strip()
-    patch_type = "Security Patch" if event.get("is_security") is True else "Windows Update"
     date_label = _month_year_from_article_date(article.get("release_date")) or _month_year_from_timestamp(
         event.get("published")
     )
-    prefix = f"{patch_type} {date_label}" if date_label else patch_type
-    target = f"Windows 11 {kb_article}"
-    if release and build:
-        movement = f"moves {release} to {build}"
-    elif build:
-        movement = f"reports build {build}"
+    patch_type = "security update" if event.get("is_security") is True else "Windows update"
+    release_text = f"Windows 11 {release}" if release else "Windows 11"
+    build_text = f" build {build}" if build else ""
+    kb_text = kb_article or "this KB"
+    if event.get("affects_required_baseline"):
+        intro = (
+            f"Microsoft published {kb_text} for {release_text}{build_text}. This looks like the next "
+            "stable broad-fleet baseline candidate, but this policy waits for Release Health baseline "
+            "rules before requiring it"
+        )
     else:
-        movement = "has public support notes"
-    summary = f"{prefix}: {target} {movement}"
+        intro = (
+            f"Microsoft published {kb_text} for {release_text}{build_text}. This is official "
+            "release-specific update evidence, but it is not the selected broad-fleet baseline in this policy"
+        )
+    if date_label:
+        intro += f" ({patch_type}, {date_label})"
+    else:
+        intro += f" ({patch_type})"
+    if release and build:
+        movement = ""
+    elif build:
+        movement = f"; it reports build {build}"
+    else:
+        movement = "; Microsoft Support has public notes"
+    summary = intro + movement
     labels = [str(label) for label in article.get("improvement_labels") or ()][:4]
     if labels:
         summary += f"; public notes mention {_human_join(labels)}"
@@ -6034,6 +6065,28 @@ def _source_diagnostic_event_label(kind: Any) -> str:
     return " ".join(part.upper() if part.lower() in acronyms else part.capitalize() for part in text.split())
 
 
+def _source_diagnostic_display_title(event: Mapping[str, Any]) -> str:
+    kind = str(event.get("kind") or "").strip().lower()
+    release = str(event.get("release") or "").strip()
+    build = str(event.get("build") or "").strip()
+    release_text = f"Windows 11 {release}" if release else "Windows 11"
+    if kind == "required_baseline_matched_latest_observed":
+        return f"New baseline for {release_text}" if release else "New Windows baseline"
+    if kind == "atom_newer_than_release_history":
+        if event.get("affects_required_baseline"):
+            return f"New baseline candidate for {release_text}" if release else "New baseline candidate"
+        if event.get("is_security") is True:
+            return f"Security update spotted for {release_text}" if release else "Security update spotted"
+        return f"Microsoft update spotted for {release_text}" if release else "Microsoft update spotted"
+    if kind == "current_versions_lag_release_history" and release:
+        return f"Release Health lag for {release_text}"
+    if kind == "missing_broad_target_baseline" and release:
+        return f"Missing baseline for {release_text}"
+    if build and release:
+        return f"{_source_diagnostic_event_label(kind)} for {release_text} build {build}"
+    return _source_diagnostic_event_label(kind)
+
+
 def _source_diagnostic_source_label(kind: Any) -> str:
     text = str(kind or "").strip().lower()
     if "atom" in text:
@@ -6081,6 +6134,12 @@ def _source_diagnostic_event_tags(event: Mapping[str, Any]) -> tuple[str, ...]:
         tags.append(kb_text if kb_text.upper().startswith("KB") else f"KB {kb_text}")
     if event.get("is_security") is True:
         tags.append("Security patch")
+    security_label = _security_evidence_display_label(
+        is_security=event.get("is_security"),
+        evidence_source=event.get("security_evidence_source"),
+    )
+    if security_label and security_label not in tags:
+        tags.append(security_label)
     validation_status = str(event.get("support_article_validation_status") or "")
     if validation_status in _SUPPORT_ARTICLE_VALIDATION_STATUSES and validation_status != "ok":
         tags.append(f"Support article {validation_status}")
@@ -6270,7 +6329,7 @@ def _source_diagnostic_events_with_ids(events: list[dict[str, Any]]) -> list[dic
 def _source_diagnostic_row_from_event(event: Mapping[str, Any]) -> dict[str, Any]:
     kind = event.get("kind")
     severity = _source_diagnostic_event_severity(event.get("severity"))
-    title = _source_diagnostic_event_label(kind)
+    title = _source_diagnostic_display_title(event)
     message = _short_diagnostic_text(event.get("message") or event.get("title") or title)
     source = _source_diagnostic_source_label(kind)
     tags = _source_diagnostic_event_tags(event)
@@ -6694,7 +6753,8 @@ def _source_diagnostic_tag_items_html(tags: Any, *, row: Mapping[str, Any] | Non
         text = _source_diagnostic_text(tag)
         if not text:
             continue
-        rendered.append(f"<span>{escape(text)}</span>")
+        class_attr = ' class="security-evidence"' if text.startswith("Security confirmed") else ""
+        rendered.append(f"<span{class_attr}>{escape(text)}</span>")
     return "".join(rendered)
 
 
@@ -7052,16 +7112,10 @@ def _baseline_update_notice_for_policy(policy: ReleasePolicy) -> Mapping[str, An
 
 
 def _baseline_update_security_label(notice: Mapping[str, Any]) -> str:
-    source = str(notice.get("security_evidence_source") or "").strip().lower()
-    if notice.get("is_security") is True:
-        if source == "msrc_cvrf":
-            return "Security confirmed by MSRC"
-        if source == "support_article":
-            return "Security confirmed by validated Support article"
-        return "Security confirmed"
-    if notice.get("is_security") is False:
-        return "Non-security according to trusted evidence"
-    return "Security evidence unknown"
+    return _security_evidence_display_label(
+        is_security=notice.get("is_security"),
+        evidence_source=notice.get("security_evidence_source"),
+    ) or "Security evidence unknown"
 
 
 def _baseline_update_security_url(notice: Mapping[str, Any]) -> str | None:
@@ -7135,20 +7189,22 @@ def _render_baseline_update_notice(policy: ReleasePolicy) -> str:
     build = str(notice.get("build") or "unknown").strip()
     kb_article = str(notice.get("kb_article") or "").strip()
     update_type = str(notice.get("update_type") or "").strip()
-    summary_bits = [
-        (
-            f"Windows 11 {release} build {build} now matches both latest observed Microsoft evidence "
-            "and the signed required baseline."
-        )
-    ]
-    if kb_article and update_type:
-        summary_bits.append(f"{kb_article} is the {update_type} baseline source.")
-    elif kb_article:
-        summary_bits.append(f"{kb_article} is the baseline source.")
     security_label = _baseline_update_security_label(notice)
-    if security_label:
-        summary_bits.append(f"Security evidence: {security_label}.")
-    summary = _source_diagnostic_text(" ".join(summary_bits))
+    summary = _source_diagnostic_text(notice.get("summary"))
+    if not summary:
+        summary_bits = [
+            (
+                f"Windows 11 {release} build {build} now matches both latest observed Microsoft evidence "
+                "and the signed required baseline."
+            )
+        ]
+        if kb_article and update_type:
+            summary_bits.append(f"{kb_article} is the {update_type} baseline source.")
+        elif kb_article:
+            summary_bits.append(f"{kb_article} is the baseline source.")
+        if security_label:
+            summary_bits.append(f"{security_label}.")
+        summary = _source_diagnostic_text(" ".join(summary_bits))
     official_date = str(notice.get("official_release_date") or "").strip()
     precision = str(notice.get("official_release_precision") or "").strip().lower()
     official_label = ""
@@ -7639,7 +7695,7 @@ def render_policy_index(
         "    .panel :where(p,dd,dt,strong,em,code,a,.metric,.label){max-width:100%;min-width:0;overflow-wrap:anywhere;word-break:break-word}.kpi-card{container-type:inline-size}.kpi-card .metric{display:block;max-width:100%;white-space:normal;overflow-wrap:anywhere;word-break:break-word;text-wrap:balance;font-size:clamp(32px,3vw,50px);line-height:.98}.kpi-observed .metric,.kpi-baseline .metric{font-size:clamp(31px,2.65vw,46px)}.kpi-card .label{white-space:normal}.api-endpoint-row code{white-space:normal;overflow-wrap:anywhere;word-break:break-word}.freshness-metric{max-width:100%;overflow-wrap:anywhere}.source-tile-head,.signature-head,.panel-head{min-width:0}.source-name,.api-endpoint-row span,.signature-kv dd{min-width:0;max-width:100%}@supports(font-size:1cqw){.kpi-card .metric{font-size:clamp(32px,13cqw,50px)}.kpi-observed .metric,.kpi-baseline .metric{font-size:clamp(31px,11.8cqw,46px)}}\n"
         "    @media(max-width:900px){.kpi-card .metric{font-size:clamp(32px,8vw,46px)}.kpi-observed .metric,.kpi-baseline .metric{font-size:clamp(31px,7vw,44px)}}\n"
         "    @media(max-width:640px){.kpi-card .metric,.kpi-observed .metric,.kpi-baseline .metric{font-size:clamp(30px,10vw,38px);line-height:1.02}.kpi-card{min-height:0}}\n"
-        "    .kpi-card,.freshness-panel,.source-diagnostics,.signature-panel,.programmatic-api{border-color:rgba(150,197,246,.78);box-shadow:0 20px 44px rgba(14,74,150,.13),inset 0 1px 0 rgba(255,255,255,.92)}.kpi-card,.panel.status-card,.source-diagnostics,.signature-panel,.programmatic-api{background:linear-gradient(180deg,rgba(255,255,255,.95),rgba(246,251,255,.86))}.panel h2,.kpi-head h2{color:#1c3156}.metric,.freshness-metric{color:#071632}.panel-action,.status-pill,.source-chip,.diag-tags span,.diag-tags a{box-shadow:inset 0 1px 0 rgba(255,255,255,.88)}\n"
+        "    .kpi-card,.freshness-panel,.source-diagnostics,.signature-panel,.programmatic-api{border-color:rgba(150,197,246,.78);box-shadow:0 20px 44px rgba(14,74,150,.13),inset 0 1px 0 rgba(255,255,255,.92)}.kpi-card,.panel.status-card,.source-diagnostics,.signature-panel,.programmatic-api{background:linear-gradient(180deg,rgba(255,255,255,.95),rgba(246,251,255,.86))}.panel h2,.kpi-head h2{color:#1c3156}.metric,.freshness-metric{color:#071632}.panel-action,.status-pill,.source-chip,.diag-tags span,.diag-tags a{box-shadow:inset 0 1px 0 rgba(255,255,255,.88)}.diag-tags span.security-evidence{border-color:#93c5fd;background:linear-gradient(180deg,#fff,#e8f3ff);color:#005bd3;font-weight:700}\n"
         "    .freshness-panel{container-type:inline-size;align-content:start;grid-auto-rows:max-content}.freshness-panel .freshness-layout{grid-template-columns:1fr;gap:clamp(24px,3vw,34px)}.freshness-panel .freshness-hero{grid-template-columns:minmax(104px,120px) minmax(0,1fr);gap:clamp(28px,3vw,40px);max-width:100%}.freshness-age-copy{gap:8px;padding-inline-start:2px}.freshness-metric{white-space:normal;overflow-wrap:normal;word-break:normal;text-wrap:balance}.freshness-callout{margin-top:clamp(14px,2vw,22px)}@supports(margin-top:1cqw){.freshness-callout{margin-top:clamp(14px,3cqw,24px)}}.freshness-panel .thresholds{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.freshness-panel .threshold-card{column-gap:14px}.freshness-metric.age-wide{font-size:clamp(32px,3.15vw,40px)}@media(max-width:1500px){.freshness-panel .freshness-layout{gap:28px}.freshness-panel .freshness-hero{grid-template-columns:minmax(96px,112px) minmax(0,1fr);gap:28px}}@media(max-width:640px){.freshness-panel .freshness-layout{gap:22px}.freshness-panel .freshness-hero{grid-template-columns:82px minmax(0,1fr);gap:20px}.freshness-age-copy{gap:6px;padding-inline-start:0}.freshness-panel .thresholds{grid-template-columns:1fr;gap:12px}}@media(max-width:360px){.freshness-panel .freshness-hero{grid-template-columns:1fr}.freshness-ring{justify-self:start;width:76px}.freshness-metric{font-size:28px}.freshness-metric.age-wide,.freshness-metric.age-compact{font-size:26px}}\n"
         "  </style>\n"
         "</head>\n"

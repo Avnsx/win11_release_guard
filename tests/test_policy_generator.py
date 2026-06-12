@@ -2157,7 +2157,9 @@ def test_support_article_enrichment_adds_diagnostic_context_and_dashboard_summar
     assert event["is_security"] is True
     assert event["security_evidence_source"] == "support_article"
     assert event["user_message"] == (
-        "Security Patch June 2026: Windows 11 KB5094126 moves 25H2 to 26200.8655; "
+        "Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655. This looks like the next "
+        "stable broad-fleet baseline candidate, but this policy waits for Release Health baseline "
+        "rules before requiring it (security update, June 2026); "
         "public notes mention Secure Boot, Virtualization, desktop.ini, and AI components."
     )
 
@@ -2261,7 +2263,9 @@ def test_support_article_partial_compatible_article_is_degraded_atom_grounded_su
     assert event["is_security"] is None
     assert event["security_evidence_source"] == "unavailable"
     assert event["user_message"] == (
-        "Windows Update June 2026: Windows 11 KB5094126 moves 25H2 to 26200.8655; "
+        "Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655. This looks like the next "
+        "stable broad-fleet baseline candidate, but this policy waits for Release Health baseline "
+        "rules before requiring it (Windows update, June 2026); "
         "support article validation degraded: builds_missing."
     )
     assert "KB5000000" not in event["user_message"]
@@ -2374,10 +2378,11 @@ def test_msrc_cvrf_marks_atom_diagnostic_as_security_and_uses_single_month_fetch
     assert event["security_products"] == ["11568", "11569", "11570"]
     assert event["msrc_cvrf_month_id"] == "2026-Jun"
     assert event["msrc_cvrf_status"] == "ok"
-    assert "Security Patch June 2026" in event["user_message"]
+    assert "Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655" in event["user_message"]
 
     row = policy_generator_module._source_diagnostic_row_from_event(event)
     assert "Security patch" in row["tags"]
+    assert "Security confirmed by MSRC" in row["tags"]
     assert "CVEs 2" not in row["tags"]
     assert "cves" not in row
 
@@ -2465,7 +2470,9 @@ def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(
     assert event["msrc_cvrf_status"] == "ok"
     assert event["msrc_cvrf_month_id"] == "2026-Jun"
     assert event["user_message"] == (
-        "Security Patch June 2026: Windows 11 KB5094126 moves 25H2 to 26200.8655; "
+        "Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655. This looks like the next "
+        "stable broad-fleet baseline candidate, but this policy waits for Release Health baseline "
+        "rules before requiring it (security update, June 2026); "
         "public notes mention Secure Boot, Virtualization, desktop.ini, and AI components."
     )
 
@@ -2497,8 +2504,9 @@ def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(
     assert "26200.8655" in index
     assert "Microsoft Support article via Atom feed" in index
     assert ATOM_SOURCE_DIAGNOSTIC_ID in index
-    assert "Security Patch June 2026" in index
+    assert "Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655" in index
     assert "Security patch" in index
+    assert "Security confirmed by MSRC" in index
     assert "id=968480" in index
     assert "Atom feed shows a newer non-preview build for the broad target" in index
 
@@ -2611,9 +2619,10 @@ def test_caught_up_kb5094126_creates_active_baseline_update_notice(tmp_path: Pat
         "update_type": "2026-06 B",
         "quality_policy": "b_release_only",
         "summary": (
-            "New required baseline: Windows 11 25H2 build 26200.8655 now matches the latest observed "
-            "Microsoft build. KB5094126 is the 2026-06 B security baseline; Atom first spotted it at "
-            "2026-06-09T17:04:01Z, and Release Health lists the baseline date as 2026-06-09."
+            "New required baseline: Windows 11 25H2 build 26200.8655 now matches Microsoft evidence "
+            "and the signed fleet baseline. For broad-fleet 25H2 devices, this likely marks the "
+            "stable rollout floor for KB5094126 / 2026-06 B. MSRC confirms it as a security update; "
+            "Release Health lists the baseline date as 2026-06-09."
         ),
         "update_summary": (
             "Update highlights: Secure Boot: Updates hardening for startup components. "
@@ -2621,8 +2630,8 @@ def test_caught_up_kb5094126_creates_active_baseline_update_notice(tmp_path: Pat
             "desktop.ini processing. AI components: Updates Windows AI components."
         ),
         "technical_summary": (
-            "Release Health B-release row 2026-06 B selected 25H2/26200 build 26200.8655; support "
-            "validation ok; security evidence trusted via msrc_cvrf."
+            "Release Health selected 2026-06 B for Windows 11 25H2 build 26200.8655; support "
+            "validation ok. Security confirmed by MSRC."
         ),
         "source_url": KB5094126_SUPPORT_URL,
         "atom_entry_id": ATOM_ENTRY_ID,
@@ -2712,7 +2721,8 @@ def test_caught_up_kb5094126_renders_baseline_update_notice_before_operational_p
     assert "Support updated June 10, 2026 at 19:20 CEST / 17:20 UTC" in index
     assert "Official baseline date: 2026-06-09 (Release Health date-only)" in index
     assert "Visible until" not in index
-    assert 'baseline source. Security evidence: Security confirmed by MSRC.</p>' in index
+    assert "For broad-fleet 25H2 devices, this likely marks the stable rollout floor" in index
+    assert "Security evidence:" not in index
     assert "Atom first spotted 2026-06-09T17:04:01Z" not in index
     assert "Support updated 2026-06-10T17:20:31Z" not in index
     assert "update-guide/vulnerability/CVE-2026-0001" not in index
@@ -2831,7 +2841,7 @@ def test_baseline_update_notice_keeps_release_health_facts_when_support_article_
     assert notice["security_evidence_source"] == "msrc_cvrf"
     assert "KB5000000" not in notice["summary"]
     assert "26200.1111" not in notice["summary"]
-    assert "security baseline" in notice["summary"]
+    assert "MSRC confirms it as a security update" in notice["summary"]
 
 
 def test_baseline_update_notice_uses_unknown_security_when_msrc_and_article_are_untrusted() -> None:
@@ -3013,7 +3023,7 @@ def test_msrc_cvrf_unavailable_uses_support_article_security_fallback() -> None:
     assert "cves" not in event
     assert event["msrc_cvrf_status"] == "error"
     assert event["msrc_cvrf_error"] == "MSRC unavailable"
-    assert event["user_message"].startswith("Security Patch June 2026")
+    assert event["user_message"].startswith("Microsoft published KB5094126 for Windows 11 25H2")
     assert any(
         item["kind"] == "msrc_cvrf_enrichment_unavailable"
         and item["msrc_cvrf_month_id"] == "2026-Jun"
