@@ -2281,7 +2281,7 @@ def test_msrc_exact_kb_security_survives_mismatched_support_article() -> None:
     assert event["support_article_validation_status"] == "mismatch"
     assert event["security_evidence_source"] == "msrc_cvrf"
     assert event["is_security"] is True
-    assert event["cves"] == ["CVE-2026-0001", "CVE-2026-0002"]
+    assert "cves" not in event
     assert event["msrc_cvrf_status"] == "ok"
     assert event.get("user_message") is None
     assert "support_article_kb_article" not in event
@@ -2369,7 +2369,7 @@ def test_msrc_cvrf_marks_atom_diagnostic_as_security_and_uses_single_month_fetch
     assert event["kb_update_bucket_confidence"] == "low"
     assert event["is_security"] is True
     assert event["security_evidence_source"] == "msrc_cvrf"
-    assert event["cves"] == ["CVE-2026-0001", "CVE-2026-0002"]
+    assert "cves" not in event
     assert event["security_severities"] == ["Critical", "Important"]
     assert event["security_products"] == ["11568", "11569", "11570"]
     assert event["msrc_cvrf_month_id"] == "2026-Jun"
@@ -2379,7 +2379,7 @@ def test_msrc_cvrf_marks_atom_diagnostic_as_security_and_uses_single_month_fetch
     row = policy_generator_module._source_diagnostic_row_from_event(event)
     assert "Security patch" in row["tags"]
     assert "CVEs 2" not in row["tags"]
-    assert row["cves"] == ["CVE-2026-0001", "CVE-2026-0002"]
+    assert "cves" not in row
 
 
 def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(tmp_path: Path) -> None:
@@ -2460,7 +2460,7 @@ def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(
     ]
     assert event["is_security"] is True
     assert event["security_evidence_source"] == "msrc_cvrf"
-    assert event["cves"] == ["CVE-2026-0001", "CVE-2026-0002"]
+    assert "cves" not in event
     assert event["security_severities"] == ["Critical", "Important"]
     assert event["msrc_cvrf_status"] == "ok"
     assert event["msrc_cvrf_month_id"] == "2026-Jun"
@@ -2651,8 +2651,6 @@ def test_caught_up_kb5094126_creates_active_baseline_update_notice(tmp_path: Pat
             "desktop.ini: Hardens desktop.ini processing.",
             "AI components: Updates Windows AI components.",
         ],
-        "cve_count": 2,
-        "cves": ["CVE-2026-0001", "CVE-2026-0002"],
     }
     event = next(
         event
@@ -2665,6 +2663,7 @@ def test_caught_up_kb5094126_creates_active_baseline_update_notice(tmp_path: Pat
     assert event["kb_article"] == "KB5094126"
     assert event["is_security"] is True
     assert event["security_evidence_source"] == "msrc_cvrf"
+    assert "cves" not in event
     assert "New required baseline" in index
 
     from tools import sync_source_diagnostics_issues as sync_tool
@@ -2698,6 +2697,8 @@ def test_caught_up_kb5094126_renders_baseline_update_notice_before_operational_p
     assert "2026-06 B" in index
     assert "Security confirmed by MSRC" in index
     assert "MSRC CVE entries: 2" not in index
+    assert "data-cves=" not in index
+    assert "data-cve-count=" not in index
     assert (
         '<div class="baseline-review"><span class="baseline-review-label">Update highlights:</span>'
         '<ul class="baseline-review-list"><li>Secure Boot: Updates hardening for startup components.</li>'
@@ -3009,7 +3010,7 @@ def test_msrc_cvrf_unavailable_uses_support_article_security_fallback() -> None:
     assert policy.source_diagnostics["msrc_cvrf"]["2026-Jun"]["error"] == "MSRC unavailable"
     assert event["is_security"] is True
     assert event["security_evidence_source"] == "support_article"
-    assert event.get("cves", []) == []
+    assert "cves" not in event
     assert event["msrc_cvrf_status"] == "error"
     assert event["msrc_cvrf_error"] == "MSRC unavailable"
     assert event["user_message"].startswith("Security Patch June 2026")

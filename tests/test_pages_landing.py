@@ -910,8 +910,8 @@ def test_pages_index_source_diagnostics_render_enriched_atom_summary_and_export_
     assert f'data-source-url="{KB5094126_SUPPORT_URL}"' in index
     assert f'data-read-more-url="{KB5094126_SUPPORT_URL}"' in index
     assert 'data-security-url="https://msrc.microsoft.com/update-guide"' in index
-    assert 'data-cves="CVE-2026-0001, CVE-2026-0002"' in index
-    assert 'data-cve-count="2"' in index
+    assert 'data-cves=' not in index
+    assert 'data-cve-count=' not in index
     assert f'data-atom-entry-id="{ATOM_ENTRY_ID}"' in index
     assert 'data-atom-support-article-id="968480"' in index
     assert (
@@ -948,12 +948,12 @@ def test_pages_index_source_diagnostics_render_enriched_atom_summary_and_export_
         "addAttr('data-source-url','source_url')",
         "addAttr('data-read-more-url','read_more_url')",
         "addAttr('data-security-url','security_url')",
-        "addAttr('data-cves','cves')",
-        "addAttr('data-cve-count','cve_count')",
         "addAttr('data-atom-entry-id','atom_entry_id')",
         "addAttr('data-atom-support-article-id','atom_support_article_id')",
     ):
         assert export_attr in index
+    assert "addAttr('data-cves','cves')" not in index
+    assert "addAttr('data-cve-count','cve_count')" not in index
     assert "if(isSecurity==='true'){entry.is_security=true;}else if(isSecurity==='false')" in index
     assert "export_schema:'win11_release_guard.source_diagnostics.visible.v1'" in index
     assert "do not override signed policy verdicts" in index

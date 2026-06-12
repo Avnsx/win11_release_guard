@@ -26,7 +26,7 @@ verdict authority.
 | Microsoft Release Health HTML | Bytes, fetch time, newest current-version revision, newest release-history date. |
 | Microsoft Update History Atom feed | Bytes, newest Atom build, newest published/updated timestamps. |
 | Atom-linked Microsoft Support articles | Public release-note href evidence and deterministic article enrichment when available. |
-| Public MSRC CVRF data | Unauthenticated security-update evidence and compact CVE context when available. |
+| Public MSRC CVRF data | Unauthenticated exact-KB security-update evidence when available. |
 | Parser | Structured events for missing/changed headers and table anomalies. |
 | Drift checks | Current table lag, Atom newer rows, generated-after-source age. |
 
@@ -77,17 +77,17 @@ article parser records bounded `applies_to` text and `applies_to_releases`
 when release values are parseable, and it stops heading/list extraction before
 unrelated sections such as prerequisites or known issues.
 Public MSRC CVRF data provides higher-confidence exact-KB-token security
-classification and compact CVE context when available; substring values such as
-`KB50941260`, `15094126`, or `5094126a` do not match `KB5094126`. Atom title
-buckets remain low-confidence labels; generic `OS Build(s)` wording is not
-security evidence. Exact-KB remediation evidence is still security evidence
-even when optional CVE, severity, or product fields are absent; when present,
-CVEs, severities, and product IDs are sorted, deduplicated, and capped for
-bounded output. If validation is `mismatch`, the technical Atom diagnostic
-remains visible and the mismatch reasons are recorded, but article
-KB/title/build facts and Support-derived security wording are not trusted for
-the dashboard summary or `Security patch` tag. If validation is `degraded`,
-summaries stay Atom-grounded and include the compact degradation reason. The
+classification when available; substring values such as `KB50941260`,
+`15094126`, or `5094126a` do not match `KB5094126`. Atom title buckets remain
+low-confidence labels; generic `OS Build(s)` wording is not security evidence.
+Exact-KB remediation evidence is still security evidence even when optional
+CVE, severity, or product fields are absent. Dashboard rows and copied visible
+JSON expose the security classification and evidence source, not CVE lists or
+counts. If validation is `mismatch`, the technical Atom diagnostic remains
+visible and the mismatch reasons are recorded, but article KB/title/build facts
+and Support-derived security wording are not trusted for the dashboard summary
+or `Security patch` tag. If validation is `degraded`, summaries stay
+Atom-grounded and include the compact degradation reason. The
 `source_drift_unresolved_after_24h` event is reserved for warning/error drift
 that remains unresolved after the newest source timestamp, not for normal
 notice-only feed lag.

@@ -54,8 +54,9 @@ MSRC CVRF exact-KB-token evidence can still classify a KB as security when the
 Support article is bad. Larger tokens such as `KB50941260`, `15094126`, and
 `5094126a` do not match `KB5094126`, and malformed/unavailable CVRF data does
 not silently become non-security proof. Exact-KB remediation evidence remains
-security evidence even without optional CVE/severity/product fields; populated
-context lists are sorted, deduplicated, and capped.
+security evidence even without optional CVE/severity/product fields. Dashboard
+and visible JSON exports publish the classification and evidence source, not
+CVE lists or counts.
 
 When a real non-preview, non-OOB Release Health B-release row becomes the
 required baseline and matches the broad target's latest observed build, the

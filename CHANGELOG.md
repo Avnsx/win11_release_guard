@@ -9,7 +9,8 @@
 ### Fixed
 
 * Tightened support and MSRC enrichment edge cases: safe Support URLs with explicit `:443`, tracking queries, and fragments canonicalize to scheme/host/path; unsafe ports and paths still reject. Support article `Applies to` extraction now handles heading/list and heading/paragraph layouts without swallowing following sections, and exposes `applies_to_releases` for compatibility checks.
-* Exact MSRC CVRF KB remediation matches now classify a KB as security even when optional CVE, severity, or product fields are absent. CVE, severity, and product context lists are sorted, deduplicated, and capped deterministically.
+* Exact MSRC CVRF KB remediation matches now classify a KB as security even when optional CVE, severity, or product fields are absent.
+* Removed CVE lists and counts from baseline notices, Source Diagnostic dashboard rows, and copied visible JSON; administrators still get deterministic security/non-security/unknown labeling with the evidence source.
 
 ### Tests
 

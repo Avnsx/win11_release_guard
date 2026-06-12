@@ -1985,11 +1985,6 @@ def _baseline_update_notice_payload(
         for item in _as_sequence(article.get("support_article_validation_reasons"))
         if str(item or "").strip()
     ][: _SUPPORT_ARTICLE_VALIDATION_REASON_LIMIT]
-    cves = [
-        str(item)
-        for item in _as_sequence(article.get("cves"))
-        if str(item or "").strip()
-    ][:MSRC_CVRF_CVE_LIMIT]
     update_summary = _baseline_notice_update_summary(article, validation_status)
     improvement_labels = [
         str(item).strip()
@@ -2051,10 +2046,6 @@ def _baseline_update_notice_payload(
         "support_article_improvement_labels": improvement_labels,
         "support_article_improvement_details": improvement_details,
     }
-    if is_security is True:
-        payload["cve_count"] = len(cves)
-        if cves:
-            payload["cves"] = cves
     return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
@@ -2082,7 +2073,6 @@ def _baseline_update_notice_event(notice: Mapping[str, Any] | None) -> dict[str,
         "support_article_validation_reasons": notice.get("support_article_validation_reasons"),
         "security_evidence_source": notice.get("security_evidence_source"),
         "is_security": notice.get("is_security"),
-        "cves": notice.get("cves"),
     }
     return {key: value for key, value in event.items() if value not in (None, "", [], {})}
 
@@ -2508,8 +2498,6 @@ def _support_articles_with_security(
         )
         article["is_security"] = security.get("is_security")
         article["security_evidence_source"] = security.get("evidence_source")
-        if security.get("cves"):
-            article["cves"] = security["cves"]
         if security.get("severities"):
             article["security_severities"] = security["severities"]
         if security.get("products"):
@@ -2749,7 +2737,6 @@ def _event_with_support_article(
         ("improvement_labels", "support_article_improvement_labels"),
         ("is_security", "is_security"),
         ("security_evidence_source", "security_evidence_source"),
-        ("cves", "cves"),
         ("security_severities", "security_severities"),
         ("security_products", "security_products"),
         ("security_signals", "security_signals"),
@@ -2779,7 +2766,6 @@ def _event_with_support_article(
             in {
                 "is_security",
                 "security_evidence_source",
-                "cves",
                 "security_severities",
                 "security_products",
             }
@@ -6325,7 +6311,6 @@ def _source_diagnostic_row_from_event(event: Mapping[str, Any]) -> dict[str, Any
         "affects_broad_target",
         "atom_entry_id",
         "atom_support_article_id",
-        "cves",
     ):
         value = event.get(key)
         if value not in (None, "", (), [], {}):
@@ -6661,15 +6646,6 @@ def _source_diagnostic_source_class(source: Any) -> str:
     return "src-source"
 
 
-def _source_diagnostic_cves(row: Mapping[str, Any]) -> tuple[str, ...]:
-    values: list[str] = []
-    for item in _as_sequence(row.get("cves")):
-        text = str(item or "").strip().upper()
-        if re.fullmatch(r"CVE-\d{4}-\d{4,}", text):
-            values.append(text)
-    return tuple(dict.fromkeys(values))
-
-
 def _source_diagnostic_support_url(row: Mapping[str, Any]) -> str | None:
     for key in ("support_article_url", "source_url", "support_url", "atom_feed_url"):
         safe_url = _safe_atom_support_article_url(str(row.get(key) or "") or None)
@@ -6695,10 +6671,6 @@ def _source_diagnostic_read_more_url(row: Mapping[str, Any]) -> str | None:
     if is_security:
         return _source_diagnostic_security_url(row)
     return None
-
-
-def _source_diagnostic_cve_count(row: Mapping[str, Any]) -> int:
-    return len(_source_diagnostic_cves(row))
 
 
 def _source_diagnostic_tag_items_html(tags: Any, *, row: Mapping[str, Any] | None = None) -> str:
@@ -6833,10 +6805,6 @@ def _source_diagnostic_row_data_attrs(row: Mapping[str, Any]) -> str:
     security_url = _source_diagnostic_security_url(row)
     if security_url:
         attrs.append(f' data-security-url="{escape(security_url, quote=True)}"')
-    cves = _source_diagnostic_cves(row)
-    if cves:
-        attrs.append(f' data-cves="{escape(", ".join(cves), quote=True)}"')
-        attrs.append(f' data-cve-count="{len(cves)}"')
     is_security = row.get("is_security")
     if isinstance(is_security, bool):
         attrs.append(f' data-is-security="{str(is_security).lower()}"')
@@ -7094,16 +7062,6 @@ def _baseline_update_security_label(notice: Mapping[str, Any]) -> str:
     if notice.get("is_security") is False:
         return "Non-security according to trusted evidence"
     return "Security evidence unknown"
-
-
-def _baseline_update_cves(notice: Mapping[str, Any]) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(
-            str(item or "").strip().upper()
-            for item in _as_sequence(notice.get("cves"))
-            if re.fullmatch(r"CVE-\d{4}-\d{4,}", str(item or "").strip(), flags=re.IGNORECASE)
-        )
-    )
 
 
 def _baseline_update_security_url(notice: Mapping[str, Any]) -> str | None:
@@ -7987,8 +7945,6 @@ def render_policy_index(
         "            addAttr('data-msrc-cvrf-url','msrc_cvrf_url');\n"
         "            addAttr('data-read-more-url','read_more_url');\n"
         "            addAttr('data-security-url','security_url');\n"
-        "            addAttr('data-cves','cves');\n"
-        "            addAttr('data-cve-count','cve_count');\n"
         "            addAttr('data-support-article-validation-status','support_article_validation_status');\n"
         "            addListAttr('data-support-article-validation-reasons','support_article_validation_reasons');\n"
         "            addAttr('data-support-article-expected-kb','support_article_expected_kb');\n"

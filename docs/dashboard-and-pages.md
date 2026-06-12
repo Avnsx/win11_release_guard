@@ -102,10 +102,11 @@ for administrator summaries, Support-derived security labels, or `Security
 patch` tags. MSRC CVRF joins use exact KB tokens only, so values such as
 `KB50941260`, `15094126`, or `5094126a` do not classify `KB5094126` as security
 evidence. Exact-KB remediation evidence still marks the KB as security even
-when optional CVE, severity, or product fields are absent; when those fields are
-present, context lists are sorted, deduplicated, and capped. If a partial
-article is compatible but incomplete, rows carry a compact degraded reason and
-stay grounded in Atom KB/build/release facts.
+when optional CVE, severity, or product fields are absent. Public dashboard
+rows and copied visible JSON expose the security classification and evidence
+source, not CVE lists or counts. If a partial article is compatible but
+incomplete, rows carry a compact degraded reason and stay grounded in Atom
+KB/build/release facts.
 
 Small info icons beside dashboard section labels are static links to the related
 Pages Wiki sections. Their hover/focus panels contain a compact explanation plus
