@@ -5220,3 +5220,50 @@ def test_match_atom_single_safe_build_agnostic_candidate_attaches() -> None:
     row = _kb_row(26100, "26100.5000")
     agnostic = _kb_atom("urn:agnostic")
     assert policy_generator_module._match_atom(row, (agnostic,)) is agnostic
+
+
+# ---------------------------------------------------------------------------
+# Wiki/changelog Markdown: a bullet authored across wrapped source lines renders
+# as one list item with correct hanging indent, not a spilled full-width paragraph.
+# ---------------------------------------------------------------------------
+
+
+def test_wiki_list_merges_wrapped_bullet_continuation_lines() -> None:
+    markdown = (
+        "* First bullet that wraps across\n"
+        "  multiple source lines into one item.\n"
+        "* Second bullet that also wraps to a\n"
+        "  second source line.\n"
+    )
+    html, _headings, _broken = policy_generator_module._render_wiki_markdown_fragment(markdown, {})
+    assert (
+        "<ul>"
+        "<li>First bullet that wraps across multiple source lines into one item.</li>"
+        "<li>Second bullet that also wraps to a second source line.</li>"
+        "</ul>"
+    ) in html
+    # The wrapped continuation must not leak out as a separate full-width paragraph.
+    assert "<p>multiple source lines" not in html
+    assert "<p>second source line" not in html
+
+
+def test_wiki_list_continuation_stops_at_blank_line_then_paragraph() -> None:
+    markdown = (
+        "* A bullet item.\n"
+        "\n"
+        "A following paragraph after the list.\n"
+    )
+    html, _headings, _broken = policy_generator_module._render_wiki_markdown_fragment(markdown, {})
+    assert "<ul><li>A bullet item.</li></ul>" in html
+    assert "<p>A following paragraph after the list.</p>" in html
+
+
+def test_wiki_changelog_renders_wrapped_bullets_as_list_items(tmp_path: Path) -> None:
+    pages = policy_generator_module.render_changelog_pages()
+    assert pages
+    for name, html in pages.items():
+        # No changelog bullet text should spill into a paragraph that opens with a
+        # lowercase wrapped-continuation word (the symptom of broken list tabbing).
+        assert "<p>wording (" not in html
+        assert "<p>pages carry the shared" not in html
+        assert "<p>so commands stay fully visible" not in html

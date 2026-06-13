@@ -3983,6 +3983,7 @@ _WIKI_PAGE_ICON_BY_SLUG = {
     "anti-static-freshness": "freshness",
     "build-test-and-release": "build",
     "safe-exports-and-clean-archives": "archive",
+    "release-v0.3.4": "release",
     "release-v0.3.3": "release",
     "release-v0.3.2": "release",
     "release-v0.3.1": "release",
@@ -4294,8 +4295,30 @@ def _render_wiki_list(
             continue
         if current_tag != tag:
             break
-        items.append(_render_wiki_inline(match.group("text"), pages, broken_links, base_url=base_url))
+        # Gather the item's text, including lazily-wrapped continuation lines so a
+        # bullet authored across several source lines renders as one list item
+        # (with correct hanging indent) instead of spilling its wrapped text into
+        # a separate full-width paragraph. A blank line, a new list item, or a
+        # block element (heading/code/table/rule) ends the item.
+        item_text_parts = [match.group("text")]
         index += 1
+        while index < len(lines):
+            candidate = lines[index]
+            candidate_stripped = candidate.strip()
+            if not candidate_stripped:
+                break
+            if (
+                _LIST_ITEM_RE.match(candidate)
+                or _MARKDOWN_HEADING_RE.match(candidate)
+                or candidate_stripped.startswith("```")
+                or candidate_stripped == "---"
+                or _is_table_start(lines, index)
+            ):
+                break
+            item_text_parts.append(candidate_stripped)
+            index += 1
+        item_text = " ".join(item_text_parts)
+        items.append(_render_wiki_inline(item_text, pages, broken_links, base_url=base_url))
     body = "".join(f"<li>{item}</li>" for item in items)
     return f"<{tag}>{body}</{tag}>", index
 
