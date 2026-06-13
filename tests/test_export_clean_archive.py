@@ -283,3 +283,53 @@ def test_no_project_required_pytest_plugins() -> None:
     # That is safe only because the project declares no required pytest plugins.
     pyproject = (export_clean_archive.REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert "required_plugins" not in pyproject
+
+
+def test_archive_validation_pytest_env_strips_ambient_pytest_injection(tmp_path: Path) -> None:
+    base_env = {
+        "PYTEST_ADDOPTS": "--cov=win11_release_guard",
+        "PYTEST_PLUGINS": "not_a_real_plugin",
+        "PATH": "/usr/bin",
+        "LANG": "en_US.UTF-8",
+        "VIRTUAL_ENV": "/some/venv",
+    }
+    env = export_clean_archive._archive_validation_pytest_env(tmp_path / "source", base_env=base_env)
+
+    # Ambient pytest injection vectors are removed.
+    assert "PYTEST_ADDOPTS" not in env
+    assert "PYTEST_PLUGINS" not in env
+    # Determinism and recursion guard are set.
+    assert env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+    assert env["WIN11_RELEASE_GUARD_ARCHIVE_VALIDATION_DEPTH"] == "1"
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert env["PYTHONPATH"] == str(tmp_path / "source")
+    # Unrelated runtime variables are preserved (not aggressively stripped).
+    assert env["PATH"] == "/usr/bin"
+    assert env["LANG"] == "en_US.UTF-8"
+    assert env["VIRTUAL_ENV"] == "/some/venv"
+
+
+def test_archive_validation_subprocess_uses_isolated_env(tmp_path: Path, monkeypatch) -> None:
+    archive_path = tmp_path / "source.zip"
+    export_clean_archive.create_archive(export_clean_archive.REPO_ROOT, archive_path)
+
+    captured: list[dict] = []
+
+    def fake_run(command, **kwargs):
+        if _is_pytest_command(command):
+            captured.append(dict(kwargs.get("env") or {}))
+        return _FakeCompletedProcess(0)
+
+    monkeypatch.setattr(export_clean_archive.subprocess, "run", fake_run)
+    monkeypatch.delenv("WIN11_RELEASE_GUARD_ARCHIVE_VALIDATION_DEPTH", raising=False)
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--cov=win11_release_guard")
+    monkeypatch.setenv("PYTEST_PLUGINS", "not_a_real_plugin")
+
+    export_clean_archive.validate_archive(archive_path, run_tests=True)
+
+    assert captured, "expected an inner pytest subprocess"
+    for env in captured:
+        assert "PYTEST_ADDOPTS" not in env
+        assert "PYTEST_PLUGINS" not in env
+        assert env.get("PYTEST_DISABLE_PLUGIN_AUTOLOAD") == "1"
+        assert env.get("WIN11_RELEASE_GUARD_ARCHIVE_VALIDATION_DEPTH") == "1"

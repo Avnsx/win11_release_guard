@@ -302,6 +302,37 @@ def _validate_archive_content(archive_path: Path) -> None:
         raise RuntimeError("Archive content validation failed: " + "; ".join(sorted(findings)))
 
 
+_AMBIENT_PYTEST_INJECTION_VARS = ("PYTEST_ADDOPTS", "PYTEST_PLUGINS")
+
+
+def _archive_validation_pytest_env(extract_root: Path, base_env=None) -> dict[str, str]:
+    """Build the controlled environment for the inner archive-validation pytest.
+
+    The inner gate must be deterministic and resistant to ambient pytest
+    configuration so a developer shell cannot change, fail, or hang archive
+    validation. `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` stops entry-point plugin
+    autoload, but two pytest variables still inject behavior through an inherited
+    environment and must be removed here:
+
+    - `PYTEST_ADDOPTS` is appended to every pytest invocation (for example
+      `--cov=...` or `-p somplugin`), so a missing plugin can fail the inner run;
+    - `PYTEST_PLUGINS` is imported explicitly even when autoload is disabled, so a
+      stale value such as `not_a_real_plugin` crashes the run before tests start.
+
+    Only those pytest injection vectors are stripped; required Python runtime
+    variables (path, encoding, no-bytecode) are preserved, and the recursion guard
+    is kept so the inner gate does not re-run itself.
+    """
+    env = dict(os.environ if base_env is None else base_env)
+    for name in _AMBIENT_PYTEST_INJECTION_VARS:
+        env.pop(name, None)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONPATH"] = str(extract_root)
+    env["WIN11_RELEASE_GUARD_ARCHIVE_VALIDATION_DEPTH"] = "1"
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    return env
+
+
 def _validate_archive_extracts_and_tests_run(archive_path: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="win11_release_guard-archive-") as temp_dir:
         extract_root = Path(temp_dir) / "source"
@@ -354,16 +385,7 @@ def _validate_archive_extracts_and_tests_run(archive_path: Path) -> None:
         if missing:
             raise RuntimeError(f"Archive cannot run tests because required paths are missing: {', '.join(missing)}")
 
-        env = os.environ.copy()
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        env["PYTHONPATH"] = str(extract_root)
-        env["WIN11_RELEASE_GUARD_ARCHIVE_VALIDATION_DEPTH"] = "1"
-        # Make the inner gate deterministic: ambient third-party pytest plugins
-        # (coverage, xdist, randomly, network shims, etc.) can otherwise change,
-        # slow, fail, or hang archive validation. The project declares no required
-        # pytest plugins, and the full suite passes with autoload disabled, so this
-        # mirrors the CI gate without reducing coverage. Scoped to this subprocess.
-        env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+        env = _archive_validation_pytest_env(extract_root)
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "-q"],
             cwd=extract_root,
