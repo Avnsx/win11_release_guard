@@ -30,6 +30,14 @@ def _generated_at(*, hours_ago: int = 1) -> str:
     return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).replace(microsecond=0).isoformat()
 
 
+def _stale_but_usable_generated_at() -> str:
+    """A cached-policy timestamp past any fresh-cache window but well within the
+    720h (30-day) stale window -- i.e. "stale but still usable". Anchored to now so
+    it can never drift out of the stale window as wall-clock time advances (unlike a
+    pinned absolute date, which is how this fixture once silently expired)."""
+    return _generated_at(hours_ago=15 * 24)  # 15 days: inside (72h fresh-default, 720h stale]
+
+
 def _generated_policy() -> ReleasePolicy:
     return ReleasePolicy(
         generated_at_utc=_generated_at(),
@@ -176,7 +184,7 @@ def test_valid_json_policy_url(monkeypatch, tmp_path):
 def test_missing_internet_uses_stale_cache_with_warning(monkeypatch, tmp_path):
     _patch_local(monkeypatch)
     cache_file = tmp_path / "windows-release-policy.json"
-    _write_signed_policy(cache_file, generated_at_utc="2026-05-20T00:00:00+00:00")
+    _write_signed_policy(cache_file, generated_at_utc=_stale_but_usable_generated_at())
     monkeypatch.setattr(api, "fetch_policy_bytes", lambda *args, **kwargs: (_ for _ in ()).throw(PolicyFetchError("network unavailable")))
 
     result = api.check_current_system(
