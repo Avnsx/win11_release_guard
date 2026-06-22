@@ -25,7 +25,7 @@ jobs:
       expected-tag: ${{ steps.package_metadata.outputs.expected_tag }}
       publish-enabled: ${{ steps.package_metadata.outputs.publish_enabled }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
