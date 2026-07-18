@@ -135,7 +135,14 @@ article facts, and exact MSRC KB evidence; it does not use an LLM, cloud API,
 browser token, or external JavaScript. Security wording is evidence-aware: the
 summary credits MSRC only for exact MSRC CVRF evidence, attributes validated
 Support article evidence to Microsoft Support, and stays neutral when security
-evidence is unavailable or unknown. Microsoft date-only source precision is
+evidence is unavailable or unknown. A common legitimate cause of the neutral
+wording is Microsoft's Update History Atom feed lagging Patch Tuesday: until
+the feed publishes the baseline KB entry there is no safe Support URL or MSRC
+month to derive, no enrichment fetch is attempted, and the notice reports
+`security_evidence_source: unavailable` without any enrichment warning events
+(observed live for KB5101650 in July 2026; pinned by
+`test_baseline_update_notice_atom_feed_lag_yields_unavailable_without_fetches`).
+Microsoft date-only source precision is
 shown as date-only, the visibility window is 14 days from the source-derived
 official baseline date, non-zero-padded calendar dates are accepted and
 normalized, impossible or malformed source dates degrade to no active notice

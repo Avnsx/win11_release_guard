@@ -72,6 +72,18 @@ required baseline catches up to the latest observed Microsoft build. It lasts
 precision honestly, and does not change verdicts, baselines, issue sync,
 runtime clients, signatures, or `/api/v1`.
 
+## Why does the baseline notice say security classification is unavailable?
+
+The notice derives its security label only from a validated Atom-linked
+Microsoft Support article or exact MSRC CVRF KB evidence. Microsoft's Update
+History Atom feed can lag Patch Tuesday by days or weeks; until it publishes
+the baseline KB entry there is no safe Support URL or MSRC month to check, so
+the dashboard intentionally shows the neutral sentence "Security classification
+is unavailable from the checked enrichment source." This is honest no-data
+output, not an error, and it does not affect baseline selection or verdicts.
+The classification appears automatically once Microsoft publishes the entry and
+a later scheduled publish run picks it up.
+
 ## How are Support and MSRC evidence trusted?
 
 Atom discovers Support article links; it is not a `/help/<KB>` resolver. Safe
