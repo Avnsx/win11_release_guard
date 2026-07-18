@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## v0.3.6 - 2026-07-18
+
+### Summary
+
+Windows 11 Release Guard 0.3.6 keeps the dashboard's security classification
+working even when Microsoft's Update History feed lags Patch Tuesday: the
+baseline-update notice now checks MSRC security data directly using the Release
+Health date, so administrators see a confirmed security label instead of a
+neutral placeholder during Microsoft-side feed delays. Enrichment problems now
+surface as visible warnings instead of staying silent, and the audited GitHub
+Actions checkout pin moved to v7. Device compliance is unchanged: signed policy
+verdicts, baseline selection, and the public API behave exactly as before.
+
 ### Fixed
 
 * Kept the active baseline-update notice's security classification working when
@@ -18,6 +33,21 @@
   now fires for that month, and a baseline record whose Atom-linked Support
   article fetch fails now emits the standard support-enrichment event instead of
   being suppressed. Baseline records with no support URL stay quiet as before.
+
+### Changed
+
+* Moved the audited first-party GitHub Actions pin for `actions/checkout` to
+  `v7` across all workflows, with the action-version audit tool, its tests, and
+  the AGENTS.md audited list updated in the same change (Dependabot PR #10).
+
+### Tests
+
+* Pinned the Atom-feed-lag baseline-notice behavior: MSRC month fallback with a
+  trusted classification when MSRC responds, honest `unavailable`/`unknown`
+  plus a `msrc_cvrf_enrichment_unavailable` warning when it fails, and no
+  Support article fetch in either case. Also pinned that a baseline record with
+  a real Atom-linked article whose fetch fails surfaces the standard
+  support-enrichment event.
 
 ## v0.3.5 - 2026-06-15
 
