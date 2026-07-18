@@ -1087,6 +1087,23 @@ def _msrc_month_id_from_atom_date(value: Any) -> str | None:
     return f"{parsed.year}-{_MONTH_ABBREVIATIONS[parsed.month]}"
 
 
+def _record_msrc_month_id(record: Mapping[str, Any]) -> str | None:
+    """Resolve the MSRC CVRF month id for an enrichment record.
+
+    Prefers Atom-derived published/updated dates. The active baseline-update
+    notice record carries ``msrc_cvrf_month_fallback`` (the Release Health
+    baseline month) only when the Atom feed lags Patch Tuesday and provides no
+    published/updated dates, so security classification does not have to wait
+    for Microsoft's Atom entry. No other record type sets that field, so this
+    fallback never affects release-history or latest-observed enrichment.
+    """
+    month_id = _msrc_month_id_from_atom_date(record.get("published") or record.get("updated"))
+    if month_id:
+        return month_id
+    fallback = record.get("msrc_cvrf_month_fallback")
+    return str(fallback) if fallback else None
+
+
 def _extract_support_article_facts(url: str, html_text: str) -> dict[str, Any]:
     parser = _SupportArticleTextExtractor()
     parser.feed(html_text)
@@ -1949,6 +1966,8 @@ def _baseline_update_notice_record(
         return None
     source_url = _baseline_notice_source_url(row)
     metadata = row.metadata if isinstance(row.metadata, Mapping) else {}
+    published = metadata.get("atom_published")
+    updated = metadata.get("atom_updated")
     record = {
         "release": row.release,
         "build_family": row.build_family,
@@ -1961,8 +1980,8 @@ def _baseline_update_notice_record(
         "support_url": source_url,
         "atom_feed_url": source_url,
         "source_url": source_url,
-        "published": metadata.get("atom_published"),
-        "updated": metadata.get("atom_updated"),
+        "published": published,
+        "updated": updated,
         "atom_entry_id": metadata.get("atom_entry_id"),
         "atom_support_article_id": metadata.get("atom_support_article_id"),
         "diagnostic_id_hint": metadata.get("diagnostic_id_hint"),
@@ -1970,6 +1989,17 @@ def _baseline_update_notice_record(
         "preview": row.preview,
         "out_of_band": row.out_of_band,
     }
+    # Atom feed lag fallback: when Microsoft's Update History Atom feed has no
+    # entry for the new baseline KB, there is no Atom published/updated date to
+    # derive an MSRC month from. Fall back to the Release Health baseline month
+    # (the same official_release_date the notice reports) so MSRC CVRF can still
+    # classify the baseline KB. Only the baseline record ever carries this.
+    if not published and not updated:
+        official_date = _baseline_notice_official_date(row.availability_date)
+        if official_date is not None:
+            record["msrc_cvrf_month_fallback"] = _msrc_month_id_from_atom_date(
+                _datetime_utc_z(official_date)
+            )
     return {key: value for key, value in record.items() if value not in (None, "", [], ())}
 
 
@@ -2126,6 +2156,8 @@ def _baseline_update_notice_payload(
     row: ReleaseHistoryEntry | None,
     baseline_record: Mapping[str, Any] | None,
     support_articles: Mapping[str, Mapping[str, Any]],
+    msrc_payloads: Mapping[str, Mapping[str, Any]],
+    msrc_statuses: Mapping[str, Mapping[str, Any]],
     generated_at_utc: str,
 ) -> dict[str, Any] | None:
     if target is None or row is None or baseline_record is None:
@@ -2147,8 +2179,22 @@ def _baseline_update_notice_payload(
     article = support_articles.get(source_url or "") if source_url else None
     if not isinstance(article, Mapping):
         article = {}
-    is_security = article.get("is_security") if "is_security" in article else None
-    security_evidence_source = str(article.get("security_evidence_source") or "unavailable")
+    if not source_url and baseline_record.get("msrc_cvrf_month_fallback"):
+        # Atom feed lag: no Atom-linked Support article exists (support validation
+        # stays "unavailable"), but the Release Health baseline month lets MSRC
+        # CVRF classify the baseline KB with an exact KB-token join. No support
+        # article is fetched or synthesized.
+        fallback_security = _security_result_for_record(
+            baseline_record,
+            None,
+            msrc_payloads=msrc_payloads,
+            msrc_statuses=msrc_statuses,
+        )
+        is_security = fallback_security.get("is_security")
+        security_evidence_source = str(fallback_security.get("evidence_source") or "unavailable")
+    else:
+        is_security = article.get("is_security") if "is_security" in article else None
+        security_evidence_source = str(article.get("security_evidence_source") or "unavailable")
     security_evidence_status = _baseline_notice_security_evidence_status(
         is_security,
         security_evidence_source,
@@ -2411,14 +2457,23 @@ def _records_for_support_article_enrichment(
     if target is None:
         return ()
     records_by_url: dict[str, dict[str, Any]] = {}
+    urlless_records: list[dict[str, Any]] = []
     if observed_record is not None:
         url = _support_article_record_url(observed_record)
         if url:
             records_by_url[url] = dict(observed_record)
     if baseline_update_record is not None:
         url = _support_article_record_url(baseline_update_record)
-        if url and url not in records_by_url:
-            records_by_url[url] = dict(baseline_update_record)
+        if url:
+            if url not in records_by_url:
+                records_by_url[url] = dict(baseline_update_record)
+        elif baseline_update_record.get("msrc_cvrf_month_fallback"):
+            # Atom feed lag: the baseline record has no support URL, but the
+            # Release Health baseline month still lets MSRC CVRF classify the
+            # baseline KB. Keep it in the enrichment set (with no URL, so no
+            # support article is fetched) so MSRC payload fetching, the KB join,
+            # and the MSRC warning event can all see its month id.
+            urlless_records.append(dict(baseline_update_record))
 
     for record in _atom_newer_than_history(atom_entries, release_history):
         url = _support_article_record_url(record)
@@ -2433,7 +2488,7 @@ def _records_for_support_article_enrichment(
         current = records_by_url.get(url)
         if current is None or _atom_observed_record_is_preferred(record, current):
             records_by_url[url] = dict(record)
-    return tuple(records_by_url[url] for url in sorted(records_by_url))
+    return (*(records_by_url[url] for url in sorted(records_by_url)), *urlless_records)
 
 
 def _support_article_enrichments(
@@ -2533,14 +2588,21 @@ def _support_article_enrichment_events(
 ) -> tuple[dict[str, Any], ...]:
     events: list[dict[str, Any]] = []
     for record in records:
-        if record.get("baseline_update_notice"):
-            continue
         url = _support_article_record_url(record)
         if not url:
+            # A baseline record with no support URL never attempted a fetch, so
+            # there is nothing to surface; skip it silently as before.
             continue
         enrichment = enrichments.get(url)
         if not isinstance(enrichment, Mapping):
             continue
+        if record.get("baseline_update_notice"):
+            # Baseline records normally stay quiet because the baseline notice
+            # carries its own dashboard event. But a real support-article fetch
+            # failure (status other than "ok") for a baseline record that HAS a
+            # source_url must no longer be silently swallowed.
+            if str(enrichment.get("status") or "") == "ok":
+                continue
         event = _support_article_enrichment_event(record, enrichment, target)
         if event is not None:
             events.append(event)
@@ -2559,7 +2621,7 @@ def _msrc_cvrf_payloads(
         {
             month_id
             for record in records
-            if (month_id := _msrc_month_id_from_atom_date(record.get("published") or record.get("updated")))
+            if (month_id := _record_msrc_month_id(record))
         }
     )
     payloads: dict[str, Mapping[str, Any]] = {}
@@ -2597,7 +2659,7 @@ def _security_result_for_record(
     msrc_payloads: Mapping[str, Mapping[str, Any]],
     msrc_statuses: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
-    month_id = _msrc_month_id_from_atom_date(record.get("published") or record.get("updated"))
+    month_id = _record_msrc_month_id(record)
     msrc_status = msrc_statuses.get(str(month_id or ""))
     if month_id and msrc_status and msrc_status.get("status") == "ok":
         cvrf_result = _cvrf_kb_join(msrc_payloads.get(month_id, {}), str(record.get("kb_article") or ""))
@@ -2704,7 +2766,7 @@ def _msrc_cvrf_events(
             target is not None
             and record.get("release") == target.version
             and record.get("build_family") == target.build_family
-            and (month_id := _msrc_month_id_from_atom_date(record.get("published") or record.get("updated")))
+            and (month_id := _record_msrc_month_id(record))
         )
     }
     for month_id in sorted(affected_months):
@@ -3450,6 +3512,8 @@ def _policy_with_enrichment(
         row=baseline_update_row,
         baseline_record=baseline_update_record,
         support_articles=support_articles,
+        msrc_payloads=msrc_payloads,
+        msrc_statuses=msrc_cvrf_statuses,
         generated_at_utc=generated_at_utc,
     )
 

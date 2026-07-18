@@ -2,7 +2,22 @@
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Fixed
+
+* Kept the active baseline-update notice's security classification working when
+  Microsoft's Update History Atom feed lags Patch Tuesday. When the feed has no
+  entry for the new baseline KB, the notice now derives the MSRC month from the
+  Release Health baseline date (for example `2026-06-09` to `2026-Jun`), fetches
+  MSRC CVRF for that month, and joins the baseline KB exactly, so security is
+  credited to MSRC without waiting for Microsoft's Atom entry. No Support article
+  is fetched or synthesized in that case, so support validation stays
+  `unavailable`, and the neutral "classification unavailable" wording now shows
+  only when MSRC is also unavailable.
+* Stopped silently swallowing baseline-record enrichment failures. If the MSRC
+  fallback fetch fails, the standard `msrc_cvrf_enrichment_unavailable` warning
+  now fires for that month, and a baseline record whose Atom-linked Support
+  article fetch fails now emits the standard support-enrichment event instead of
+  being suppressed. Baseline records with no support URL stay quiet as before.
 
 ## v0.3.5 - 2026-06-15
 

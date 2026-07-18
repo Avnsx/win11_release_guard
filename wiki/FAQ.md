@@ -74,15 +74,20 @@ runtime clients, signatures, or `/api/v1`.
 
 ## Why does the baseline notice say security classification is unavailable?
 
-The notice derives its security label only from a validated Atom-linked
-Microsoft Support article or exact MSRC CVRF KB evidence. Microsoft's Update
-History Atom feed can lag Patch Tuesday by days or weeks; until it publishes
-the baseline KB entry there is no safe Support URL or MSRC month to check, so
-the dashboard intentionally shows the neutral sentence "Security classification
-is unavailable from the checked enrichment source." This is honest no-data
-output, not an error, and it does not affect baseline selection or verdicts.
-The classification appears automatically once Microsoft publishes the entry and
-a later scheduled publish run picks it up.
+The notice derives its security label from exact MSRC CVRF KB evidence or a
+validated Atom-linked Microsoft Support article. Microsoft's Update History Atom
+feed can lag Patch Tuesday by days or weeks. When it has not yet published the
+baseline KB entry, the notice no longer waits for it: it derives the MSRC month
+from the Release Health baseline date, fetches MSRC CVRF for that month, and
+joins the baseline KB exactly, so security is still credited to MSRC without an
+Atom link (no Support article is fetched or synthesized, so support validation
+stays unavailable). The neutral sentence "Security classification is unavailable
+from the checked enrichment source." now appears only when MSRC is also
+unavailable or its fetch fails; that failure is recorded as an ordinary
+`msrc_cvrf_enrichment_unavailable` warning event. Either way it is honest
+output, not an error, and it does not affect baseline selection or verdicts. If
+MSRC was temporarily unavailable, the classification appears automatically once
+a later scheduled publish run reaches it.
 
 ## How are Support and MSRC evidence trusted?
 

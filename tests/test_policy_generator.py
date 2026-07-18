@@ -3194,24 +3194,79 @@ def test_baseline_update_notice_uses_unknown_security_when_msrc_and_article_are_
     assert "Security patch" not in policy_generator_module._source_diagnostic_row_from_event(event)["tags"]
 
 
-def test_baseline_update_notice_atom_feed_lag_yields_unavailable_without_fetches() -> None:
+def test_baseline_update_notice_atom_feed_lag_uses_msrc_month_fallback() -> None:
     # Live July 2026 shape: Release Health has the new B baseline but Microsoft's
-    # Update History Atom feed lags and carries no entry for the baseline KB. With
-    # no Atom link there is no support URL and no MSRC month to fetch, so the
-    # notice must degrade to honest "unavailable"/"unknown" defaults WITHOUT
-    # attempting any enrichment fetch and without enrichment warning events.
+    # Update History Atom feed lags and carries no entry for the baseline KB.
+    # There is still no Atom-linked support article to fetch, but the MSRC CVRF
+    # for the baseline month is already published. The notice now derives the
+    # MSRC month from the Release Health baseline date (2026-06-09 -> 2026-Jun),
+    # joins the baseline KB exactly, and classifies security from MSRC without
+    # synthesizing a /help/<KB> URL or fetching any support article.
+    msrc_calls: list[str] = []
+
     def forbidden_support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
         raise AssertionError(f"support fetch must not be attempted, got {url}")
 
-    def forbidden_msrc_fetcher(url: str, timeout: float, max_bytes: int) -> object:
-        raise AssertionError(f"msrc fetch must not be attempted, got {url}")
+    def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> object:
+        assert url == "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-Jun"
+        msrc_calls.append(url)
+        return _kb5094126_msrc_fixture()
 
     policy = generate_policy(
         release_health_html=_release_health_caught_up_to_kb5094126_with_update_type("2026-06 B"),
         atom_feed_xml=_atom(),
         generated_at_utc="2026-06-11T18:00:00+00:00",
         support_article_fetcher=forbidden_support_fetcher,
-        msrc_cvrf_fetcher=forbidden_msrc_fetcher,
+        msrc_cvrf_fetcher=msrc_fetcher,
+    )
+
+    assert msrc_calls == ["https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-Jun"]
+    notice = policy.source_diagnostics["baseline_update_notice"]
+    assert notice["active"] is True
+    assert notice["kb_article"] == "KB5094126"
+    assert notice["build"] == "26200.8655"
+    assert notice["is_security"] is True
+    assert notice["security_evidence_source"] == "msrc_cvrf"
+    assert notice["security_evidence_status"] == "trusted"
+    # No Atom link means no support article: validation stays unavailable and no
+    # support/source URL is synthesized.
+    assert notice["support_article_validation_status"] == "unavailable"
+    assert "source_url" not in notice
+    assert "atom_entry_id" not in notice
+    assert "MSRC confirms it as a security update." in notice["summary"]
+    assert not notice["summary"].endswith(
+        "Security classification is unavailable from the checked enrichment source."
+    )
+    baseline_events = [
+        event
+        for event in policy.source_diagnostics["events"]
+        if event["kind"] == "required_baseline_matched_latest_observed"
+    ]
+    assert len(baseline_events) == 1
+    assert not any(
+        "support_article_enrichment" in event["kind"]
+        for event in policy.source_diagnostics["events"]
+    )
+
+
+def test_baseline_update_notice_atom_feed_lag_msrc_error_stays_unavailable_with_warning() -> None:
+    # Same Atom-lag shape, but the MSRC CVRF fetch for the baseline month fails.
+    # The notice must degrade honestly to unavailable/unknown with the neutral
+    # sentence, and the failure must now surface as an msrc_cvrf warning event
+    # instead of being silently swallowed. Support fetching stays forbidden.
+    def forbidden_support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        raise AssertionError(f"support fetch must not be attempted, got {url}")
+
+    def failing_msrc_fetcher(url: str, timeout: float, max_bytes: int) -> object:
+        assert url == "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-Jun"
+        raise PolicyFetchError("MSRC unavailable")
+
+    policy = generate_policy(
+        release_health_html=_release_health_caught_up_to_kb5094126_with_update_type("2026-06 B"),
+        atom_feed_xml=_atom(),
+        generated_at_utc="2026-06-11T18:00:00+00:00",
+        support_article_fetcher=forbidden_support_fetcher,
+        msrc_cvrf_fetcher=failing_msrc_fetcher,
     )
 
     notice = policy.source_diagnostics["baseline_update_notice"]
@@ -3223,7 +3278,6 @@ def test_baseline_update_notice_atom_feed_lag_yields_unavailable_without_fetches
     assert notice["security_evidence_status"] == "unknown"
     assert "is_security" not in notice
     assert "source_url" not in notice
-    assert "atom_entry_id" not in notice
     assert notice["summary"].endswith(
         "Security classification is unavailable from the checked enrichment source."
     )
@@ -3233,10 +3287,60 @@ def test_baseline_update_notice_atom_feed_lag_yields_unavailable_without_fetches
         if event["kind"] == "required_baseline_matched_latest_observed"
     ]
     assert len(baseline_events) == 1
+    warning = next(
+        event
+        for event in policy.source_diagnostics["events"]
+        if "msrc_cvrf" in event["kind"]
+    )
+    assert warning["severity"] == "warning"
+    assert warning["kind"] == "msrc_cvrf_enrichment_unavailable"
+    assert warning["msrc_cvrf_month_id"] == "2026-Jun"
     assert not any(
-        "support_article_enrichment" in event["kind"] or "msrc_cvrf" in event["kind"]
+        "support_article_enrichment" in event["kind"]
         for event in policy.source_diagnostics["events"]
     )
+
+
+def test_baseline_update_notice_support_fetch_failure_surfaces_enrichment_event() -> None:
+    # Regression for the previously silent-swallowed case: the baseline record
+    # has an Atom-linked support URL, but the support-article fetch fails. Before,
+    # support-enrichment events for baseline records were unconditionally
+    # suppressed; now a real fetch failure surfaces as a standard
+    # support_article_enrichment_unavailable event while the notice fields degrade
+    # exactly as they do today.
+    def failing_support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        assert url == KB5094126_SUPPORT_URL
+        raise PolicyFetchError("support unavailable")
+
+    def failing_msrc_fetcher(url: str, timeout: float, max_bytes: int) -> object:
+        assert url == "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-Jun"
+        raise PolicyFetchError("MSRC unavailable")
+
+    policy = generate_policy(
+        release_health_html=_release_health_caught_up_to_kb5094126(),
+        atom_feed_xml=_kb5094126_atom_fixture(),
+        generated_at_utc="2026-06-11T18:00:00+00:00",
+        support_article_fetcher=failing_support_fetcher,
+        msrc_cvrf_fetcher=failing_msrc_fetcher,
+    )
+
+    notice = policy.source_diagnostics["baseline_update_notice"]
+    assert notice["active"] is True
+    assert notice["kb_article"] == "KB5094126"
+    # Notice fields degrade as today: both enrichment sources failed.
+    assert notice["security_evidence_source"] == "unavailable"
+    assert notice["security_evidence_status"] == "unknown"
+    assert "is_security" not in notice
+    # The support-article fetch failure for the baseline record is no longer
+    # silently swallowed.
+    support_event = next(
+        event
+        for event in policy.source_diagnostics["events"]
+        if event["kind"] == "support_article_enrichment_unavailable"
+    )
+    assert support_event["severity"] == "warning"
+    assert support_event["source_url"] == KB5094126_SUPPORT_URL
+    assert support_event["kb_article"] == "KB5094126"
 
 
 def test_generated_output_surfaces_support_article_mismatch_and_degraded_states(tmp_path: Path) -> None:
