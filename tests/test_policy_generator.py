@@ -3194,6 +3194,51 @@ def test_baseline_update_notice_uses_unknown_security_when_msrc_and_article_are_
     assert "Security patch" not in policy_generator_module._source_diagnostic_row_from_event(event)["tags"]
 
 
+def test_baseline_update_notice_atom_feed_lag_yields_unavailable_without_fetches() -> None:
+    # Live July 2026 shape: Release Health has the new B baseline but Microsoft's
+    # Update History Atom feed lags and carries no entry for the baseline KB. With
+    # no Atom link there is no support URL and no MSRC month to fetch, so the
+    # notice must degrade to honest "unavailable"/"unknown" defaults WITHOUT
+    # attempting any enrichment fetch and without enrichment warning events.
+    def forbidden_support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        raise AssertionError(f"support fetch must not be attempted, got {url}")
+
+    def forbidden_msrc_fetcher(url: str, timeout: float, max_bytes: int) -> object:
+        raise AssertionError(f"msrc fetch must not be attempted, got {url}")
+
+    policy = generate_policy(
+        release_health_html=_release_health_caught_up_to_kb5094126_with_update_type("2026-06 B"),
+        atom_feed_xml=_atom(),
+        generated_at_utc="2026-06-11T18:00:00+00:00",
+        support_article_fetcher=forbidden_support_fetcher,
+        msrc_cvrf_fetcher=forbidden_msrc_fetcher,
+    )
+
+    notice = policy.source_diagnostics["baseline_update_notice"]
+    assert notice["active"] is True
+    assert notice["kb_article"] == "KB5094126"
+    assert notice["build"] == "26200.8655"
+    assert notice["support_article_validation_status"] == "unavailable"
+    assert notice["security_evidence_source"] == "unavailable"
+    assert notice["security_evidence_status"] == "unknown"
+    assert "is_security" not in notice
+    assert "source_url" not in notice
+    assert "atom_entry_id" not in notice
+    assert notice["summary"].endswith(
+        "Security classification is unavailable from the checked enrichment source."
+    )
+    baseline_events = [
+        event
+        for event in policy.source_diagnostics["events"]
+        if event["kind"] == "required_baseline_matched_latest_observed"
+    ]
+    assert len(baseline_events) == 1
+    assert not any(
+        "support_article_enrichment" in event["kind"] or "msrc_cvrf" in event["kind"]
+        for event in policy.source_diagnostics["events"]
+    )
+
+
 def test_generated_output_surfaces_support_article_mismatch_and_degraded_states(tmp_path: Path) -> None:
     mismatch_policy = _kb5094126_generated_fixture_policy(
         _html_file("windows11-release-health-current-d-26h1.html"),
