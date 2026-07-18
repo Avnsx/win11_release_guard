@@ -16,7 +16,7 @@ USES_RE = re.compile(r"^\s*(?:-\s*)?uses:\s*(?P<quote>['\"]?)(?P<ref>[^'\"\s#]+)
 FULL_LENGTH_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 REQUIRED_ACTIONS = {
-    "actions/checkout": "v6",
+    "actions/checkout": "v7",
     "actions/setup-python": "v6",
     "actions/configure-pages": "v6",
     "actions/upload-pages-artifact": "v5",

@@ -60,13 +60,13 @@ def test_audit_fails_stale_checkout_fixture(tmp_path: Path) -> None:
     findings = check_github_action_versions.audit_workflows([workflow])
 
     assert len(findings) == 1
-    assert "actions/checkout must use v6" in findings[0].message
+    assert "actions/checkout must use v7" in findings[0].message
 
 
 def test_audit_fails_insecure_node_opt_out(tmp_path: Path) -> None:
     workflow = _write_workflow(
         tmp_path,
-        _minimal_workflow("actions/checkout@v6")
+        _minimal_workflow("actions/checkout@v7")
         + "\n"
         + "env:\n"
         + f"  {INSECURE_NODE_OPT_OUT}: true\n",
@@ -88,7 +88,7 @@ def test_audit_allows_documented_codeql_v4_exception(tmp_path: Path) -> None:
 def test_audit_fails_missing_node24_force_env(tmp_path: Path) -> None:
     workflow = _write_workflow(
         tmp_path,
-        _minimal_workflow("actions/checkout@v6", include_node24=False),
+        _minimal_workflow("actions/checkout@v7", include_node24=False),
     )
 
     findings = check_github_action_versions.audit_workflows([workflow])

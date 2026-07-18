@@ -39,7 +39,7 @@ def test_ci_workflow_uses_node24_ready_actions() -> None:
     insecure_node_opt_out = "ACTIONS_ALLOW_USE_" + "UNSECURE_NODE_VERSION"
 
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in text
-    assert "actions/checkout@v6" in text
+    assert "actions/checkout@v7" in text
     assert "actions/setup-python@v6" in text
     assert "actions/checkout@" + "v4" not in text
     assert "actions/setup-python@" + "v5" not in text

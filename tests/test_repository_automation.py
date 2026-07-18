@@ -55,7 +55,7 @@ def test_codeql_workflow_exists_and_uses_codeql_actions() -> None:
     assert "contents: read" in text
     assert "actions: read" in text
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in text
-    assert "actions/checkout@v6" in text
+    assert "actions/checkout@v7" in text
     assert "github/codeql-action/init@v4" in text
     assert "github/codeql-action/analyze@v4" in text
     assert "languages: python" in text
@@ -71,7 +71,7 @@ def test_pylint_workflow_exists_and_lints_package_and_tools() -> None:
     assert "pull_request:" in text
     assert "workflow_dispatch:" in text
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in text
-    assert "actions/checkout@v6" in text
+    assert "actions/checkout@v7" in text
     assert "actions/setup-python@v6" in text
     assert 'python-version: "3.12"' in text
     assert 'python -m pip install -e ".[test]" pylint' in text
@@ -86,7 +86,7 @@ def test_dependency_workflows_exist() -> None:
     assert "workflow_dispatch:" in freshness
     assert "schedule:" in freshness
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in freshness
-    assert "actions/checkout@v6" in freshness
+    assert "actions/checkout@v7" in freshness
     assert "actions/setup-python@v6" in freshness
     assert "python tools/check_dependency_freshness.py --output dependency-freshness.json" in freshness
 
@@ -94,7 +94,7 @@ def test_dependency_workflows_exist() -> None:
     assert "workflow_dispatch:" in audit
     assert "schedule:" in audit
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in audit
-    assert "actions/checkout@v6" in audit
+    assert "actions/checkout@v7" in audit
     assert "actions/setup-python@v6" in audit
     assert "pip-audit --local" in audit
 
@@ -323,7 +323,7 @@ def test_release_workflow_validates_tag_version_parity_before_publication() -> N
 def test_release_workflow_runs_required_gates_and_attaches_clean_archive() -> None:
     text = _read(RELEASE_WORKFLOW)
 
-    assert "actions/checkout@v6" in text
+    assert "actions/checkout@v7" in text
     assert "actions/setup-python@v6" in text
     assert 'python-version: "3.12"' in text
     assert 'python -m pip install -e ".[test]"' in text
