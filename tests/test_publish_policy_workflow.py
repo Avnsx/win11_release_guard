@@ -167,7 +167,7 @@ def test_publish_policy_workflow_fails_on_source_diagnostics_error_events() -> N
 def test_publish_policy_workflow_uses_pages_artifact_deployment_actions() -> None:
     text = _workflow_text()
 
-    assert "actions/checkout@v6" in text
+    assert "actions/checkout@v7" in text
     assert "actions/setup-python@v6" in text
     assert "actions/configure-pages@v6" in text
     assert "actions/upload-pages-artifact@v5" in text

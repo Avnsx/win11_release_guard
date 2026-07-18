@@ -134,7 +134,7 @@ Canonical repository and feed:
 ## GitHub Actions Pinning Policy
 
 - GitHub-owned first-party actions may use audited major tags only when listed in `tools/check_github_action_versions.py`.
-- Current audited first-party actions are `actions/checkout@v6`, `actions/setup-python@v6`, `actions/configure-pages@v6`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, and `github/codeql-action/*@v4`.
+- Current audited first-party actions are `actions/checkout@v7`, `actions/setup-python@v6`, `actions/configure-pages@v6`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, and `github/codeql-action/*@v4`.
 - Third-party actions are forbidden unless explicitly allowlisted in the audit tool and pinned to a full 40-character commit SHA.
 - The only current third-party exception is `pypa/gh-action-pypi-publish` in `.github/workflows/pypi-publish.yml`, pinned to `cef221092ed1bacb1cc03d23a2d87d1d172e277b` for PyPI Trusted Publishing via GitHub OIDC without stored PyPI credentials.
 - Do not add third-party actions without updating the audit tool, tests, and security automation docs with the reason.

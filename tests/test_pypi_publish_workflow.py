@@ -68,7 +68,7 @@ def test_pypi_publish_workflow_uses_trusted_publishing_oidc_without_credentials(
 def test_pypi_publish_workflow_builds_and_uploads_dist_artifact() -> None:
     text = _workflow_text()
 
-    assert "actions/checkout@v6" in text
+    assert "actions/checkout@v7" in text
     assert "actions/setup-python@v6" in text
     assert 'python-version: "3.12"' in text
     assert 'python -m pip install -e ".[test]"' in text
