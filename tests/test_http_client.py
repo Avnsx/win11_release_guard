@@ -5,6 +5,8 @@ import gzip
 import io
 import socket
 import ssl
+import threading
+import time
 import urllib.error
 import urllib.request
 import zlib
@@ -21,9 +23,9 @@ DEFAULT_HOST = "http-client-tests.invalid"
 
 @pytest.fixture(autouse=True)
 def _clear_dns_cache():
-    http_client._dns_cache.clear()
+    http_client._dns_reset_state()
     yield
-    http_client._dns_cache.clear()
+    http_client._dns_reset_state()
 
 
 def _headers(mapping: dict[str, str] | None = None) -> email.message.Message:
@@ -325,6 +327,265 @@ def test_default_resolver_is_not_invoked_when_a_custom_opener_replaces_urlopen(m
     result = http_client.request(DEFAULT_URL, timeout=1.0, max_bytes=1024, opener=opener, sleep=sleep)
 
     assert result.content == b"ok"
+
+
+# --- FIX 1: negative DNS caching -------------------------------------------------
+
+
+def test_dns_negative_result_is_cached_and_fails_fast_without_a_second_thread() -> None:
+    resolver, calls = _scripted_resolver([socket.gaierror(-2, "Name or service not known")])
+    opener = _ScriptedOpener([_FakeResponse(body=b"unused")])
+    sleep, _delays = _recording_sleep()
+
+    with pytest.raises(PolicyFetchError, match="DNS resolution"):
+        http_client.request(
+            DEFAULT_URL, timeout=1.0, max_bytes=1024, opener=opener, resolver=resolver, sleep=sleep
+        )
+
+    # Second attempt: the failure is still within its (short) negative TTL,
+    # so it must fail fast from the cache without spawning another resolver.
+    with pytest.raises(PolicyFetchError, match="DNS resolution"):
+        http_client.request(
+            DEFAULT_URL, timeout=1.0, max_bytes=1024, opener=opener, resolver=resolver, sleep=sleep
+        )
+
+    assert len(calls) == 1
+    assert opener.calls == []
+
+
+def test_negative_cache_ttl_is_its_own_constant_and_shorter_than_the_success_ttl() -> None:
+    assert http_client.DEFAULT_DNS_NEGATIVE_CACHE_TTL_SECONDS > 0
+    assert http_client.DEFAULT_DNS_NEGATIVE_CACHE_TTL_SECONDS < http_client.DEFAULT_DNS_CACHE_TTL_SECONDS
+
+
+def test_negative_cache_expires_and_a_later_success_replaces_it(monkeypatch) -> None:
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(http_client.time, "monotonic", lambda: clock["now"])
+
+    resolver, calls = _scripted_resolver([socket.gaierror(-2, "boom"), None])
+    sleep, _delays = _recording_sleep()
+
+    with pytest.raises(PolicyFetchError, match="DNS resolution"):
+        http_client.request(
+            DEFAULT_URL,
+            timeout=1.0,
+            max_bytes=1024,
+            opener=_ScriptedOpener([_FakeResponse(body=b"unused")]),
+            resolver=resolver,
+            sleep=sleep,
+        )
+    assert len(calls) == 1
+
+    # Still inside the negative TTL: fails fast, no second resolver call.
+    with pytest.raises(PolicyFetchError, match="DNS resolution"):
+        http_client.request(
+            DEFAULT_URL,
+            timeout=1.0,
+            max_bytes=1024,
+            opener=_ScriptedOpener([_FakeResponse(body=b"unused")]),
+            resolver=resolver,
+            sleep=sleep,
+        )
+    assert len(calls) == 1
+
+    clock["now"] += http_client.DEFAULT_DNS_NEGATIVE_CACHE_TTL_SECONDS + 0.1
+
+    result = http_client.request(
+        DEFAULT_URL,
+        timeout=1.0,
+        max_bytes=1024,
+        opener=_ScriptedOpener([_FakeResponse(body=b"ok")]),
+        resolver=resolver,
+        sleep=sleep,
+    )
+    assert result.content == b"ok"
+    assert len(calls) == 2
+
+    # A later success must replace the (now stale) negative entry rather than
+    # being blocked by it: a third attempt reuses the fresh success.
+    second = http_client.request(
+        DEFAULT_URL,
+        timeout=1.0,
+        max_bytes=1024,
+        opener=_ScriptedOpener([_FakeResponse(body=b"second")]),
+        resolver=resolver,
+        sleep=sleep,
+    )
+    assert second.content == b"second"
+    assert len(calls) == 2
+
+
+def test_dns_cache_eviction_is_bounded_across_positive_and_negative_entries() -> None:
+    for i in range(http_client._DNS_CACHE_MAX_ENTRIES + 10):
+        host = f"host-{i}.invalid"
+        error = None if i % 2 == 0 else "boom"
+        http_client._dns_cache_store(host, now=time.monotonic(), ttl=60.0, error_message=error)
+
+    assert len(http_client._dns_cache) <= http_client._DNS_CACHE_MAX_ENTRIES
+
+
+# --- FIX 2: a resolution already in flight is shared, not duplicated -------------
+
+
+def test_dns_preflight_reuses_a_pre_existing_successful_inflight_entry() -> None:
+    inflight = http_client._DnsInFlight(done=threading.Event())
+    inflight.done.set()
+    http_client._dns_inflight[DEFAULT_HOST] = inflight
+
+    def resolver_must_not_run(host: str, timeout: float) -> None:
+        raise AssertionError("resolver must not run while a resolution is already in flight")
+
+    http_client._dns_preflight(DEFAULT_URL, resolver=resolver_must_not_run, timeout=1.0)
+
+
+def test_dns_preflight_reuses_a_pre_existing_failed_inflight_entry() -> None:
+    inflight = http_client._DnsInFlight(done=threading.Event())
+    inflight.error_message = "DNS resolution for 'x' failed: boom"
+    inflight.done.set()
+    http_client._dns_inflight[DEFAULT_HOST] = inflight
+
+    def resolver_must_not_run(host: str, timeout: float) -> None:
+        raise AssertionError("resolver must not run while a resolution is already in flight")
+
+    with pytest.raises(PolicyFetchError, match="boom"):
+        http_client._dns_preflight(DEFAULT_URL, resolver=resolver_must_not_run, timeout=1.0)
+
+
+def test_dns_preflight_waiter_fails_at_its_own_deadline_if_the_owner_is_still_running() -> None:
+    inflight = http_client._DnsInFlight(done=threading.Event())
+    http_client._dns_inflight[DEFAULT_HOST] = inflight  # never signalled
+
+    def resolver_must_not_run(host: str, timeout: float) -> None:
+        raise AssertionError("resolver must not run while a resolution is already in flight")
+
+    with pytest.raises(PolicyFetchError, match="did not complete within"):
+        http_client._dns_preflight(DEFAULT_URL, resolver=resolver_must_not_run, timeout=0.05)
+
+
+def test_second_caller_for_a_host_already_resolving_never_starts_a_second_resolver() -> None:
+    release = threading.Event()
+    first_started = threading.Event()
+    calls_first: list[tuple[str, float]] = []
+    calls_second: list[tuple[str, float]] = []
+
+    def first_resolver(host: str, timeout: float) -> None:
+        calls_first.append((host, timeout))
+        first_started.set()
+        release.wait(timeout)
+
+    def second_resolver(host: str, timeout: float) -> None:
+        calls_second.append((host, timeout))
+
+    results: dict[str, http_client.HttpResponse] = {}
+    errors: dict[str, BaseException] = {}
+
+    def run(name: str, resolver, opener) -> None:
+        try:
+            results[name] = http_client.request(
+                DEFAULT_URL,
+                timeout=5.0,
+                max_bytes=1024,
+                opener=opener,
+                resolver=resolver,
+                sleep=lambda _seconds: None,
+            )
+        except BaseException as exc:  # noqa: BLE001 - surfaced via assertion below
+            errors[name] = exc
+
+    thread_a = threading.Thread(
+        target=run, args=("first", first_resolver, _ScriptedOpener([_FakeResponse(body=b"first")]))
+    )
+    thread_a.start()
+    assert first_started.wait(2.0), "first resolution did not start in time"
+
+    thread_b = threading.Thread(
+        target=run, args=("second", second_resolver, _ScriptedOpener([_FakeResponse(body=b"second")]))
+    )
+    thread_b.start()
+
+    release.set()
+    thread_a.join(2.0)
+    thread_b.join(2.0)
+
+    assert not thread_a.is_alive()
+    assert not thread_b.is_alive()
+    assert errors == {}
+    assert calls_second == []
+    assert len(calls_first) == 1
+    assert results["first"].content == b"first"
+    assert results["second"].content == b"second"
+
+
+# --- FIX 3: the shared cache/registry is lockable, and reset is one call --------
+
+
+def test_dns_reset_state_clears_both_the_cache_and_the_inflight_registry() -> None:
+    http_client._dns_cache["stale.invalid"] = http_client._DnsCacheEntry(
+        expiry=time.monotonic() + 60.0, error_message=None
+    )
+    http_client._dns_inflight["stale.invalid"] = http_client._DnsInFlight(done=threading.Event())
+
+    http_client._dns_reset_state()
+
+    assert http_client._dns_cache == {}
+    assert http_client._dns_inflight == {}
+
+
+# --- FIX 4: edge cases -----------------------------------------------------------
+
+
+def test_zero_timeout_fails_fast_without_calling_the_resolver() -> None:
+    resolver, calls = _scripted_resolver([])
+    opener = _ScriptedOpener([_FakeResponse(body=b"unused")])
+    sleep, _delays = _recording_sleep()
+
+    with pytest.raises(PolicyFetchError, match="DNS resolution"):
+        http_client.request(
+            DEFAULT_URL, timeout=0.0, max_bytes=1024, opener=opener, resolver=resolver, sleep=sleep
+        )
+
+    assert calls == []
+    assert opener.calls == []
+
+
+def test_negative_timeout_fails_fast_without_calling_the_resolver() -> None:
+    resolver, calls = _scripted_resolver([])
+    opener = _ScriptedOpener([_FakeResponse(body=b"unused")])
+    sleep, _delays = _recording_sleep()
+
+    with pytest.raises(PolicyFetchError, match="DNS resolution"):
+        http_client.request(
+            DEFAULT_URL, timeout=-1.0, max_bytes=1024, opener=opener, resolver=resolver, sleep=sleep
+        )
+
+    assert calls == []
+
+
+def test_default_resolver_worker_captures_memory_error_without_hanging(monkeypatch) -> None:
+    def _boom(host: str, port: object) -> None:
+        raise MemoryError("simulated allocation failure")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _boom)
+
+    with pytest.raises(MemoryError):
+        http_client._default_resolve_host(DEFAULT_HOST, 5.0)
+
+
+class _ExoticBaseException(BaseException):
+    """Stand-in for a failure that is not an Exception subclass."""
+
+
+def test_default_resolver_worker_captures_non_exception_baseexceptions(monkeypatch) -> None:
+    def _boom(host: str, port: object) -> None:
+        raise _ExoticBaseException("exotic failure")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _boom)
+
+    # Before this hardening, only Exception was caught inside the worker, so
+    # this would escape into the thread, print to stderr, and leave the
+    # calling thread waiting the full deadline before reporting success.
+    with pytest.raises(_ExoticBaseException):
+        http_client._default_resolve_host(DEFAULT_HOST, 5.0)
 
 
 def test_429_then_503_then_success_retries_and_returns_body() -> None:

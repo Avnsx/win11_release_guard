@@ -36,9 +36,15 @@ DEFAULT_LABEL = "HTTP response"
 # Bounded DNS preflight (see _dns_preflight): resolution runs with its own
 # deadline, well short of the overall request timeout, before any socket is
 # opened. Successful resolutions are cached briefly so a run that makes many
-# requests to the same host only pays the resolution cost once.
+# requests to the same host only pays the resolution cost once. Failures are
+# cached too, under their own shorter TTL, so a host with a black-holed or
+# filtered resolver fails fast on the next attempt instead of spawning a
+# fresh resolver thread every time. A resolution already in progress for a
+# host is shared with any other caller for that same host instead of
+# starting a second one.
 DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS = 3.0
 DEFAULT_DNS_CACHE_TTL_SECONDS = 60.0
+DEFAULT_DNS_NEGATIVE_CACHE_TTL_SECONDS = 5.0
 _DNS_CACHE_MAX_ENTRIES = 256
 
 _CERT_VERIFICATION_MESSAGE = (
@@ -70,8 +76,42 @@ Sleeper = Callable[[float], None]
 Opener = Callable[..., Any]
 Resolver = Callable[[str, float], None]
 
-# host -> monotonic expiry timestamp for cached successful resolutions.
-_dns_cache: dict[str, float] = {}
+
+@dataclass
+class _DnsCacheEntry:
+    """A cached resolution outcome. error_message is None for a success."""
+
+    expiry: float
+    error_message: str | None
+
+
+@dataclass
+class _DnsInFlight:
+    """A resolution in progress for one host.
+
+    A second caller for the same host waits on `done` (subject to its own
+    deadline) instead of starting a second resolver thread; see
+    _dns_preflight. `error_message` is populated by the owner before `done`
+    is set, so it is safe for a waiter to read once `done.wait()` returns
+    True.
+    """
+
+    done: threading.Event
+    error_message: str | None = None
+
+
+# host -> cached resolution outcome, success or failure, each with its own
+# expiry (DEFAULT_DNS_CACHE_TTL_SECONDS / DEFAULT_DNS_NEGATIVE_CACHE_TTL_SECONDS).
+_dns_cache: dict[str, _DnsCacheEntry] = {}
+
+# host -> resolution currently in progress, so a second request for the same
+# host waits on it instead of starting a second resolver thread.
+_dns_inflight: dict[str, _DnsInFlight] = {}
+
+# Guards _dns_cache and _dns_inflight. Critical sections are plain dict
+# reads/writes only -- never held across a resolution or any other blocking
+# call.
+_dns_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -287,15 +327,39 @@ def _is_challenge_response(headers: Any, body_prefix: bytes) -> bool:
     return False
 
 
-def _dns_cache_is_fresh(host: str, *, now: float) -> bool:
-    expiry = _dns_cache.get(host)
-    return expiry is not None and expiry > now
+def _dns_cache_lookup(host: str, *, now: float) -> _DnsCacheEntry | None:
+    """Return host's cached entry (success or failure) if still fresh."""
+    entry = _dns_cache.get(host)
+    if entry is not None and entry.expiry > now:
+        return entry
+    return None
 
 
-def _dns_cache_store(host: str, *, now: float, ttl: float) -> None:
+def _dns_cache_store(host: str, *, now: float, ttl: float, error_message: str | None) -> None:
     if host not in _dns_cache and len(_dns_cache) >= _DNS_CACHE_MAX_ENTRIES:
         _dns_cache.pop(next(iter(_dns_cache)))
-    _dns_cache[host] = now + ttl
+    _dns_cache[host] = _DnsCacheEntry(expiry=now + ttl, error_message=error_message)
+
+
+def _dns_reset_state() -> None:
+    """Clear cached resolutions and in-flight registrations.
+
+    One entry point for tests that need a clean slate between cases, rather
+    than reaching into _dns_cache and _dns_inflight separately.
+    """
+    with _dns_lock:
+        _dns_cache.clear()
+        _dns_inflight.clear()
+
+
+def _await_inflight(host: str, inflight: _DnsInFlight, timeout: float) -> None:
+    """Wait for a resolution already in progress, subject to our own deadline."""
+    if not inflight.done.wait(timeout):
+        raise PolicyFetchError(
+            f"DNS resolution for '{host}' failed: did not complete within {timeout:.1f}s (preflight deadline)"
+        )
+    if inflight.error_message is not None:
+        raise PolicyFetchError(inflight.error_message)
 
 
 def _uses_proxy(url: str) -> bool:
@@ -328,6 +392,13 @@ def _default_resolve_host(host: str, timeout: float) -> None:
     seconds for it to finish. A thread that never returns (a black-holed or
     filtered resolver) is simply abandoned -- it cannot block interpreter
     exit because it is a daemon thread, and nothing here ever joins it.
+
+    The worker catches BaseException, not just Exception, so nothing it
+    raises can escape into the thread unnoticed (which would otherwise print
+    to stderr and be lost). The event is always set in `finally`, so a
+    failure of any kind -- including something as unusual as MemoryError --
+    still wakes the caller immediately rather than leaving it stuck until
+    its own deadline.
     """
     done = threading.Event()
     outcome: dict[str, BaseException] = {}
@@ -335,7 +406,7 @@ def _default_resolve_host(host: str, timeout: float) -> None:
     def _run() -> None:
         try:
             socket.getaddrinfo(host, None)
-        except Exception as exc:
+        except BaseException as exc:
             outcome["error"] = exc
         finally:
             done.set()
@@ -349,20 +420,66 @@ def _default_resolve_host(host: str, timeout: float) -> None:
 
 
 def _dns_preflight(url: str, *, resolver: Resolver, timeout: float) -> None:
+    """Resolve url's host once, sharing the outcome across callers.
+
+    A fresh cache hit (success or failure) returns/raises immediately with
+    no thread involved. Otherwise, the first caller for a host becomes its
+    "owner" and actually invokes `resolver`; any other caller for the same
+    host while that resolution is still running waits on the owner's result
+    instead of starting a second one, bounding concurrent resolver threads
+    to at most one per distinct host.
+    """
     if _uses_proxy(url):
         return
     host = urllib.parse.urlsplit(url).hostname
     if not host:
         return
+
     now = time.monotonic()
-    if _dns_cache_is_fresh(host, now=now):
+    with _dns_lock:
+        cached = _dns_cache_lookup(host, now=now)
+        if cached is not None:
+            if cached.error_message is None:
+                return
+            raise PolicyFetchError(cached.error_message)
+
+        dns_timeout = min(DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS, timeout)
+        if dns_timeout <= 0:
+            raise PolicyFetchError(f"DNS resolution for '{host}' failed: preflight deadline is not positive")
+
+        inflight = _dns_inflight.get(host)
+        owner = inflight is None
+        if owner:
+            inflight = _DnsInFlight(done=threading.Event())
+            _dns_inflight[host] = inflight
+
+    if not owner:
+        _await_inflight(host, inflight, dns_timeout)
         return
-    dns_timeout = min(DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS, timeout)
+
     try:
         resolver(host, dns_timeout)
     except Exception as exc:
-        raise PolicyFetchError(f"DNS resolution for '{host}' failed: {exc}") from exc
-    _dns_cache_store(host, now=now, ttl=DEFAULT_DNS_CACHE_TTL_SECONDS)
+        message = f"DNS resolution for '{host}' failed: {exc}"
+        inflight.error_message = message
+        with _dns_lock:
+            _dns_cache_store(host, now=now, ttl=DEFAULT_DNS_NEGATIVE_CACHE_TTL_SECONDS, error_message=message)
+            del _dns_inflight[host]
+        inflight.done.set()
+        raise PolicyFetchError(message) from exc
+    except BaseException:
+        # Something other than an ordinary resolution failure (e.g. the
+        # calling thread being torn down). Don't cache a guess about the
+        # outcome -- just stop owning it and let any waiter re-check.
+        with _dns_lock:
+            del _dns_inflight[host]
+        inflight.done.set()
+        raise
+    else:
+        with _dns_lock:
+            _dns_cache_store(host, now=now, ttl=DEFAULT_DNS_CACHE_TTL_SECONDS, error_message=None)
+            del _dns_inflight[host]
+        inflight.done.set()
 
 
 def _cert_verification_error(exc: BaseException) -> ssl.SSLCertVerificationError | None:
@@ -511,6 +628,7 @@ __all__ = [
     "DEFAULT_BACKOFF_CAP_SECONDS",
     "DEFAULT_CHALLENGE_BODY_PEEK_BYTES",
     "DEFAULT_DNS_CACHE_TTL_SECONDS",
+    "DEFAULT_DNS_NEGATIVE_CACHE_TTL_SECONDS",
     "DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS",
     "DEFAULT_LABEL",
     "DEFAULT_RETRY_AFTER_CAP_SECONDS",
