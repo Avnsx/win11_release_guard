@@ -34,7 +34,7 @@ Windows 11 Release Guard tells administrators whether an existing Windows 11 dev
 | Fact | Value |
 | --- | --- |
 | Project / package | `win11_release_guard` |
-| Version | `0.3.6` |
+| Version | `0.4.0` |
 | Console script | `win11_release_guard` |
 | Python entry point | `python -m win11_release_guard` |
 | Repository | `https://github.com/Avnsx/win11_release_guard` |
@@ -117,7 +117,7 @@ If Windows 11 Release Guard saves you time or helps your fleet checks, please st
 | Local detection | Build and signed policy evidence are the release truth. | [Local Windows Detection](https://avnsx.github.io/win11_release_guard/wiki/Local-Windows-Detection/) |
 | WUA role | Optional read-only explanation for offers/history. | [Troubleshooting](https://avnsx.github.io/win11_release_guard/wiki/Troubleshooting/) |
 | Release targeting | 25H2 is the existing-device target; 26H1 is excluded for existing devices. | [Architecture Insight](https://github.com/Avnsx/win11_release_guard/blob/main/docs/architecture-insight.md) |
-| Versions | Package/program version is not `schema_version` or `api_version`. | [v0.3.6 notes](https://github.com/Avnsx/win11_release_guard/blob/main/docs/releases/v0.3.6.md) |
+| Versions | Package/program version is not `schema_version` or `api_version`. | [v0.4.0 notes](https://github.com/Avnsx/win11_release_guard/blob/main/docs/releases/v0.4.0.md) |
 | Source diagnostics | Notice/warning/error evidence stays visible; generator `error` events can block publishing but never override compliance verdicts. | [Source Diagnostics](https://avnsx.github.io/win11_release_guard/wiki/Source-Diagnostics/) |
 
 ## Maintainer Commands
@@ -161,7 +161,7 @@ Deep dive: [Policy Feed and Trust Model](https://avnsx.github.io/win11_release_g
 | GitHub internal Wiki (Markdown mirror) | https://github.com/Avnsx/win11_release_guard/wiki |
 | Full architecture | [Architecture](https://avnsx.github.io/win11_release_guard/wiki/Architecture/) |
 | Maintainer guide | [docs/maintainer-guide.md](https://github.com/Avnsx/win11_release_guard/blob/main/docs/maintainer-guide.md) |
-| Release notes | [CHANGELOG.md](https://github.com/Avnsx/win11_release_guard/blob/main/CHANGELOG.md) and [docs/releases/v0.3.6.md](https://github.com/Avnsx/win11_release_guard/blob/main/docs/releases/v0.3.6.md) |
+| Release notes | [CHANGELOG.md](https://github.com/Avnsx/win11_release_guard/blob/main/CHANGELOG.md) and [docs/releases/v0.4.0.md](https://github.com/Avnsx/win11_release_guard/blob/main/docs/releases/v0.4.0.md) |
 | Safe source archives | [Safe Exports and Clean Archives](https://avnsx.github.io/win11_release_guard/wiki/Safe-Exports-and-Clean-Archives/) |
 | FAQ | [FAQ](https://avnsx.github.io/win11_release_guard/wiki/FAQ/) |
 
