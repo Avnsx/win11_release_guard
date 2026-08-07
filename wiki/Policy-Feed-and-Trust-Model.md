@@ -17,6 +17,8 @@ Use this when changing policy source loading, signature verification, manifest c
 | API signature | `/api/v1/policy.sig` | Stable signature alias. |
 | API manifest | `/api/v1/manifest.json` | Stable manifest alias. |
 
+All paths are served from `https://avnsx.github.io/win11_release_guard`.
+
 ## Trust Rules
 
 The Pages feed is public so clients can fetch it without credentials, but public
@@ -33,11 +35,11 @@ API alias drift visible to clients and checks.
 
 | Rule | Detail |
 | --- | --- |
-| Public data is not automatically trusted. | Runtime verifies the detached signature before accepting policy bytes. |
+| Public data is not automatically trusted. | Runtime verifies the detached signature before accepting policy bytes. No GitHub token, private repository access, or paid signing certificate is required. |
 | Key lookup uses `key_id`. | Committed public keys live in `win11_release_guard/data/trusted_policy_keys.json`. |
-| Private signing key is never committed. | GitHub Actions secret stores the production private key. |
-| Retiring keys stay bounded. | `verify_not_after_utc` prevents fresh signatures from retired/retiring keys after their window. |
-| `/api/v1` stays compatible. | Add fields compatibly; do not remove paths during the compatibility window. |
+| Private signing key is never committed. | GitHub Actions secret `WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64` stores the production private key. |
+| Retiring keys stay bounded. | `verify_not_after_utc` prevents fresh signatures from retired/retiring keys after at least 24 months of verification overlap. |
+| `/api/v1` stays compatible. | Add fields compatibly; existing paths stay backward compatible for at least 24 months. |
 
 ## JSON Hardening
 

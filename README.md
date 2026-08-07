@@ -46,15 +46,14 @@ Windows 11 Release Guard tells administrators whether an existing Windows 11 dev
 - Checks Windows 11 release/build/baseline compliance from a signed public JSON release policy feed.
 - Uses build-first local evidence; `ProductName`, WMI `Caption`, and `DisplayVersion` stay diagnostic.
 - Keeps Windows Update Agent data optional and secondary; WUA diagnostics never override the policy verdict.
-- Compacts local Panther/setup log tails in JSON by default while keeping raw bounded local diagnostics available through an explicit CLI opt-in.
-- Keeps Panther reads narrow and fast with fixed known paths, per-file tail reads, and a generous global collection guard.
-- Treats Panther/setup logs as administrator troubleshooting evidence only; they never decide compliance or override signed public policy.
-- Shows Source Diagnostics as Notice, Warning, and Error categories on the static dashboard; these are troubleshooting signals, not fleet verdict authority.
-- Shows GitHub Issue ticket links only from workflow-generated static metadata; browser JavaScript never creates or syncs issues.
-- Shows a dashboard-only baseline-update notice when a real Release Health B-release required baseline has caught up to the broad target's latest observed Microsoft build.
+- Compacts local Panther/setup log tails in JSON by default, with fixed-path tail-bounded reads and a raw opt-in for troubleshooting.
+- Shows Source Diagnostics and workflow-only GitHub Issue links on the dashboard as troubleshooting signals, never fleet verdict authority.
+- Shows a dashboard-only baseline-update notice when a real Release Health B-release baseline catches up to the latest observed Microsoft build.
 - Treats existing devices as targeting 25H2 while 26H1 remains excluded for existing-device targeting.
-- Emits human output, JSON, JSON-pretty, file output, and stable exit codes for RMM/fleet checks.
+- Emits human, JSON, and JSON-pretty output with stable exit codes for RMM/fleet checks.
 - Publishes a static GitHub Pages dashboard, Pages Wiki, and `/api/v1` policy, signature, and manifest aliases.
+
+See [Architecture](https://avnsx.github.io/win11_release_guard/wiki/Architecture/), [Local Windows Detection](https://avnsx.github.io/win11_release_guard/wiki/Local-Windows-Detection/), and [Source Diagnostics](https://avnsx.github.io/win11_release_guard/wiki/Source-Diagnostics/) for the detail behind each point.
 
 ## Quick Start
 
@@ -80,28 +79,18 @@ Deep dive: [Quick Start](https://avnsx.github.io/win11_release_guard/wiki/Quick-
 
 ## Public Feed And Dashboard
 
-| Artifact | URL |
+| Public artifact | URL |
 | --- | --- |
-| Pages dashboard | https://avnsx.github.io/win11_release_guard/ |
-| Pages Wiki | https://avnsx.github.io/win11_release_guard/wiki/ |
-| Pages changelog | https://avnsx.github.io/win11_release_guard/wiki/changelog/ |
 | Signed policy JSON | https://avnsx.github.io/win11_release_guard/windows-release-policy.json |
 | Detached signature | https://avnsx.github.io/win11_release_guard/windows-release-policy.json.sig |
 | Policy manifest | https://avnsx.github.io/win11_release_guard/policy-manifest.json |
-| API v1 policy | https://avnsx.github.io/win11_release_guard/api/v1/policy.json |
-| API v1 signature | https://avnsx.github.io/win11_release_guard/api/v1/policy.sig |
-| API v1 manifest | https://avnsx.github.io/win11_release_guard/api/v1/manifest.json |
 
-Public `/api/v1` aliases and signing-key overlap rules are maintained for at least 24 months unless a documented last-resort trust break is required. GitHub Pages is static; feed freshness is recomputed from generated timestamps in the browser and CLI. Source Diagnostics tiles filter Notices, Warnings, and Errors; `View all` resets the feed. Optional `#Ticket` links are hover/focus-only static links to repository issues when workflow-generated metadata exists for real warning/error source-diagnostic events.
-
-`latest_build` stays the value Microsoft Release Health publishes in the Current Versions table. `latest_observed_build` can be newer when the generator sees a newer official build through the public Atom feed and its linked Microsoft Support article. That value is context for administrators; it does not become `required_baseline_build` unless the normal signed baseline rules select it. When Release Health has caught up and the baseline rules select the same build, `latest_build`, `latest_observed_build`, and `required_baseline_build` can legitimately be identical.
-
-When that caught-up build comes from a real non-preview, non-OOB Release Health B-release row, the dashboard can show an informational baseline-update notice for 14 days from the source-derived official baseline date. The notice uses deterministic local summarization from Release Health, Atom, validated Support article facts, and exact MSRC KB evidence. Expired or inactive notices do not trigger optional Support/MSRC enrichment solely for stale notice data, and stale static pages hide expired notices while reflowing the operations grid. The notice does not call an LLM, cloud API, GitHub runtime API, or external script, and it does not change policy verdicts, required-baseline selection, issue sync, or runtime client behavior.
+`/api/v1` mirrors these as stable aliases, kept backward compatible — with signing-key overlap — for at least 24 months. GitHub Pages is static, so feed freshness is recomputed from generated timestamps in the browser and CLI rather than trusted from render time.
 
 > [!NOTE]
 > `Policy Feed Currency` is the latest compilation timestamp for the parsed policy results. If it looks old, check the [publish-policy workflow](https://github.com/Avnsx/win11_release_guard/actions/workflows/publish-policy.yml) and the [Anti-Static Freshness](https://avnsx.github.io/win11_release_guard/wiki/Anti-Static-Freshness/) notes.
 
-Deep dive: [GitHub Pages Dashboard](https://avnsx.github.io/win11_release_guard/wiki/GitHub-Pages-Dashboard/), [Anti-Static Freshness](https://avnsx.github.io/win11_release_guard/wiki/Anti-Static-Freshness/), [dashboard docs](https://github.com/Avnsx/win11_release_guard/blob/main/docs/dashboard-and-pages.md).
+Deep dive: [GitHub Pages Dashboard](https://avnsx.github.io/win11_release_guard/wiki/GitHub-Pages-Dashboard/), [Policy Feed and Trust Model](https://avnsx.github.io/win11_release_guard/wiki/Policy-Feed-and-Trust-Model/), [dashboard docs](https://github.com/Avnsx/win11_release_guard/blob/main/docs/dashboard-and-pages.md).
 
 ## Support The Project
 
@@ -129,7 +118,7 @@ If Windows 11 Release Guard saves you time or helps your fleet checks, please st
 | WUA role | Optional read-only explanation for offers/history. | [Troubleshooting](https://avnsx.github.io/win11_release_guard/wiki/Troubleshooting/) |
 | Release targeting | 25H2 is the existing-device target; 26H1 is excluded for existing devices. | [Architecture Insight](https://github.com/Avnsx/win11_release_guard/blob/main/docs/architecture-insight.md) |
 | Versions | Package/program version is not `schema_version` or `api_version`. | [v0.3.6 notes](https://github.com/Avnsx/win11_release_guard/blob/main/docs/releases/v0.3.6.md) |
-| Source diagnostics | Notice/warning/error troubleshooting evidence stays visible; generator `error` events can block policy publishing, but diagnostics do not override runtime compliance verdicts. | [Source Diagnostics](https://avnsx.github.io/win11_release_guard/wiki/Source-Diagnostics/) |
+| Source diagnostics | Notice/warning/error evidence stays visible; generator `error` events can block publishing but never override compliance verdicts. | [Source Diagnostics](https://avnsx.github.io/win11_release_guard/wiki/Source-Diagnostics/) |
 
 ## Maintainer Commands
 
@@ -152,19 +141,16 @@ Deployment-affecting changes require the live Pages gate before handover. Use th
 
 ## Safety And Trust Model
 
-- Runtime clients fetch public JSON plus `.sig`. Runtime clients do not authenticate to GitHub and do not need GitHub tokens, private repository access, or a paid signing certificate.
-- The private policy signing key lives only in the GitHub Actions secret `WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64`; public verification keys are committed.
-- The production generator may use public Microsoft Release Health HTML, the public Microsoft servicing table-of-contents JSON, public Microsoft servicing support articles, and unauthenticated public MSRC CVRF data for source diagnostics and informational enrichment; it does not use Microsoft Graph or token-authenticated Microsoft APIs.
-- The servicing table-of-contents JSON is discovery for support article hrefs; the generator uses only safe links to `https://support.microsoft.com` article paths, accepts either no port or explicit `:443`, strips tracking query strings and fragments from otherwise safe article URLs, rejects feed/API/search/download/static/traversal URLs, and records Source Diagnostic evidence instead of resolving through `/help/<KB>` when no usable article href exists. Direct or fixture-provided entries are revalidated before their links can become release-history URLs or dashboard/export metadata, and Release History enrichment prefers entries that match the row's lane, KB, and build. Support article facts are validated against the entry KB, build, selected URL, and parsed release/applicability, including `applies_to_releases` when available, before they can enrich summaries or provide Support-derived security labels. If parsed releases explicitly exclude the expected release, the article facts are visible but untrusted for that event. Security-patch classification comes from exact MSRC CVRF KB-token evidence or validated explicit Support article wording, not the article title alone; public dashboard/export surfaces expose the classification and evidence source, not CVE lists or counts. Source Diagnostic IDs are deterministic hash-form values, and sibling events from a multi-build entry keep unique ids.
-- Source Diagnostics issue sync runs only for warning/error events in GitHub Actions with the built-in `github.token` / `GITHUB_TOKEN` and minimal `issues: write`; notices stay dashboard-only, and no PAT or extra repository secret is required.
-- PyPI publishing uses Trusted Publishing / GitHub OIDC in `.github/workflows/pypi-publish.yml`; no PyPI API token is required.
+- Runtime clients fetch public JSON plus `.sig`. Runtime clients do not authenticate to GitHub and do not need GitHub tokens, private repository access, or a paid signing certificate. The private signing key lives only in a GitHub Actions secret; public verification keys are committed.
+- The production generator may use public Microsoft Release Health HTML, the public Microsoft servicing table-of-contents JSON, public Microsoft servicing support articles, and unauthenticated public MSRC CVRF data for source diagnostics and informational enrichment; it does not use Microsoft Graph or token-authenticated Microsoft APIs. Enrichment links and article facts are revalidated before they can affect a summary or a security label.
+- Source Diagnostics issue sync and PyPI publishing both run from GitHub Actions with built-in, minimally scoped tokens; neither stores a PAT or API credential.
 - GitHub scheduled workflows are best-effort automation, not guaranteed cron. Badge status is a useful signal, not an operational proof.
 - Dependency freshness is checked by a scheduled workflow. `Dependency freshness` is a scheduled direct-dependency check over direct dependency specifiers; it is not an always-current dependency guarantee. The Pylint badge reports the workflow for the current `--fail-under=8.0` gate, not a permanent quality certificate.
 
 > [!WARNING]
 > Source Diagnostics explain parser/source health and can block publishing on generator `error` events, but they never override the signed runtime verdict. Review [Source Diagnostics](https://avnsx.github.io/win11_release_guard/wiki/Source-Diagnostics/) before treating a warning as fleet compliance evidence.
 
-Deep dive: [policy signing](https://github.com/Avnsx/win11_release_guard/blob/main/docs/policy-signing.md), [security automation](https://github.com/Avnsx/win11_release_guard/blob/main/docs/security-automation.md), [Tagged release lane](https://github.com/Avnsx/win11_release_guard/blob/main/docs/tagged-release-lane.md).
+Deep dive: [Policy Feed and Trust Model](https://avnsx.github.io/win11_release_guard/wiki/Policy-Feed-and-Trust-Model/), [security automation](https://github.com/Avnsx/win11_release_guard/blob/main/docs/security-automation.md).
 
 ## Documentation Map
 
@@ -179,7 +165,7 @@ Deep dive: [policy signing](https://github.com/Avnsx/win11_release_guard/blob/ma
 | Safe source archives | [Safe Exports and Clean Archives](https://avnsx.github.io/win11_release_guard/wiki/Safe-Exports-and-Clean-Archives/) |
 | FAQ | [FAQ](https://avnsx.github.io/win11_release_guard/wiki/FAQ/) |
 
-The generated Pages Wiki is the primary public, indexed documentation surface. The GitHub internal Wiki remains a Markdown-compatible mirror for GitHub-native browsing. The repository `wiki/` folder is source for both. `.github/workflows/publish-policy.yml` renders it into GitHub Pages. `.github/workflows/sync-wiki.yml` can mirror the same `wiki/*.md` source Markdown to the GitHub internal Wiki with the built-in Actions token, or produce a dry-run artifact for manual sync fallback. The Pages renderer is first-party Python, escapes raw HTML, emits local-only inline SVG visuals, and uses no external JS, CSS, fonts, CDN, npm, browser GitHub write path, or browser token.
+The generated Pages Wiki is the primary public, indexed documentation surface. The GitHub internal Wiki is a Markdown-compatible mirror of the same `wiki/*.md` source, synced by `.github/workflows/sync-wiki.yml`. The first-party Python renderer escapes raw HTML and adds no external JS, CSS, fonts, or CDN dependencies.
 
 `CHANGELOG.md` remains the manually maintained changelog source of truth. Newer entries are added at the top; older version sections remain visible in the generated Pages changelog.
 

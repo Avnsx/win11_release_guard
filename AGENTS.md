@@ -26,6 +26,7 @@ This repository is public software for Windows administrators. Future agents mus
 20. Signing key rotations require at least 24 months of verification overlap unless a documented last-resort trust break is required.
 21. Future agents must not delete historical `CHANGELOG.md` version sections when adding newer versions. Newer changelog entries are added at the top. Older changelog entries remain available for generated Pages changelog, release history, SEO, and auditability.
 22. Future agents must not add or reintroduce license badges in `README.md`, `docs/*.md`, `wiki/*.md`, generated Markdown, or other repository Markdown surfaces. License metadata may remain in package configuration and prose where it is materially relevant, but Markdown badge rows must not display license badges.
+23. `README.md` stays compact: it is the entry point, not the manual. Sections that would sprawl must summarize briefly and link to the relevant `wiki/*.md` page instead of inlining depth.
 
 Canonical repository and feed:
 
