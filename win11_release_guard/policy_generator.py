@@ -47,7 +47,7 @@ from .signing import sign_policy_bytes as sign_ed25519_policy_bytes
 
 DEFAULT_WINDOWS11_ATOM_FEED_URL = "https://support.microsoft.com/en-us/feed/atom/4ec863cc-2ecd-e187-6cb3-b50c6545db92"
 DEFAULT_MAX_SUPPORT_ARTICLE_BYTES = 2 * 1024 * 1024
-DEFAULT_MAX_MSRC_CVRF_BYTES = 16 * 1024 * 1024
+DEFAULT_MAX_MSRC_CVRF_BYTES = 48 * 1024 * 1024
 MSRC_CVRF_CVE_LIMIT = 12
 MSRC_CVRF_SEVERITY_LIMIT = 8
 MSRC_CVRF_PRODUCT_LIMIT = 16
@@ -1327,6 +1327,53 @@ def _cvrf_product_ids(remediation: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(products))
 
 
+def _cvrf_product_names_by_id(cvrf: Mapping[str, Any], *, max_depth: int = 12) -> dict[str, str]:
+    names: dict[str, str] = {}
+    seen: set[int] = set()
+
+    def visit(node: Any, depth: int) -> None:
+        if depth > max_depth:
+            return
+        if isinstance(node, Mapping):
+            if id(node) in seen:
+                return
+            seen.add(id(node))
+            product_id = _dict_value(node, "ProductID", "ProductId")
+            value = _dict_value(node, "Value")
+            if isinstance(product_id, (str, int)) and isinstance(value, str):
+                key = str(product_id).strip()
+                text = re.sub(r"\s+", " ", value).strip()
+                if key and text and key not in names:
+                    names[key] = text
+            for child in node.values():
+                visit(child, depth + 1)
+            return
+        if isinstance(node, Sequence) and not isinstance(node, (str, bytes)):
+            if id(node) in seen:
+                return
+            seen.add(id(node))
+            for item in node:
+                visit(item, depth + 1)
+
+    if isinstance(cvrf, Mapping):
+        visit(_dict_value(cvrf, "ProductTree", "Producttree"), 0)
+    return names
+
+
+def _cvrf_resolved_product_names(
+    product_ids: Iterable[str],
+    names_by_id: Mapping[str, str],
+) -> tuple[str, ...]:
+    resolved = [str(names_by_id.get(str(product_id), product_id)).strip() for product_id in product_ids]
+    return tuple(sorted(dict.fromkeys(name for name in resolved if name)))
+
+
+def _cvrf_client_product_names(product_names: Iterable[str]) -> tuple[str, ...]:
+    return tuple(
+        name for name in product_names if str(name).strip().lower().startswith("windows 11")
+    )
+
+
 def _cvrf_vulnerability_severities(vulnerability: Mapping[str, Any]) -> tuple[str, ...]:
     severities: list[str] = []
     direct = _dict_value(vulnerability, "Severity")
@@ -1366,6 +1413,7 @@ def _cvrf_kb_join(cvrf: Mapping[str, Any], kb_article: str | None) -> dict[str, 
             "cves": [],
             "severities": [],
             "products": [],
+            "client_products": [],
             "evidence_source": "unavailable",
         }
     kb = _normalize_cvrf_kb_article(kb_article)
@@ -1375,6 +1423,7 @@ def _cvrf_kb_join(cvrf: Mapping[str, Any], kb_article: str | None) -> dict[str, 
             "cves": [],
             "severities": [],
             "products": [],
+            "client_products": [],
             "evidence_source": "none",
         }
     cves: list[str] = []
@@ -1399,14 +1448,16 @@ def _cvrf_kb_join(cvrf: Mapping[str, Any], kb_article: str | None) -> dict[str, 
         severities.extend(_cvrf_vulnerability_severities(vulnerability))
         for remediation in matching_remediations:
             products.extend(_cvrf_product_ids(remediation))
+    resolved_products = _cvrf_resolved_product_names(products, _cvrf_product_names_by_id(cvrf))
     deduped_cves = sorted(dict.fromkeys(cves))[:MSRC_CVRF_CVE_LIMIT]
     deduped_severities = sorted(dict.fromkeys(severities))[:MSRC_CVRF_SEVERITY_LIMIT]
-    deduped_products = sorted(dict.fromkeys(products))[:MSRC_CVRF_PRODUCT_LIMIT]
+    deduped_products = list(resolved_products)[:MSRC_CVRF_PRODUCT_LIMIT]
     return {
         "is_security": matched_kb,
         "cves": deduped_cves,
         "severities": deduped_severities,
         "products": deduped_products,
+        "client_products": list(_cvrf_client_product_names(deduped_products)),
         "evidence_source": "msrc_cvrf" if matched_kb else "none",
     }
 
@@ -1418,6 +1469,7 @@ def _support_article_security_result(article: Mapping[str, Any] | None) -> dict[
             "cves": [],
             "severities": [],
             "products": [],
+            "client_products": [],
             "evidence_source": "unavailable",
         }
     if article.get("is_security") is True:
@@ -1426,6 +1478,7 @@ def _support_article_security_result(article: Mapping[str, Any] | None) -> dict[
             "cves": [],
             "severities": [],
             "products": [],
+            "client_products": [],
             "evidence_source": "support_article",
         }
     status = str(article.get("status") or "")
@@ -1435,6 +1488,7 @@ def _support_article_security_result(article: Mapping[str, Any] | None) -> dict[
             "cves": [],
             "severities": [],
             "products": [],
+            "client_products": [],
             "evidence_source": "unavailable",
         }
     return {
@@ -1442,6 +1496,7 @@ def _support_article_security_result(article: Mapping[str, Any] | None) -> dict[
         "cves": [],
         "severities": [],
         "products": [],
+        "client_products": [],
         "evidence_source": "none",
     }
 
