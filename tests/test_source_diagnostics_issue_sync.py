@@ -578,8 +578,8 @@ def test_issue_body_adds_atom_enrichment_tip_for_feed_failures() -> None:
                 _event(
                     "wrg-source-diagnostic-v1:2222222222222222",
                     severity="warning",
-                    kind="atom_feed_parse_failed",
-                    message="Atom feed could not be parsed.",
+                    kind="servicing_toc_parse_failed",
+                    message="Servicing TOC could not be parsed.",
                 )
             ]
         )

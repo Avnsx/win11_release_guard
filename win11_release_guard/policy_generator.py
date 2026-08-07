@@ -3221,12 +3221,12 @@ def _atom_newer_event(
     build = str(item.get("build") or "")
     if severity == "warning":
         message = (
-            "Atom feed shows a newer non-preview build for the broad target that is not present "
+            "Servicing index shows a newer non-preview build for the broad target that is not present "
             f"in Release Health release_history: {kb_article or 'unknown KB'} build {build}."
         )
     else:
         message = (
-            "Atom feed has newer Preview/OOB or non-baseline update information not present in "
+            "Servicing index has newer Preview/OOB or non-baseline update information not present in "
             f"Release Health release_history: {kb_article or 'unknown KB'} build {build}."
         )
     event = {
@@ -3815,7 +3815,7 @@ def generate_policy(
     warnings: list[str] = []
     source_input_events: list[dict[str, Any]] = []
     generated = generated_at_utc or _utc_now()
-    effective_source_fetch_status = {
+    effective_source_fetch_status: dict[str, Any] = {
         "release_health_html": _source_status(
             source_fetch_status or {},
             "release_health_html",
@@ -3823,21 +3823,26 @@ def generate_policy(
             text=release_health_html,
             generated_at_utc=generated,
         ),
-        "atom_feed": _source_status(
+    }
+    # The Atom feed is a retired source: a fresh generator run only carries an "atom_feed" entry
+    # forward when the caller still supplies Atom data (or an already-published fetch-status
+    # record for it), so source_fetch_status stops advertising the dead feed once no one still
+    # references it.
+    if atom_feed_url or atom_feed_xml or (source_fetch_status and "atom_feed" in source_fetch_status):
+        effective_source_fetch_status["atom_feed"] = _source_status(
             source_fetch_status or {},
             "atom_feed",
             source_url=atom_feed_url,
             text=atom_feed_xml,
             generated_at_utc=generated,
-        ),
-        "servicing_toc": _source_status(
-            source_fetch_status or {},
-            "servicing_toc",
-            source_url=servicing_toc_url,
-            text=servicing_toc_json,
-            generated_at_utc=generated,
-        ),
-    }
+        )
+    effective_source_fetch_status["servicing_toc"] = _source_status(
+        source_fetch_status or {},
+        "servicing_toc",
+        source_url=servicing_toc_url,
+        text=servicing_toc_json,
+        generated_at_utc=generated,
+    )
     base_policy = parse_windows11_release_health_html(release_health_html)
     atom_entries: tuple[AtomFeedEntry, ...] = ()
     servicing_entries: tuple[AtomFeedEntry, ...] = ()
@@ -7627,7 +7632,7 @@ def _clear_source_diagnostic_row() -> dict[str, Any]:
     severity = "notice"
     title = "No source issues reported"
     source = "Source diagnostics"
-    message = "Release Health, Atom feed, parser, and freshness checks have no warning or error events."
+    message = "Release Health, servicing index, parser, and freshness checks have no warning or error events."
     tags = ("No warnings", "No errors")
     return {
         "id": _source_diagnostic_id(
@@ -8949,7 +8954,7 @@ def render_policy_manifest(
 def build_policy_from_sources(
     *,
     release_health_url: str = DEFAULT_RELEASE_HEALTH_URL,
-    atom_feed_url: str = DEFAULT_WINDOWS11_ATOM_FEED_URL,
+    atom_feed_url: str | None = None,
     release_health_html_path: str | Path | None = None,
     atom_feed_path: str | Path | None = None,
     servicing_toc_url: str = DEFAULT_SERVICING_TOC_URL,
@@ -8966,13 +8971,6 @@ def build_policy_from_sources(
         timeout=timeout,
         required=True,
     )
-    atom_feed = load_source_text(
-        url=atom_feed_url,
-        fixture_path=atom_feed_path,
-        source_name="atom_feed",
-        timeout=timeout,
-        required=False,
-    )
     servicing_toc = load_source_text(
         url=servicing_toc_url,
         fixture_path=servicing_toc_path,
@@ -8983,14 +8981,13 @@ def build_policy_from_sources(
     )
     source_fetch_status = {
         "release_health_html": dict(release_health.status),
-        "atom_feed": dict(atom_feed.status),
         "servicing_toc": dict(servicing_toc.status),
     }
     return generate_policy(
         release_health_html=release_health.text,
-        atom_feed_xml=atom_feed.text or None,
+        atom_feed_xml=None,
         release_health_url=release_health_url,
-        atom_feed_url=atom_feed_url,
+        atom_feed_url=None,
         servicing_toc_json=servicing_toc.text or None,
         servicing_toc_url=servicing_toc_url,
         source_fetch_status=source_fetch_status,

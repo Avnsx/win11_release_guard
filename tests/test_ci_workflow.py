@@ -56,7 +56,7 @@ def test_ci_workflow_runs_required_commands() -> None:
     assert "pytest -q" in text
     assert "python tools/generate_policy.py" in text
     assert "--release-health-html tests/fixtures/windows11-release-health.html" in text
-    assert "--atom-feed tests/fixtures/windows11-atom.xml" in text
+    assert "--servicing-toc tests/fixtures/windows11-servicing-toc.json" in text
     assert "--output-dir site" in text
     assert "--write-index" in text
     assert "--write-robots" in text

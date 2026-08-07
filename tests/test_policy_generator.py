@@ -54,8 +54,8 @@ ATOM_SOURCE_DIAGNOSTIC_ID = "wrg-source-diagnostic-v1:uuid:07747009-7264-44f2-86
 ATOM_ENTRY_ID = "uuid:07747009-7264-44f2-86c2-1c3e09919af3;id=968480"
 ATOM_SUPPORT_ARTICLE_ID = "968480"
 KB5094126_SUPPORT_URL = (
-    "https://support.microsoft.com/en-us/topic/"
-    "june-9-2026-kb5094126-os-builds-26200-8655-and-26100-8655-1a9bcba6-5f53-4075-8156-fe11ac631737"
+    "https://support.microsoft.com/en-us/servicing/os/windows-11/"
+    "2026/06/june-9-2026-kb5094126-os-builds-26200-8655-and-26100-8655"
 )
 KB5094126_SUPPORT_HTML = """
 <!doctype html>
@@ -182,12 +182,12 @@ def _html_file(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
 
 
-def _atom() -> str:
-    return (FIXTURES / "windows11-atom.xml").read_text(encoding="utf-8")
+def _toc() -> str:
+    return (FIXTURES / "windows11-servicing-toc.json").read_text(encoding="utf-8")
 
 
-def _kb5094126_atom_fixture() -> str:
-    return (FIXTURES / "windows11-atom-kb5094126.xml").read_text(encoding="utf-8")
+def _kb5094126_toc_fixture() -> str:
+    return (FIXTURES / "windows11-servicing-toc-kb5094126.json").read_text(encoding="utf-8")
 
 
 def _kb5094126_support_fixture() -> str:
@@ -210,7 +210,7 @@ def _kb5094126_fixture_policy() -> ReleasePolicy:
 
     return generate_policy(
         release_health_html=_html_file("windows11-release-health-header-variants.html"),
-        atom_feed_xml=_kb5094126_atom_fixture(),
+        servicing_toc_json=_kb5094126_toc_fixture(),
         generated_at_utc="2026-06-11T00:00:00+00:00",
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
@@ -317,7 +317,7 @@ def _kb5094126_generated_fixture_policy(
 
     return generate_policy(
         release_health_html=release_health_html,
-        atom_feed_xml=_kb5094126_atom_fixture(),
+        servicing_toc_json=_kb5094126_toc_fixture(),
         generated_at_utc=generated_at_utc,
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
@@ -448,7 +448,7 @@ def _kb5094126_policy_with_support_html(
 
     return generate_policy(
         release_health_html=_html_file("windows11-release-health-header-variants.html"),
-        atom_feed_xml=_kb5094126_atom_fixture(),
+        servicing_toc_json=_kb5094126_toc_fixture(),
         generated_at_utc="2026-06-11T00:00:00+00:00",
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
@@ -496,46 +496,59 @@ def test_source_diagnostic_id_validator_rejects_malformed_atom_forms(diagnostic_
     assert not is_source_diagnostic_id(diagnostic_id)
 
 
-def _atom_with_new_b_release() -> str:
-    entry = """
-  <entry>
-    <id>tag:support.microsoft.com,2026:KB5089600</id>
-    <title>June 9, 2026-KB5089600 (OS Build 26200.8461)</title>
-    <published>2026-06-09T18:00:00Z</published>
-    <updated>2026-06-09T18:00:00Z</updated>
-    <link rel="alternate" href="https://support.microsoft.com/help/5089600" />
-    <content type="text">Monthly security update for Windows 11.</content>
-  </entry>
-"""
-    return _atom().replace("</feed>", entry + "</feed>")
+def _toc_entry(title: str, href: str) -> dict[str, object]:
+    return {"href": href, "toc_title": title}
 
 
-def _atom_with_new_preview_release() -> str:
-    entry = """
-  <entry>
-    <id>tag:support.microsoft.com,2026:KB5089601</id>
-    <title>June 9, 2026-KB5089601 Preview (OS Build 26200.8461)</title>
-    <published>2026-06-09T18:00:00Z</published>
-    <updated>2026-06-09T18:00:00Z</updated>
-    <link rel="alternate" href="https://support.microsoft.com/help/5089601" />
-    <content type="text">Preview update for Windows 11.</content>
-  </entry>
-"""
-    return _atom().replace("</feed>", entry + "</feed>")
+def _toc_with_entries(*entries: dict[str, object], release: str = "25H2") -> str:
+    return json.dumps(
+        {
+            "items": [
+                {
+                    "toc_title": f"Windows 11, version {release}",
+                    "children": list(entries),
+                }
+            ],
+            "metadata": {"count_of_node_with_href": len(entries)},
+        }
+    )
 
 
-def _atom_with_duplicate_new_b_release() -> str:
-    entry = """
-  <entry>
-    <id>tag:support.microsoft.com,2026:KB5089600-duplicate</id>
-    <title>June 9, 2026-KB5089600 (OS Build 26200.8461)</title>
-    <published>2026-06-09T18:00:00Z</published>
-    <updated>2026-06-09T18:00:00Z</updated>
-    <link rel="alternate" href="https://support.microsoft.com/help/5089600" />
-    <content type="text">Monthly security update for Windows 11.</content>
-  </entry>
-"""
-    return _atom_with_new_b_release().replace("</feed>", entry + "</feed>")
+def _toc_document_with_extra(*entries: dict[str, object]) -> str:
+    document = json.loads(_toc())
+    document["items"][0]["children"] = [*entries, *document["items"][0]["children"]]
+    return json.dumps(document)
+
+
+def _toc_with_new_b_release() -> str:
+    return _toc_document_with_extra(
+        _toc_entry(
+            "June 9, 2026—KB5089600 (OS Build 26200.8461)",
+            "2026/06/june-9-2026-kb5089600-os-build-26200-8461",
+        )
+    )
+
+
+def _toc_with_new_preview_release() -> str:
+    return _toc_document_with_extra(
+        _toc_entry(
+            "June 9, 2026—KB5089601 (OS Build 26200.8461) Preview",
+            "2026/06/june-9-2026-kb5089601-os-build-26200-8461",
+        )
+    )
+
+
+def _toc_with_duplicate_new_b_release() -> str:
+    return _toc_document_with_extra(
+        _toc_entry(
+            "June 9, 2026—KB5089600 (OS Build 26200.8461)",
+            "2026/06/june-9-2026-kb5089600-os-build-26200-8461",
+        ),
+        _toc_entry(
+            "June 9, 2026—KB5089600 (OS Build 26200.8461)",
+            "2026/06/june-9-2026-kb5089600-os-build-26200-8461-2",
+        ),
+    )
 
 
 def _atom_feed_with_entries(*entries: str) -> str:
@@ -624,6 +637,14 @@ def test_source_label_requires_exact_upstream_hosts() -> None:
     assert _source_label(localized_atom_url) == "Microsoft Atom feed"
     assert _source_label(spoofed_release_health_url) == spoofed_release_health_url
     assert _source_label(spoofed_atom_url) == spoofed_atom_url
+
+    servicing_url = "https://support.microsoft.com/en-us/servicing/os/windows-11/toc.json"
+    localized_servicing_url = "https://support.microsoft.com/de-de/servicing/os/windows-11/toc.json"
+    spoofed_servicing_url = "https://support.microsoft.com.attacker.invalid/en-us/servicing/os/windows-11/toc.json"
+
+    assert _source_label(servicing_url) == "Microsoft servicing index"
+    assert _source_label(localized_servicing_url) == "Microsoft servicing index"
+    assert _source_label(spoofed_servicing_url) == spoofed_servicing_url
 
 
 def test_atom_link_selection_prefers_safe_alternate_after_self_feed_url() -> None:
@@ -1274,10 +1295,10 @@ def test_changelog_renderer_uses_duplicate_safe_anchors_and_escapes_long_section
     assert "<script>alert" not in index
 
 
-def test_generate_policy_from_local_html_and_atom_fixtures(tmp_path):
+def test_generate_policy_from_local_html_and_servicing_toc_fixtures(tmp_path):
     policy = build_policy_from_sources(
         release_health_html_path=FIXTURES / "windows11-release-health.html",
-        atom_feed_path=FIXTURES / "windows11-atom.xml",
+        servicing_toc_path=FIXTURES / "windows11-servicing-toc.json",
         signature_status="valid",
         support_article_fetcher=_offline_support_article_fetcher,
         msrc_cvrf_fetcher=_offline_msrc_cvrf_fetcher,
@@ -1307,9 +1328,10 @@ def test_generate_policy_from_local_html_and_atom_fixtures(tmp_path):
     assert "windows-release-policy.json" in written["sitemap"].read_text(encoding="utf-8")
     assert json.loads(written["manifest"].read_text(encoding="utf-8"))["broad_target_existing_devices"]["version"] == "25H2"
     assert data["source_fetch_status"]["release_health_html"]["status"] == "ok"
-    assert data["source_fetch_status"]["atom_feed"]["status"] == "ok"
+    assert data["source_fetch_status"]["servicing_toc"]["status"] == "ok"
     assert data["source_fetch_status"]["release_health_html"]["fetched_at_utc"]
-    assert data["source_fetch_status"]["atom_feed"]["fetched_at_utc"]
+    assert data["source_fetch_status"]["servicing_toc"]["fetched_at_utc"]
+    assert "atom_feed" not in data["source_fetch_status"]
     diagnostics = data["source_diagnostics"]
     assert data["schema_version"] == 1
     assert data["min_reader_schema_version"] == 1
@@ -1321,9 +1343,8 @@ def test_generate_policy_from_local_html_and_atom_fixtures(tmp_path):
     assert diagnostics["release_health_html"]["bytes"] > 0
     assert diagnostics["release_health_html"]["newest_current_version_revision_date"] == "2026-05-12"
     assert diagnostics["release_health_html"]["newest_release_history_availability_date"] == "2026-05-12"
-    assert diagnostics["atom_feed"]["newest_atom_updated"] == "2026-05-16T18:00:00Z"
-    assert diagnostics["atom_feed"]["newest_atom_published"] == "2026-05-16T18:00:00Z"
-    assert diagnostics["atom_feed"]["newest_atom_build"] == "26200.8460"
+    assert diagnostics["servicing_toc"]["newest_servicing_build"] == "26200.8460"
+    assert diagnostics["servicing_toc"]["entry_count"] == 4
     assert any(event["severity"] == "notice" for event in diagnostics["events"])
     assert "quality_baselines" in data
     assert "preview_builds" in data
@@ -1332,7 +1353,7 @@ def test_generate_policy_from_local_html_and_atom_fixtures(tmp_path):
 def test_write_signed_policy_output_includes_key_id(tmp_path):
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=_atom(),
+        servicing_toc_json=_toc(),
         generated_at_utc="2026-05-31T14:11:50+00:00",
         signature_status="valid",
     )
@@ -1352,7 +1373,7 @@ def test_write_signed_policy_output_includes_key_id(tmp_path):
 
 
 def test_fixture_with_26h1_25h2_24h2_chooses_25h2():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc())
 
     assert policy.broad_target_existing_devices is not None
     assert policy.broad_target_existing_devices.version == "25H2"
@@ -1365,7 +1386,7 @@ def test_fixture_with_26h1_25h2_24h2_chooses_25h2():
 def test_generate_policy_from_release_health_current_d_preview_fixture():
     policy = generate_policy(
         release_health_html=_html_file("windows11-release-health-current-d-26h1.html"),
-        atom_feed_xml=_atom(),
+        servicing_toc_json=_toc(),
     )
     target = policy.broad_target_existing_devices
     baseline = policy.quality_baselines["25H2"][QualityPolicy.B_RELEASE_ONLY.value]
@@ -1385,11 +1406,11 @@ def test_generate_policy_from_release_health_current_d_preview_fixture():
 
 def test_generate_policy_fails_on_release_health_26h1_without_special_note():
     with pytest.raises(PolicyParseError, match="26H1 new-devices-only special release note"):
-        generate_policy(release_health_html=_without_26h1_special_note(_html()), atom_feed_xml=_atom())
+        generate_policy(release_health_html=_without_26h1_special_note(_html()), servicing_toc_json=_toc())
 
 
 def test_future_26h2_ga_chooses_26h2():
-    policy = generate_policy(release_health_html=_with_26h2_ga(_html()), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_with_26h2_ga(_html()), servicing_toc_json=_toc())
 
     assert policy.broad_target_existing_devices is not None
     assert policy.broad_target_existing_devices.version == "26H2"
@@ -1397,7 +1418,7 @@ def test_future_26h2_ga_chooses_26h2():
 
 
 def test_future_27h1_special_does_not_choose_27h1():
-    policy = generate_policy(release_health_html=_with_27h1_special(_with_26h2_ga(_html())), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_with_27h1_special(_with_26h2_ga(_html())), servicing_toc_json=_toc())
 
     assert policy.broad_target_existing_devices is not None
     assert policy.broad_target_existing_devices.version == "26H2"
@@ -1407,21 +1428,24 @@ def test_future_27h1_special_does_not_choose_27h1():
 
 def test_atom_feed_marks_preview_when_table_is_ambiguous():
     html = _html().replace("2026-04 D", "2026-04")
-    policy = generate_policy(release_health_html=html, atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=html, servicing_toc_json=_toc())
     row = next(row for row in policy.release_history if row.kb_article == "KB5083631")
 
     assert row.preview is True
     assert row.update_type_letter == "D"
     assert row.metadata["atom_enriched"] is True
-    assert row.metadata["atom_entry_id"] == "tag:support.microsoft.com,2026:KB5083631"
+    assert "atom_entry_id" not in row.metadata
     assert "atom_support_article_id" not in row.metadata
     assert "diagnostic_id_hint" not in row.metadata
-    assert row.kb_url == "https://support.microsoft.com/help/5083631"
+    assert row.kb_url == (
+        "https://support.microsoft.com/en-us/servicing/os/windows-11/"
+        "2026/04/april-30-2026-kb5083631-os-builds-26200-8328-and-26100-8328-preview"
+    )
     assert row.catalog_url == "https://www.catalog.update.microsoft.com/Search.aspx?q=KB5083631"
 
 
 def test_atom_feed_marks_oob_when_table_is_ambiguous():
-    policy = generate_policy(release_health_html=_with_oob_row(_html()), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_with_oob_row(_html()), servicing_toc_json=_toc())
     row = next(row for row in policy.release_history if row.kb_article == "KB5089550")
 
     assert row.out_of_band is True
@@ -1433,7 +1457,7 @@ def test_atom_feed_marks_oob_when_table_is_ambiguous():
 def test_source_diagnostics_notice_when_atom_oob_is_newer_than_release_history():
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=_atom(),
+        servicing_toc_json=_toc(),
         generated_at_utc="2026-05-20T00:00:00+00:00",
     )
     diagnostics = policy.source_diagnostics
@@ -1443,7 +1467,7 @@ def test_source_diagnostics_notice_when_atom_oob_is_newer_than_release_history()
     assert drift[0]["build"] == "26200.8460"
     assert drift[0]["kb_article"] == "KB5089550"
     assert drift[0]["out_of_band"] is True
-    assert diagnostics["drift"]["generated_after_newest_source_hours"] == 78.0
+    assert diagnostics["drift"]["generated_after_newest_source_hours"] == 96.0
     assert any(
         event["kind"] == "atom_newer_than_release_history"
         and event["severity"] == "notice"
@@ -1452,13 +1476,13 @@ def test_source_diagnostics_notice_when_atom_oob_is_newer_than_release_history()
         for event in events
     )
     assert not any(event["kind"] == "source_drift_unresolved_after_24h" for event in events)
-    assert not any("Atom feed shows a newer non-preview build" in warning for warning in policy.validation_warnings)
+    assert not any("Servicing index shows a newer non-preview build" in warning for warning in policy.validation_warnings)
 
 
 def test_source_diagnostics_notice_when_atom_preview_is_newer_than_release_history():
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=_atom_with_new_preview_release(),
+        servicing_toc_json=_toc_with_new_preview_release(),
         generated_at_utc="2026-06-10T00:00:00+00:00",
     )
     events = policy.source_diagnostics["events"]
@@ -1744,7 +1768,7 @@ def test_source_diagnostic_event_id_ignores_invalid_atom_diagnostic_hint() -> No
 def test_source_diagnostics_warn_when_atom_has_newer_b_release_for_broad_target():
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=_atom_with_new_b_release(),
+        servicing_toc_json=_toc_with_new_b_release(),
         generated_at_utc="2026-06-10T00:00:00+00:00",
     )
     events = policy.source_diagnostics["events"]
@@ -1833,15 +1857,14 @@ def test_kb5094126_multi_build_atom_events_get_unique_diagnostic_ids() -> None:
 
     notice = next(event for event in events if event["build"] == "26100.8655")
     warning = next(event for event in events if event["build"] == "26200.8655")
-    assert warning["id"] == ATOM_SOURCE_DIAGNOSTIC_ID
-    assert re.fullmatch(r"wrg-source-diagnostic-v1:[0-9a-f]{16}", notice["id"])
-    assert notice["id"] != ATOM_SOURCE_DIAGNOSTIC_ID
+    assert is_source_diagnostic_id(warning["id"])
+    assert is_source_diagnostic_id(notice["id"])
+    assert notice["id"] != warning["id"]
     for event in (notice, warning):
-        assert event["atom_entry_id"] == ATOM_ENTRY_ID
-        assert event["atom_support_article_id"] == ATOM_SUPPORT_ARTICLE_ID
+        assert "atom_entry_id" not in event
+        assert "atom_support_article_id" not in event
         assert event["support_url"] == KB5094126_SUPPORT_URL
         assert event["source_url"] == KB5094126_SUPPORT_URL
-        assert "id=968480" in policy_generator_module._source_diagnostic_event_tags(event)
     validate_policy_document(policy.to_dict())
 
 
@@ -1861,7 +1884,7 @@ def test_kb5094126_dashboard_rows_and_visible_export_ids_are_unique(tmp_path: Pa
 
     assert len(set(row_ids)) == len(row_ids)
     assert set(event_ids) <= set(row_ids)
-    assert ATOM_SOURCE_DIAGNOSTIC_ID in row_ids
+    assert event_ids and all(is_source_diagnostic_id(event_id) for event_id in event_ids)
     assert "function visibleDiagnosticEntries()" in index
     assert "diagnostic_id:row.getAttribute('data-diagnostic-id')||''" in index
 
@@ -2398,7 +2421,7 @@ def test_support_article_enrichment_adds_diagnostic_context_and_dashboard_summar
 
     index = policy_generator_module.render_policy_index(policy, policy_bytes=None, signature=None)
     assert event["user_message"] in index
-    assert "Atom feed shows a newer non-preview build for the broad target" in index
+    assert "Servicing index shows a newer non-preview build for the broad target" in index
     validate_policy_document(policy.to_dict())
 
 
@@ -2636,7 +2659,7 @@ def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(
 
     policy = generate_policy(
         release_health_html=_html_file("windows11-release-health-current-d-26h1.html"),
-        atom_feed_xml=_kb5094126_atom_fixture(),
+        servicing_toc_json=_kb5094126_toc_fixture(),
         generated_at_utc="2026-06-11T18:00:00+00:00",
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
@@ -2667,7 +2690,7 @@ def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(
     assert target.required_baseline_build == "26200.8457"
     assert target.metadata["latest_observed_source"] == "atom_support_article"
     assert target.metadata["latest_observed_source_url"] == KB5094126_SUPPORT_URL
-    assert target.metadata["latest_observed_atom_entry_id"] == ATOM_ENTRY_ID
+    assert "latest_observed_atom_entry_id" not in target.metadata
 
     current_25h2 = next(
         entry
@@ -2685,9 +2708,9 @@ def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(
         and event["kb_article"] == "KB5094126"
         and event["build"] == "26200.8655"
     )
-    assert event["id"] == ATOM_SOURCE_DIAGNOSTIC_ID
-    assert event["atom_entry_id"] == ATOM_ENTRY_ID
-    assert event["atom_support_article_id"] == ATOM_SUPPORT_ARTICLE_ID
+    assert is_source_diagnostic_id(event["id"])
+    assert "atom_entry_id" not in event
+    assert "atom_support_article_id" not in event
     assert event["support_article_status"] == "ok"
     assert event["support_article_url"] == KB5094126_SUPPORT_URL
     assert event["support_article_improvement_labels"] == [
@@ -2713,9 +2736,9 @@ def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(
 
     diagnostic = sync_tool.diagnostics_from_policy({"source_diagnostics": {"events": [event]}})[0]
     issue_body = sync_tool.issue_body(diagnostic)
-    assert sync_tool.issue_title(diagnostic).endswith("[id=968480]")
-    assert f"Source diagnostic ID: `{ATOM_SOURCE_DIAGNOSTIC_ID}`" in issue_body
-    assert f"<!-- {sync_tool.DIAGNOSTIC_ID_COMMENT_PREFIX}: {ATOM_SOURCE_DIAGNOSTIC_ID} -->" in issue_body
+    assert "[id=" not in sync_tool.issue_title(diagnostic)
+    assert f"Source diagnostic ID: `{event['id']}`" in issue_body
+    assert f"<!-- {sync_tool.DIAGNOSTIC_ID_COMMENT_PREFIX}: {event['id']} -->" in issue_body
 
     written = write_policy_outputs(
         policy,
@@ -2733,15 +2756,14 @@ def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(
     assert generated_policy["broad_target_existing_devices"]["required_baseline_build"] == "26200.8457"
     assert manifest["latest_observed_build"] == "26200.8655"
     assert manifest["latest_observed_evidence"]["latest_observed_source_url"] == KB5094126_SUPPORT_URL
-    assert manifest["latest_observed_evidence"]["latest_observed_atom_entry_id"] == ATOM_ENTRY_ID
+    assert "latest_observed_atom_entry_id" not in manifest["latest_observed_evidence"]
     assert "26200.8655" in index
     assert "Microsoft Support article" in index
-    assert ATOM_SOURCE_DIAGNOSTIC_ID in index
+    assert event["id"] in index
     assert "Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655" in index
     assert "Security patch" in index
     assert "Security confirmed by MSRC" in index
-    assert "id=968480" in index
-    assert "Atom feed shows a newer non-preview build for the broad target" in index
+    assert "Servicing index shows a newer non-preview build for the broad target" in index
 
     policy_json = json.dumps(generated_policy, sort_keys=True)
     support_record_json = json.dumps(
@@ -2793,12 +2815,12 @@ def test_kb5094126_generated_output_when_release_health_has_not_caught_up(tmp_pa
     ]
     notice = next(event for event in atom_events if event["release"] == "24H2")
     warning = next(event for event in atom_events if event["release"] == "25H2")
-    assert warning["id"] == ATOM_SOURCE_DIAGNOSTIC_ID
-    assert re.fullmatch(r"wrg-source-diagnostic-v1:[0-9a-f]{16}", notice["id"])
+    assert is_source_diagnostic_id(warning["id"])
+    assert is_source_diagnostic_id(notice["id"])
     assert notice["id"] != warning["id"]
     assert warning["support_article_validation_status"] == "ok"
     assert notice["support_article_validation_status"] == "ok"
-    assert ATOM_SOURCE_DIAGNOSTIC_ID in _rendered_diagnostic_ids(index)
+    assert warning["id"] in _rendered_diagnostic_ids(index)
     assert "https://support.microsoft.com/help/5094126" not in index
 
 
@@ -2829,7 +2851,7 @@ def test_kb5094126_generated_output_when_release_health_has_caught_up(tmp_path: 
         and event.get("build") == "26200.8655"
         for event in events
     )
-    assert "Atom feed shows a newer non-preview build for the broad target" not in index
+    assert "Servicing index shows a newer non-preview build for the broad target" not in index
 
 
 def test_generated_output_hardens_unsafe_atom_and_expired_notice_paths(tmp_path: Path) -> None:
@@ -2938,10 +2960,8 @@ def test_caught_up_kb5094126_creates_active_baseline_update_notice(tmp_path: Pat
             "validation ok. Security confirmed by MSRC."
         ),
         "source_url": KB5094126_SUPPORT_URL,
-        "atom_entry_id": ATOM_ENTRY_ID,
-        "atom_support_article_id": ATOM_SUPPORT_ARTICLE_ID,
-        "first_spotted_atom_published_utc": "2026-06-09T17:04:01Z",
-        "support_article_updated_utc": "2026-06-10T17:20:31Z",
+        "first_spotted_atom_published_utc": "2026-06-09T00:00:00Z",
+        "support_article_updated_utc": "2026-06-09T00:00:00Z",
         "official_release_date": "2026-06-09",
         "official_release_precision": "date",
         "release_health_latest_revision_date": "2026-06-09",
@@ -3021,14 +3041,14 @@ def test_caught_up_kb5094126_renders_baseline_update_notice_before_operational_p
         f' <a class="baseline-read-more" href="{KB5094126_SUPPORT_URL}" '
         'rel="noopener noreferrer">Read more</a></div>'
     ) in index
-    assert "Atom first spotted June 9, 2026 at 19:04 CEST / 17:04 UTC" in index
-    assert "Support updated June 10, 2026 at 19:20 CEST / 17:20 UTC" in index
+    assert "Atom first spotted June 9, 2026 at 02:00 CEST / 00:00 UTC" in index
+    assert "Support updated June 9, 2026 at 02:00 CEST / 00:00 UTC" in index
     assert "Official baseline date: 2026-06-09 (Release Health date-only)" in index
     assert "Visible until" not in index
     assert "For broad-fleet 25H2 devices, this likely marks the stable rollout floor" in index
     assert "Security evidence:" not in index
-    assert "Atom first spotted 2026-06-09T17:04:01Z" not in index
-    assert "Support updated 2026-06-10T17:20:31Z" not in index
+    assert "Atom first spotted 2026-06-09T00:00:00Z" not in index
+    assert "Support updated 2026-06-09T00:00:00Z" not in index
     assert "update-guide/vulnerability/CVE-2026-0001" not in index
     assert "baseline update notice timer" in index
     assert "Date.parse(until)" in index
@@ -3224,7 +3244,7 @@ def test_baseline_update_notice_atom_feed_lag_uses_msrc_month_fallback() -> None
 
     policy = generate_policy(
         release_health_html=_release_health_caught_up_to_kb5094126_with_update_type("2026-06 B"),
-        atom_feed_xml=_atom(),
+        servicing_toc_json=_toc(),
         generated_at_utc="2026-06-11T18:00:00+00:00",
         support_article_fetcher=forbidden_support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
@@ -3273,7 +3293,7 @@ def test_baseline_update_notice_atom_feed_lag_msrc_error_stays_unavailable_with_
 
     policy = generate_policy(
         release_health_html=_release_health_caught_up_to_kb5094126_with_update_type("2026-06 B"),
-        atom_feed_xml=_atom(),
+        servicing_toc_json=_toc(),
         generated_at_utc="2026-06-11T18:00:00+00:00",
         support_article_fetcher=forbidden_support_fetcher,
         msrc_cvrf_fetcher=failing_msrc_fetcher,
@@ -3328,7 +3348,7 @@ def test_baseline_update_notice_support_fetch_failure_surfaces_enrichment_event(
 
     policy = generate_policy(
         release_health_html=_release_health_caught_up_to_kb5094126(),
-        atom_feed_xml=_kb5094126_atom_fixture(),
+        servicing_toc_json=_kb5094126_toc_fixture(),
         generated_at_utc="2026-06-11T18:00:00+00:00",
         support_article_fetcher=failing_support_fetcher,
         msrc_cvrf_fetcher=failing_msrc_fetcher,
@@ -3626,7 +3646,7 @@ def test_malformed_support_article_html_is_degraded_metadata() -> None:
         for event in policy.source_diagnostics["events"]
         if event["kind"] == "atom_newer_than_release_history" and event["build"] == "26200.8655"
     )
-    assert atom_event["message"].startswith("Atom feed shows a newer non-preview build")
+    assert atom_event["message"].startswith("Servicing index shows a newer non-preview build")
     assert atom_event["support_article_status"] == "degraded"
     assert atom_event["support_article_reason"] == "support_article_parse_incomplete"
 
@@ -3803,12 +3823,12 @@ def test_source_diagnostics_dedupes_duplicate_atom_ids_by_stable_id_tiebreaker()
 def test_source_diagnostics_unresolved_after_24h_only_for_warning_drift() -> None:
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=_atom_with_new_b_release(),
+        servicing_toc_json=_toc_with_new_b_release(),
         generated_at_utc="2026-06-11T18:00:00+00:00",
     )
     events = policy.source_diagnostics["events"]
 
-    assert policy.source_diagnostics["drift"]["generated_after_newest_source_hours"] == 48.0
+    assert policy.source_diagnostics["drift"]["generated_after_newest_source_hours"] == 66.0
     assert any(
         event["kind"] == "atom_newer_than_release_history"
         and event["severity"] == "warning"
@@ -3824,7 +3844,7 @@ def test_source_diagnostics_unresolved_after_24h_only_for_warning_drift() -> Non
 def test_source_diagnostics_dedupes_duplicate_atom_events():
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=_atom_with_duplicate_new_b_release(),
+        servicing_toc_json=_toc_with_duplicate_new_b_release(),
     )
     events = [
         event
@@ -3838,7 +3858,7 @@ def test_source_diagnostics_dedupes_duplicate_atom_events():
 
 
 def test_source_diagnostics_warn_when_current_versions_lag_release_history():
-    policy = generate_policy(release_health_html=_with_oob_row(_html()), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_with_oob_row(_html()), servicing_toc_json=_toc())
     drift = policy.source_diagnostics["drift"]["current_version_latest_older_than_release_history"]
 
     assert drift[0]["version"] == "25H2"
@@ -3848,7 +3868,7 @@ def test_source_diagnostics_warn_when_current_versions_lag_release_history():
 
 
 def test_policy_schema_accepts_source_diagnostics_without_unknown_key_warning():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc())
 
     warnings = validate_policy_document(policy.to_dict())
 
@@ -3856,7 +3876,7 @@ def test_policy_schema_accepts_source_diagnostics_without_unknown_key_warning():
 
 
 def test_policy_schema_accepts_structured_source_diagnostics_events():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom_with_new_b_release())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc_with_new_b_release())
     data = policy.to_dict()
 
     validate_policy_document(data)
@@ -3870,7 +3890,7 @@ def test_policy_schema_accepts_structured_source_diagnostics_events():
 
 
 def test_policy_schema_accepts_newer_latest_observed_without_baseline_change():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc())
     data = policy.to_dict()
     target = data["broad_target_existing_devices"]
     target["latest_observed_build"] = "26200.8655"
@@ -3894,7 +3914,7 @@ def test_policy_schema_accepts_newer_latest_observed_without_baseline_change():
 
 
 def test_policy_schema_rejects_older_latest_observed_build():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc())
     data = policy.to_dict()
     data["broad_target_existing_devices"]["latest_observed_build"] = "26200.7000"
 
@@ -3903,7 +3923,7 @@ def test_policy_schema_rejects_older_latest_observed_build():
 
 
 def test_policy_schema_rejects_invalid_source_diagnostics_event_id():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom_with_new_b_release())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc_with_new_b_release())
     data = policy.to_dict()
     data["source_diagnostics"]["events"][0]["id"] = "not-a-diagnostic-id"
 
@@ -3912,7 +3932,7 @@ def test_policy_schema_rejects_invalid_source_diagnostics_event_id():
 
 
 def test_policy_schema_accepts_atom_source_diagnostic_event_and_issue_status_id():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom_with_new_b_release())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc_with_new_b_release())
     data = policy.to_dict()
     data["source_diagnostics"]["events"][0]["id"] = ATOM_SOURCE_DIAGNOSTIC_ID
     data["source_diagnostics"]["issue_status"] = {
@@ -3929,7 +3949,7 @@ def test_policy_schema_accepts_atom_source_diagnostic_event_and_issue_status_id(
 
 
 def test_policy_schema_accepts_source_diagnostic_issue_status():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom_with_new_b_release())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc_with_new_b_release())
     data = policy.to_dict()
     diagnostic_id = data["source_diagnostics"]["events"][0]["id"]
     data["source_diagnostics"]["issue_status"] = {
@@ -3945,7 +3965,7 @@ def test_policy_schema_accepts_source_diagnostic_issue_status():
 
 
 def test_policy_schema_accepts_source_diagnostic_issue_sync_unavailable_metadata():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom_with_new_b_release())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc_with_new_b_release())
     data = policy.to_dict()
     data["source_diagnostics"]["issue_sync"] = {
         "status": "unavailable",
@@ -3958,7 +3978,7 @@ def test_policy_schema_accepts_source_diagnostic_issue_sync_unavailable_metadata
 
 
 def test_policy_schema_rejects_invalid_source_diagnostic_issue_sync_metadata():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom_with_new_b_release())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc_with_new_b_release())
     data = policy.to_dict()
     data["source_diagnostics"]["issue_sync"] = {
         "status": "unavailable",
@@ -3970,7 +3990,7 @@ def test_policy_schema_rejects_invalid_source_diagnostic_issue_sync_metadata():
 
 
 def test_policy_schema_rejects_invalid_source_diagnostic_issue_status_url():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom_with_new_b_release())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc_with_new_b_release())
     data = policy.to_dict()
     diagnostic_id = data["source_diagnostics"]["events"][0]["id"]
     data["source_diagnostics"]["issue_status"] = {
@@ -3986,7 +4006,7 @@ def test_policy_schema_rejects_invalid_source_diagnostic_issue_status_url():
 
 
 def test_policy_schema_rejects_extra_source_diagnostic_issue_status_fields():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom_with_new_b_release())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc_with_new_b_release())
     data = policy.to_dict()
     diagnostic_id = data["source_diagnostics"]["events"][0]["id"]
     data["source_diagnostics"]["issue_status"] = {
@@ -4003,7 +4023,7 @@ def test_policy_schema_rejects_extra_source_diagnostic_issue_status_fields():
 
 
 def test_policy_schema_rejects_invalid_source_diagnostics_shape():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc())
     data = policy.to_dict()
     data["source_diagnostics"] = {"release_health_html": "not an object"}
 
@@ -4012,7 +4032,7 @@ def test_policy_schema_rejects_invalid_source_diagnostics_shape():
 
 
 def test_policy_schema_rejects_invalid_source_diagnostics_event_counts():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc())
     data = policy.to_dict()
     data["source_diagnostics"]["event_counts"]["warning"] = -1
 
@@ -4021,7 +4041,7 @@ def test_policy_schema_rejects_invalid_source_diagnostics_event_counts():
 
 
 def test_b_release_quality_baseline_does_not_require_preview():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc())
     baseline = policy.quality_baselines["25H2"][QualityPolicy.B_RELEASE_ONLY.value]
 
     assert baseline["build"] == "26200.8457"
@@ -4031,7 +4051,7 @@ def test_b_release_quality_baseline_does_not_require_preview():
 def test_current_table_preview_latest_stays_distinct_from_required_baseline():
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=_atom(),
+        servicing_toc_json=_toc(),
     )
     validate_policy_document(policy.to_dict())
     target = policy.broad_target_existing_devices
@@ -4051,28 +4071,28 @@ def test_current_table_preview_latest_stays_distinct_from_required_baseline():
     assert baseline["preview"] is False
 
 
-def test_missing_atom_feed_still_generates_policy_with_warning():
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=None)
+def test_missing_servicing_toc_still_generates_policy_with_warning():
+    policy = generate_policy(release_health_html=_html(), servicing_toc_json=None)
 
     assert policy.broad_target_existing_devices is not None
     assert policy.broad_target_existing_devices.version == "25H2"
-    assert any("Atom feed missing" in warning for warning in policy.validation_warnings)
-    event = next(event for event in policy.source_diagnostics["events"] if event["kind"] == "atom_feed_missing")
+    assert any("Servicing TOC missing" in warning for warning in policy.validation_warnings)
+    event = next(event for event in policy.source_diagnostics["events"] if event["kind"] == "servicing_toc_missing")
     assert event["severity"] == "warning"
     assert event["affects_required_baseline"] is False
 
 
-def test_atom_feed_parse_failure_is_structured_source_diagnostic():
+def test_servicing_toc_parse_failure_is_structured_source_diagnostic():
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml="<feed>",
+        servicing_toc_json='{"items": [',
         generated_at_utc="2026-05-20T00:00:00+00:00",
     )
 
-    assert any("Atom feed could not be parsed" in warning for warning in policy.validation_warnings)
-    event = next(event for event in policy.source_diagnostics["events"] if event["kind"] == "atom_feed_parse_failed")
+    assert any("Servicing TOC could not be parsed" in warning for warning in policy.validation_warnings)
+    event = next(event for event in policy.source_diagnostics["events"] if event["kind"] == "servicing_toc_parse_failed")
     assert event["severity"] == "warning"
-    assert "Atom feed could not be parsed" in event["message"]
+    assert "Servicing TOC could not be parsed" in event["message"]
     assert not any(
         event["kind"] == "source_drift_unresolved_after_24h"
         for event in policy.source_diagnostics["events"]
@@ -4081,7 +4101,7 @@ def test_atom_feed_parse_failure_is_structured_source_diagnostic():
 
 def test_generate_policy_fails_hard_when_release_health_tables_are_unusable():
     with pytest.raises(PolicyParseError, match="release_history tables"):
-        generate_policy(release_health_html="<html><body>No release data</body></html>", atom_feed_xml=_atom())
+        generate_policy(release_health_html="<html><body>No release data</body></html>", servicing_toc_json=_toc())
 
 
 def test_publish_workflow_keeps_source_diagnostic_error_events_publish_relevant() -> None:
@@ -4092,7 +4112,7 @@ def test_publish_workflow_keeps_source_diagnostic_error_events_publish_relevant(
 
 
 def test_parse_atom_feed_extracts_kb_build_and_classification():
-    entries = parse_atom_feed(_atom())
+    entries = parse_atom_feed((FIXTURES / "windows11-atom.xml").read_text(encoding="utf-8"))
     preview = next(entry for entry in entries if entry.kb_article == "KB5083631")
     oob = next(entry for entry in entries if entry.kb_article == "KB5089550")
 
@@ -4170,8 +4190,8 @@ def test_generator_source_failure_exits_nonzero_and_explains_failure(tmp_path, c
     code = generate_policy_cli.main([
         "--release-health-html",
         str(tmp_path / "missing.html"),
-        "--atom-feed",
-        str(FIXTURES / "windows11-atom.xml"),
+        "--servicing-toc",
+        str(FIXTURES / "windows11-servicing-toc.json"),
         "--output-dir",
         str(tmp_path / "site"),
     ])
@@ -4187,8 +4207,8 @@ def test_generator_cli_writes_pages_support_files(tmp_path, offline_enrichment_f
     code = generate_policy_cli.main([
         "--release-health-html",
         str(FIXTURES / "windows11-release-health.html"),
-        "--atom-feed",
-        str(FIXTURES / "windows11-atom.xml"),
+        "--servicing-toc",
+        str(FIXTURES / "windows11-servicing-toc.json"),
         "--output-dir",
         str(output_dir),
         "--write-index",
@@ -4221,11 +4241,11 @@ def test_generator_cli_does_not_accept_github_issue_mutation_flags():
 
 def test_generator_cli_merges_static_source_diagnostic_issue_status(tmp_path, offline_enrichment_fetchers):
     output_dir = tmp_path / "site"
-    atom_feed = tmp_path / "windows11-atom-new-baseline.xml"
-    atom_feed.write_text(_atom_with_new_b_release(), encoding="utf-8")
+    servicing_toc = tmp_path / "windows11-servicing-toc-new-baseline.json"
+    servicing_toc.write_text(_toc_with_new_b_release(), encoding="utf-8")
     preview_policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=atom_feed.read_text(encoding="utf-8"),
+        servicing_toc_json=servicing_toc.read_text(encoding="utf-8"),
         support_article_fetcher=_offline_support_article_fetcher,
         msrc_cvrf_fetcher=_offline_msrc_cvrf_fetcher,
     )
@@ -4253,8 +4273,8 @@ def test_generator_cli_merges_static_source_diagnostic_issue_status(tmp_path, of
     code = generate_policy_cli.main([
         "--release-health-html",
         str(FIXTURES / "windows11-release-health.html"),
-        "--atom-feed",
-        str(atom_feed),
+        "--servicing-toc",
+        str(servicing_toc),
         "--output-dir",
         str(output_dir),
         "--write-index",
@@ -4375,7 +4395,7 @@ def test_policy_index_issue_status_links_only_real_warning_error_event_rows() ->
 
 def test_generator_cli_strips_extra_source_diagnostic_issue_status_fields(tmp_path, offline_enrichment_fetchers):
     output_dir = tmp_path / "site"
-    preview_policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
+    preview_policy = generate_policy(release_health_html=_html(), servicing_toc_json=_toc())
     diagnostic_id = preview_policy.source_diagnostics["events"][0]["id"]
     issue_status = tmp_path / "issue-status.json"
     forbidden = "safe-test-token-value-that-must-not-print"
@@ -4400,8 +4420,8 @@ def test_generator_cli_strips_extra_source_diagnostic_issue_status_fields(tmp_pa
     code = generate_policy_cli.main([
         "--release-health-html",
         str(FIXTURES / "windows11-release-health.html"),
-        "--atom-feed",
-        str(FIXTURES / "windows11-atom.xml"),
+        "--servicing-toc",
+        str(FIXTURES / "windows11-servicing-toc.json"),
         "--output-dir",
         str(output_dir),
         "--write-index",
@@ -4451,8 +4471,8 @@ def test_generator_cli_merges_degraded_source_diagnostic_issue_sync_metadata(tmp
     code = generate_policy_cli.main([
         "--release-health-html",
         str(FIXTURES / "windows11-release-health.html"),
-        "--atom-feed",
-        str(FIXTURES / "windows11-atom.xml"),
+        "--servicing-toc",
+        str(FIXTURES / "windows11-servicing-toc.json"),
         "--output-dir",
         str(output_dir),
         "--write-index",
@@ -4491,8 +4511,8 @@ def test_generator_cli_rejects_invalid_source_diagnostic_issue_status_key(tmp_pa
     code = generate_policy_cli.main([
         "--release-health-html",
         str(FIXTURES / "windows11-release-health.html"),
-        "--atom-feed",
-        str(FIXTURES / "windows11-atom.xml"),
+        "--servicing-toc",
+        str(FIXTURES / "windows11-servicing-toc.json"),
         "--output-dir",
         str(output_dir),
         "--source-diagnostic-issue-status-file",
@@ -4526,8 +4546,8 @@ def test_generator_cli_rejects_noncanonical_source_diagnostic_issue_status_url(t
     code = generate_policy_cli.main([
         "--release-health-html",
         str(FIXTURES / "windows11-release-health.html"),
-        "--atom-feed",
-        str(FIXTURES / "windows11-atom.xml"),
+        "--servicing-toc",
+        str(FIXTURES / "windows11-servicing-toc.json"),
         "--output-dir",
         str(output_dir),
         "--source-diagnostic-issue-status-file",
@@ -4542,7 +4562,7 @@ def test_generator_cli_rejects_noncanonical_source_diagnostic_issue_status_url(t
 def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_path):
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=_atom(),
+        servicing_toc_json=_toc(),
         generated_at_utc="2026-05-31T14:11:50+00:00",
         signature_status="valid",
     )
@@ -5646,14 +5666,17 @@ def test_required_baseline_kb_is_enriched_alongside_a_newer_observed_kb() -> Non
 
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=_atom(),
+        servicing_toc_json=_toc(),
         generated_at_utc="2026-05-20T00:00:00+00:00",
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
     )
 
     assert msrc_calls == ["https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-May"]
-    assert "https://support.microsoft.com/help/5089549" in support_calls
+    assert (
+        "https://support.microsoft.com/en-us/servicing/os/windows-11/"
+        "2026/05/may-12-2026-kb5089549-os-builds-26200-8457-and-26100-8457"
+    ) in support_calls
     assert policy.source_diagnostics["msrc_cvrf"]["2026-May"]["status"] == "ok"
 
 

@@ -211,3 +211,34 @@ def test_servicing_drift_event_resolves_the_msrc_month() -> None:
 
     assert drift
     assert all(event["msrc_cvrf_month_id"] == "2026-Jul" for event in drift)
+
+
+from tools import generate_policy as generate_policy_cli
+
+
+def test_generator_cli_exposes_servicing_toc_flags_only() -> None:
+    help_text = generate_policy_cli._build_parser().format_help()
+
+    assert "--servicing-toc-url" in help_text
+    assert "--servicing-toc " in help_text
+    assert "--atom-feed" not in help_text
+
+
+def test_generator_cli_writes_policy_from_the_servicing_toc_fixture(tmp_path) -> None:
+    output_dir = tmp_path / "site"
+
+    code = generate_policy_cli.main([
+        "--release-health-html",
+        str(FIXTURES / "windows11-release-health.html"),
+        "--servicing-toc",
+        str(FIXTURES / "windows11-servicing-toc.json"),
+        "--output-dir",
+        str(output_dir),
+        "--write-manifest",
+    ])
+
+    assert code == 0
+    policy = json.loads((output_dir / "windows-release-policy.json").read_text(encoding="utf-8"))
+    assert policy["source_diagnostics"]["servicing_toc"]["status"] == "ok"
+    assert not any("feed/atom" in url for url in policy["source_urls"])
+    assert "atom_feed" not in policy["source_fetch_status"]

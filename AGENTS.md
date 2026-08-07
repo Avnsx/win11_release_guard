@@ -160,7 +160,7 @@ After any deployment-affecting change, run:
 python -m compileall -q win11_release_guard tools
 pytest -q
 python tools/generate_signing_key.py --out-dir .tmp/signing-test --key-id test-policy-key --created-at-utc 2026-06-03T00:00:00+00:00
-python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --atom-feed tests/fixtures/windows11-atom.xml --output-dir site --write-index --write-robots --write-sitemap --write-manifest --signing-key-file .tmp/signing-test/private-key.b64
+python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --servicing-toc tests/fixtures/windows11-servicing-toc.json --output-dir site --write-index --write-robots --write-sitemap --write-manifest --signing-key-file .tmp/signing-test/private-key.b64
 python tools/scan_for_secret_material.py site win11_release_guard tests tools docs wiki README.md CHANGELOG.md AGENTS.md pyproject.toml .github
 python tools/export_clean_archive.py --output dist/win11_release_guard-source.zip
 python tools/export_clean_archive.py --validate dist/win11_release_guard-source.zip
