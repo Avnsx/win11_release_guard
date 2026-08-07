@@ -3201,6 +3201,7 @@ def _atom_newer_event(
     target: ReleasePolicyEntry | None,
     *,
     support_articles: Mapping[str, Mapping[str, Any]] | None = None,
+    msrc_month_id_fallback_allowed: bool = False,
 ) -> dict[str, Any]:
     release = str(item.get("release") or "") or None
     build_family = item.get("build_family")
@@ -3260,7 +3261,13 @@ def _atom_newer_event(
         event["source_url"] = source_url
     if support_articles and source_url not in (None, ""):
         event = _event_with_support_article(event, support_articles.get(str(source_url)))
-    if "msrc_cvrf_month_id" not in event:
+    if msrc_month_id_fallback_allowed and "msrc_cvrf_month_id" not in event:
+        # Only reached when no support-article or MSRC CVRF fetcher was configured for this
+        # run at all (see msrc_month_id_fallback_allowed at the call site) — e.g. tests and
+        # other offline callers of generate_policy(). When real fetchers are configured,
+        # this never fires, so records that _records_for_support_article_enrichment
+        # deliberately excludes (preview/out-of-band, non-target release/build_family) keep
+        # carrying no msrc_cvrf_month_id, exactly as before.
         month_id = _record_msrc_month_id(item)
         if month_id:
             event["msrc_cvrf_month_id"] = month_id
@@ -3371,6 +3378,7 @@ def _source_diagnostics(
     servicing_toc_url: str | None = None,
     servicing_toc_json: str | None = None,
     servicing_toc_entries: tuple[AtomFeedEntry, ...] = (),
+    msrc_month_id_fallback_allowed: bool = False,
 ) -> dict[str, Any]:
     release_health_status = _source_status(
         source_fetch_status,
@@ -3407,7 +3415,15 @@ def _source_diagnostics(
             *(dict(item) for item in parser_diagnostics),
             *(dict(item) for item in source_input_events),
             *(dict(item) for item in ((baseline_notice_event,) if baseline_notice_event else ())),
-            *(_atom_newer_event(item, broad_target, support_articles=effective_support_articles) for item in atom_newer),
+            *(
+                _atom_newer_event(
+                    item,
+                    broad_target,
+                    support_articles=effective_support_articles,
+                    msrc_month_id_fallback_allowed=msrc_month_id_fallback_allowed,
+                )
+                for item in atom_newer
+            ),
             *(_current_versions_lag_event(item, broad_target) for item in current_stale),
         ]
     )
@@ -3714,6 +3730,13 @@ def _policy_with_enrichment(
         parser_events = parser_source.get("events")
         if isinstance(parser_events, list):
             parser_diagnostics = tuple(item for item in parser_events if isinstance(item, Mapping))
+    # No support-article or MSRC CVRF fetcher configured for this run at all (as opposed to a
+    # fetcher that simply found nothing to fetch, or a record deliberately excluded from
+    # enrichment) — the only condition under which _atom_newer_event's date-only
+    # msrc_cvrf_month_id fallback is allowed to fire. This keeps production runs, which always
+    # configure real fetchers, emitting exactly the diagnostics payload they emitted before
+    # that fallback existed.
+    msrc_month_id_fallback_allowed = support_article_fetcher is None and msrc_cvrf_fetcher is None
     source_diagnostics = _source_diagnostics(
         current_versions=current_versions,
         release_history=release_history,
@@ -3733,6 +3756,7 @@ def _policy_with_enrichment(
         servicing_toc_url=servicing_toc_url,
         servicing_toc_json=servicing_toc_json,
         servicing_toc_entries=servicing_toc_entries,
+        msrc_month_id_fallback_allowed=msrc_month_id_fallback_allowed,
     )
     combined_warnings = tuple(
         dict.fromkeys([*validation_warnings, *source_diagnostics.get("warnings", [])])
