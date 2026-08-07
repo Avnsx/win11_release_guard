@@ -70,10 +70,11 @@ python -m win11_release_guard --json-pretty --wua --include-raw-local-diagnostic
 | Headers | Compare Release Health table headings with fixtures. |
 | 26H1 note | Confirm special/new-devices-only text is still detected. |
 | B baseline | Confirm broad target has a B-release baseline. |
-| Atom support href | Use only safe Atom `alternate` links to `https://support.microsoft.com` article paths. Safe `:443`, query, or fragment variants canonicalize to scheme/host/path; unsafe ports, feed/API/search/download/static/traversal paths, and non-support hosts reject. If an Atom KB row lacks a safe Support article href, keep the Source Diagnostic evidence; do not add a `/help/<KB>` fallback resolver. |
-| Atom row matching | If the same KB appears more than once, confirm Release History enrichment selected a row-build match before accepting KB-only metadata. Ambiguous KB-only fallbacks should be skipped rather than silently choosing the first entry. |
-| Support article mismatch | If Support article KB, build, URL, or parseable `Applies to` evidence disagrees with Atom, trust Atom KB/build/release and exact MSRC KB evidence; treat Support-derived summary/security wording as untrusted. Use `applies_to_releases` when present to see which release values were parsed. |
-| Security classification | Use exact MSRC CVRF KB-token evidence or validated explicit Support article wording; do not infer security status from generic Atom title text or KB substrings embedded in larger tokens. Exact-KB remediations count even when optional CVE/severity/product fields are absent. |
+| Servicing index missing/unparseable | `servicing_toc_missing`, `servicing_toc_parse_failed`, or `servicing_toc_no_usable_entries` warning. Release Health still drives the policy; preview/out-of-band classification and drift context stay incomplete until the servicing index is available and every entry carries a KB in its title. |
+| Servicing support href | Use only safe links to `https://support.microsoft.com` article paths. Safe `:443`, query, or fragment variants canonicalize to scheme/host/path; unsafe ports, feed/API/search/download/static/traversal paths, and non-support hosts reject. If a servicing entry's KB row lacks a safe Support article href, keep the Source Diagnostic evidence (`atom_support_article_href_missing`); do not add a `/help/<KB>` fallback resolver. |
+| Servicing row matching | If the same KB appears more than once, confirm Release History enrichment selected a row-build match before accepting KB-only metadata. Ambiguous KB-only fallbacks should be skipped rather than silently choosing the first entry. |
+| Support article mismatch | If Support article KB, build, URL, or parseable `Applies to` evidence disagrees with the servicing entry, trust the servicing entry's KB/build/release and exact MSRC KB evidence; treat Support-derived summary/security wording as untrusted. Use `applies_to_releases` when present to see which release values were parsed. |
+| Security classification | Use exact MSRC CVRF KB-token evidence or validated explicit Support article wording; do not infer security status from generic servicing entry title text or KB substrings embedded in larger tokens. Exact-KB remediations count even when optional CVE/severity/product fields are absent. |
 
 ```powershell
 pytest -q tests/test_remote_policy.py tests/test_policy_generator.py
@@ -84,7 +85,7 @@ pytest -q tests/test_remote_policy.py tests/test_policy_generator.py
 | Check | What to do |
 | --- | --- |
 | `latest_build` | Treat it as the Release Health Current Versions table value. |
-| `latest_observed_build` | Treat it as informational public Microsoft evidence, often from Atom-linked Support articles. |
+| `latest_observed_build` | Treat it as informational public Microsoft evidence, often from Support articles linked in the servicing table-of-contents JSON. |
 | `required_baseline_build` | Keep this as the signed quality baseline used for verdicts. |
 
 A newer latest-observed build can explain why a local machine is ahead of the

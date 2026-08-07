@@ -57,12 +57,13 @@ Static Pages output can become old without re-rendering. The page embeds generat
 ## Why can latest observed be newer than latest build?
 
 `latest_build` is the Microsoft Release Health Current Versions table value.
-That table can lag behind public Update History Atom entries and their linked
-Microsoft Support articles. `latest_observed_build` records the newest official
-build the generator found in supported public evidence. It is context only and
-does not become `required_baseline_build` unless the signed baseline rules
-select it. When Release Health has caught up and those rules select the same
-build, all three values can legitimately match.
+That table can lag behind the public Microsoft servicing table-of-contents
+JSON and its linked Microsoft Support articles. `latest_observed_build`
+records the newest official build the generator found in supported public
+evidence. It is context only and does not become `required_baseline_build`
+unless the signed baseline rules select it. When Release Health has caught up
+and those rules select the same build, all three values can legitimately
+match.
 
 ## What is the baseline-update notice?
 
@@ -75,13 +76,14 @@ runtime clients, signatures, or `/api/v1`.
 ## Why does the baseline notice say security classification is unavailable?
 
 The notice derives its security label from exact MSRC CVRF KB evidence or a
-validated Atom-linked Microsoft Support article. Microsoft's Update History Atom
-feed can lag Patch Tuesday by days or weeks. When it has not yet published the
-baseline KB entry, the notice no longer waits for it: it derives the MSRC month
-from the Release Health baseline date, fetches MSRC CVRF for that month, and
-joins the baseline KB exactly, so security is still credited to MSRC without an
-Atom link (no Support article is fetched or synthesized, so support validation
-stays unavailable). The neutral sentence "Security classification is unavailable
+validated Microsoft Support article linked from the servicing table-of-contents
+JSON. That servicing index can lag Patch Tuesday by days or weeks. When it has
+not yet published the baseline KB entry, the notice no longer waits for it: it
+derives the MSRC month from the Release Health baseline date, fetches MSRC
+CVRF for that month, and joins the baseline KB exactly, so security is still
+credited to MSRC without a servicing-linked support article (no Support
+article is fetched or synthesized, so support validation stays unavailable).
+The neutral sentence "Security classification is unavailable
 from the checked enrichment source." now appears only when MSRC is also
 unavailable or its fetch fails; that failure is recorded as an ordinary
 `msrc_cvrf_enrichment_unavailable` warning event. Either way it is honest
@@ -91,12 +93,12 @@ a later scheduled publish run reaches it.
 
 ## How are Support and MSRC evidence trusted?
 
-Atom discovers Support article links; it is not a `/help/<KB>` resolver. Safe
-Support URLs are canonicalized, direct Atom links are revalidated before public
-metadata use, and article URL/KB/build/applicability must match before article
-facts affect summaries or Support-derived security labels. MSRC security
-classification requires exact KB remediation evidence; malformed or unavailable
-CVRF stays unknown.
+The servicing table-of-contents JSON discovers Support article links; it is
+not a `/help/<KB>` resolver. Safe Support URLs are canonicalized, direct links
+are revalidated before public metadata use, and article URL/KB/build/
+applicability must match before article facts affect summaries or
+Support-derived security labels. MSRC security classification requires exact
+KB remediation evidence; malformed or unavailable CVRF stays unknown.
 
 ## Related Pages
 

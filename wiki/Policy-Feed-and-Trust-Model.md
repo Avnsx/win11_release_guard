@@ -67,13 +67,14 @@ The dashboard shows two build numbers that are easy to mix up: `latest_build`
 and `latest_observed_build`. `latest_build` is the value Microsoft Release
 Health currently publishes in the slow-moving Current Versions table.
 `latest_observed_build` is the newest official Microsoft-observed build found
-by the generator across supported public source evidence, including Atom-linked
-Support articles. It is useful context when a device is ahead of the normal
-fleet baseline, but it does not decide compliance by itself.
+by the generator across supported public source evidence, including Support
+articles linked from the servicing table-of-contents JSON. It is useful
+context when a device is ahead of the normal fleet baseline, but it does not
+decide compliance by itself.
 
 `required_baseline_build` is the minimum signed build this policy currently
 requires for existing Windows 11 fleet devices. Devices below that build need a
-quality update. A newer Atom/support observed build can appear as
+quality update. A newer servicing/support observed build can appear as
 `latest_observed_build` without becoming the required baseline for the fleet.
 When Release Health Current Versions has caught up and the baseline rules select
 that same build, `latest_build`, `latest_observed_build`, and
@@ -81,27 +82,27 @@ that same build, `latest_build`, `latest_observed_build`, and
 When the selected `required_baseline_build` comes from a real non-preview,
 non-OOB Release Health B-release row and matches `latest_observed_build`, the
 dashboard may show a 14-day informational baseline-update notice. That notice
-is generated from local Release Health, Atom, validated Support, and exact MSRC
-facts; expired or inactive notice metadata does not fetch optional Support/MSRC
-enrichment solely for stale historical notice data. It does not change the
-signed policy verdict, baseline selection, runtime client behavior, issue sync,
-or public `/api/v1` contract.
+is generated from local Release Health, the servicing table-of-contents JSON,
+validated Support, and exact MSRC facts; expired or inactive notice metadata
+does not fetch optional Support/MSRC enrichment solely for stale historical
+notice data. It does not change the signed policy verdict, baseline selection,
+runtime client behavior, issue sync, or public `/api/v1` contract.
 
-Atom-linked evidence stays bounded by source-trust rules. Safe Support article
-URLs are canonicalized before use, direct Atom links are revalidated before
+Servicing-linked evidence stays bounded by source-trust rules. Safe Support
+article URLs are canonicalized before use, direct links are revalidated before
 they become public metadata or dashboard/export links, and Release History
-enrichment prefers Atom entries matching both KB and row build. Support article
-URL, KB, build, and parseable release/applicability must match before article
-facts can affect summaries or Support-derived security labels. MSRC security
-classification requires exact KB remediation evidence and remains unknown when
-CVRF data is malformed or unavailable.
+enrichment prefers servicing entries matching both KB and row build. Support
+article URL, KB, build, and parseable release/applicability must match before
+article facts can affect summaries or Support-derived security labels. MSRC
+security classification requires exact KB remediation evidence and remains
+unknown when CVRF data is malformed or unavailable.
 
 | Field / term | Meaning |
 | --- | --- |
 | `latest_build` | Microsoft Release Health Current Versions table value. |
 | `baseline_build` | Required broad-fleet quality baseline. |
 | `required_baseline_build` | Explicit required baseline used by current readers. |
-| `latest_observed_build` | Newest official Microsoft-observed build from supported public evidence, including Atom-linked Support articles. |
+| `latest_observed_build` | Newest official Microsoft-observed build from supported public evidence, including Support articles linked from the servicing table-of-contents JSON. |
 | B-release | Default required quality baseline. |
 | D-preview | Can explain a newer local build without becoming the default required baseline. |
 

@@ -1,6 +1,6 @@
 # Source Diagnostics
 
-Use this when investigating generator/parser drift, Microsoft source changes, Atom feed enrichment, or publish blocks.
+Use this when investigating generator/parser drift, Microsoft source changes, servicing table-of-contents enrichment, or publish blocks.
 
 ---
 
@@ -8,11 +8,12 @@ Use this when investigating generator/parser drift, Microsoft source changes, At
 
 Source diagnostics explain the health of the policy inputs and generator
 interpretation, not the final compliance verdict by themselves. They collect
-Release Health, Atom feed, Atom-linked Support article, unauthenticated MSRC
-CVRF, parser, and drift signals so an administrator can see whether the public
-Microsoft source data changed, whether enrichment arrived late, or whether a
-parser assumption needs attention. These signals never override the signed
-policy verdict or required baseline semantics.
+Release Health, servicing table-of-contents, linked Support article,
+unauthenticated MSRC CVRF, Windows Update offer probe, parser, and drift
+signals so an administrator can see whether the public Microsoft source data
+changed, whether enrichment arrived late, or whether a parser assumption needs
+attention. These signals never override the signed policy verdict or required
+baseline semantics.
 
 The dashboard severity tiles are filters over those generated events. Notices
 are visibility-only, warnings call out non-blocking drift or missing enrichment,
@@ -24,11 +25,12 @@ verdict authority.
 | Source | Captured data |
 | --- | --- |
 | Microsoft Release Health HTML | Bytes, fetch time, newest current-version revision, newest release-history date. |
-| Microsoft Update History Atom feed | Bytes, newest Atom build, newest published/updated timestamps. |
-| Atom-linked Microsoft Support articles | Public release-note href evidence and deterministic article enrichment when available. |
+| Microsoft servicing table-of-contents JSON | Bytes, fetch time, entry count, newest observed build. |
+| Microsoft servicing support articles | Public release-note evidence and deterministic article enrichment when available. |
 | Public MSRC CVRF data | Unauthenticated exact-KB security-update evidence when available. |
+| Windows Update offer probe | Optional current-offer corroboration; notice severity only. |
 | Parser | Structured events for missing/changed headers and table anomalies. |
-| Drift checks | Current table lag, Atom newer rows, generated-after-source age. |
+| Drift checks | Current table lag, newer observed rows, generated-after-source age. |
 
 ## Event Severity
 
@@ -38,20 +40,22 @@ verdict authority.
 | `warning` | Non-blocking drift or missing enrichment; verify before trusting manually. |
 | `error` | Publish-blocking source or parser failure. |
 
-Atom drift keeps Preview and out-of-band rows at `notice` severity even when the
-build number is newer than Release History. A newer non-preview build for the
-current broad target can become `warning` when it has a KB and safe
-Atom-provided `support.microsoft.com` article href. That warning is source
-context; it does not promote the build to `required_baseline_build`.
-Missing or malformed Atom input is also `warning`; it is visible source-health
-degradation, not a silent condition.
+Servicing drift keeps Preview and out-of-band rows at `notice` severity even
+when the build number is newer than Release History. A newer non-preview build
+for the current broad target can become `warning` when it has a KB and a safe
+servicing-provided `support.microsoft.com` article href. That warning is
+source context; it does not promote the build to `required_baseline_build`.
+A missing or unparseable servicing table-of-contents JSON is also `warning`
+(`servicing_toc_missing`, `servicing_toc_parse_failed`, or
+`servicing_toc_no_usable_entries`); it is visible source-health degradation,
+not a silent condition.
 
-Microsoft's public sources can arrive out of order. The Atom/Update History feed
-can expose a KB or build before the Release Health HTML Current Versions or
-release-history tables are manually refreshed. That race is normal for Preview,
-out-of-band, unknown-family, non-broad-target, or incomplete Atom rows, so those
-rows stay `notice`. Missing KB metadata is an uncertainty marker, not permanent
-proof that a row is harmless.
+Microsoft's public sources can arrive out of order. The servicing
+table-of-contents JSON can expose a KB or build before the Release Health HTML
+Current Versions or release-history tables are manually refreshed. That race
+is normal for Preview, out-of-band, unknown-family, non-broad-target, or
+incomplete servicing rows, so those rows stay `notice`. Missing KB metadata is
+an uncertainty marker, not permanent proof that a row is harmless.
 
 `latest_build` remains the Microsoft Release Health Current Versions value.
 `latest_observed_build` is the newest official observed public Microsoft build
@@ -60,23 +64,24 @@ compliance floor selected by signed baseline rules; latest-observed evidence
 alone does not change it. When Release Health catches up and the baseline rules
 select the same build, all three fields can legitimately be the same.
 
-Atom is discovery for public Support article hrefs. The generator fetches only
-safe Atom `alternate` links to `https://support.microsoft.com` article paths.
-It ignores `self` links, feed/API/search/download/static paths, non-support
+The servicing table-of-contents JSON is discovery for public Support article
+hrefs. The generator fetches only safe links to `https://support.microsoft.com`
+article paths. It ignores feed/API/search/download/static paths, non-support
 hosts, userinfo, unsafe ports, traversal patterns, and overlong URLs. Accepted
 evidence URLs allow no port or explicit `:443` and are canonicalized without
 tracking query strings or fragments. Legacy
-`/help/<digits>` paths remain valid only when Atom provided them directly; the
-generator does not synthesize `/help/<KB>` fallbacks. If an Atom KB row lacks a
-usable support href, the generator records `atom_support_article_href_missing`
-evidence. Direct or fixture-provided Atom links are revalidated before they
-become release-history `kb_url`, manifest metadata, dashboard links, or copied
-diagnostic JSON. Release History enrichment prefers Atom entries matching both
-KB and row build, then build-only evidence, and avoids ambiguous KB-only
-fallbacks. Support article text can provide human-readable KB context and
-explicit security wording only after validation confirms that the article URL,
-KB, expected build, and parseable applicability match the Atom record. Empty or
-unknown `Applies to` values are degraded, not mismatch proof by themselves. The
+`/help/<digits>` paths remain valid only when the servicing entry provided them
+directly; the generator does not synthesize `/help/<KB>` fallbacks. If a
+servicing KB row lacks a usable support href, the generator records
+`atom_support_article_href_missing` evidence. Direct or fixture-provided links
+are revalidated before they become release-history `kb_url`, manifest
+metadata, dashboard links, or copied diagnostic JSON. Release History
+enrichment prefers servicing entries matching both KB and row build, then
+build-only evidence, and avoids ambiguous KB-only fallbacks. Support article
+text can provide human-readable KB context and explicit security wording only
+after validation confirms that the article URL, KB, expected build, and
+parseable applicability match the servicing record. Empty or unknown
+`Applies to` values are degraded, not mismatch proof by themselves. The
 article parser records bounded `applies_to` text and `applies_to_releases`
 when release values are parseable, and it stops heading/list extraction before
 unrelated sections such as prerequisites or known issues. If
@@ -84,19 +89,19 @@ unrelated sections such as prerequisites or known issues. If
 for that event are untrusted for summaries and Support-derived security labels.
 Public MSRC CVRF data provides higher-confidence exact-KB-token security
 classification when available; substring values such as `KB50941260`,
-`15094126`, or `5094126a` do not match `KB5094126`. Atom title buckets remain
-low-confidence labels; generic `OS Build(s)` wording is not security evidence.
-Exact-KB remediation evidence is still security evidence even when optional
-CVE, severity, or product fields are absent. Dashboard rows and copied visible
-JSON expose the security classification and evidence source, not CVE lists or
-counts. If validation is `mismatch`, the technical Atom diagnostic remains
-visible and the mismatch reasons are recorded, but article KB/title/build facts
-and Support-derived security wording are not trusted for the dashboard summary
-or `Security patch` tag. If validation is `degraded`, summaries stay
-Atom-grounded and include the compact degradation reason. The
-`source_drift_unresolved_after_24h` event is reserved for warning/error drift
-that remains unresolved after the newest source timestamp, not for normal
-notice-only feed lag.
+`15094126`, or `5094126a` do not match `KB5094126`. Servicing entry title
+buckets remain low-confidence labels; generic `OS Build(s)` wording is not
+security evidence. Exact-KB remediation evidence is still security evidence
+even when optional CVE, severity, or product fields are absent. Dashboard rows
+and copied visible JSON expose the security classification and evidence
+source, not CVE lists or counts. If validation is `mismatch`, the technical
+diagnostic remains visible and the mismatch reasons are recorded, but article
+KB/title/build facts and Support-derived security wording are not trusted for
+the dashboard summary or `Security patch` tag. If validation is `degraded`,
+summaries stay grounded in the servicing record and include the compact
+degradation reason. The `source_drift_unresolved_after_24h` event is reserved
+for warning/error drift that remains unresolved after the newest source
+timestamp, not for normal notice-only source lag.
 
 ## Diagnostic IDs
 
@@ -216,13 +221,17 @@ Issues or writing tokens.
 | Symptom | Check | Action |
 | --- | --- | --- |
 | Current Versions parser fails. | Release Health table headers changed. | Update parser tests and code together. |
-| Atom feed has newer build than Release Health. | `atom_newer_than_release_history` event. | Inspect the KB, Support article href, build family, and whether latest observed remains informational. |
-| Atom KB row has no Support article href. | `atom_support_article_href_missing` event. | Treat as source evidence gap; do not add a `/help/<KB>` resolver. |
-| Atom row links only to feed/API/search/download/static, non-support, or traversal URL. | `atom_support_article_href_missing` event with no latest-observed advancement. | Treat as unsafe or non-article evidence; use only a safe Atom `alternate` Support article URL. |
-| Same KB appears in multiple Atom entries. | Build-aware Release History enrichment selects the entry matching the row build when available. | Do not trust first-match ordering; inspect build, source URL, preview/OOB flags, and timestamps. |
-| Support article KB/build/applies-to disagrees with Atom. | `support_article_enrichment_mismatch` event and validation reason codes. | Trust Atom KB/build/release and MSRC exact-KB evidence; do not use the mismatched article for summaries or Support-derived security labels. |
+| The servicing index was not supplied. | `servicing_toc_missing` warning. | Release Health still drives the policy, but preview/out-of-band classification and drift context are incomplete until the index is available. |
+| The servicing index could not be parsed. | `servicing_toc_parse_failed` warning. | Check the payload shape before changing parser behaviour; the generator keeps producing policy from Release Health alone. |
+| The servicing index carried no usable entries. | `servicing_toc_no_usable_entries` warning. | Every entry needs a KB in its title; an index of lane landing pages alone produces no entries. |
+| Servicing index has newer build than Release Health. | `atom_newer_than_release_history` event. | Inspect the KB, Support article href, build family, and whether latest observed remains informational. |
+| Servicing KB row has no Support article href. | `atom_support_article_href_missing` event. | Treat as source evidence gap; do not add a `/help/<KB>` resolver. |
+| Servicing row links only to feed/API/search/download/static, non-support, or traversal URL. | `atom_support_article_href_missing` event with no latest-observed advancement. | Treat as unsafe or non-article evidence; use only a safe servicing-linked Support article URL. |
+| Same KB appears in multiple servicing entries. | Build-aware Release History enrichment selects the entry matching the row build when available. | Do not trust first-match ordering; inspect build, source URL, preview/OOB flags, and timestamps. |
+| Support article KB/build/applies-to disagrees with the servicing entry. | `support_article_enrichment_mismatch` event and validation reason codes. | Trust the servicing entry's KB/build/release and MSRC exact-KB evidence; do not use the mismatched article for summaries or Support-derived security labels. |
+| Windows Update probe reports no offers. | `windows_update_probe_unavailable` notice. | Informational only. The probe is a current-offer snapshot, carries no history, and does not include out-of-band releases. Policy output is unaffected. |
 | Required baseline catches up to latest observed build. | `baseline_update_notice` plus `required_baseline_matched_latest_observed` notice. | Treat as dashboard-only context; do not open or sync a GitHub Issue. |
-| Active baseline notice says security classification is unavailable. | Notice fields `security_evidence_source: unavailable` and `support_article_validation_status: unavailable` with no `source_url`, plus an `msrc_cvrf_enrichment_unavailable` warning event for the baseline month. | When the Update History Atom feed lags Patch Tuesday, the notice no longer waits for it: it derives the MSRC month from the Release Health baseline date and joins the baseline KB from MSRC CVRF, so classification is credited to MSRC during Atom lag with support validation staying unavailable (no Support article is fetched). The neutral wording now means MSRC itself was unavailable or its fetch failed; that is recorded by the warning event, is honest no-data output rather than a parser error, and classification appears automatically once MSRC is reachable on a later publish run. |
+| Active baseline notice says security classification is unavailable. | Notice fields `security_evidence_source: unavailable` and `support_article_validation_status: unavailable` with no `source_url`, plus an `msrc_cvrf_enrichment_unavailable` warning event for the baseline month. | When the servicing table-of-contents JSON lags Patch Tuesday, the notice no longer waits for it: it derives the MSRC month from the Release Health baseline date and joins the baseline KB from MSRC CVRF, so classification is credited to MSRC during servicing lag with support validation staying unavailable (no Support article is fetched). The neutral wording now means MSRC itself was unavailable or its fetch failed; that is recorded by the warning event, is honest no-data output rather than a parser error, and classification appears automatically once MSRC is reachable on a later publish run. |
 | Source diagnostics warning appears on dashboard. | Event kind and affected release/build. | Keep visible; only block if severity is error. |
 
 ## Verify
@@ -230,7 +239,7 @@ Issues or writing tokens.
 ```powershell
 pytest -q tests/test_remote_policy.py tests/test_policy_generator.py tests/test_publish_policy_workflow.py
 pytest -q tests/test_source_diagnostics_issue_sync.py tests/test_source_diagnostics_issue_metadata.py
-python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --atom-feed tests/fixtures/windows11-atom.xml --output-dir site --write-index --write-manifest
+python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --servicing-toc tests/fixtures/windows11-servicing-toc.json --output-dir site --write-index --write-manifest
 ```
 
 ## Related Pages

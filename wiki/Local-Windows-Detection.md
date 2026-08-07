@@ -20,6 +20,11 @@ Use this when documenting or changing installed-state detection. The evaluator m
 | `GetProductInfo` | Secondary edition/SKU signal. |
 | `ProductName`, WMI `Caption`, `DisplayVersion` | Display and diagnostic labels only. |
 
+Operating system identity fields are read natively first, through the registry
+and Win32 APIs, with no process spawn. The previous PowerShell
+`Get-CimInstance Win32_OperatingSystem` read is retained and used automatically
+only when the native read is unavailable or returns an incomplete result.
+
 ## Why Display Labels Are Not Decisive
 
 Windows machines can expose stale marketing strings while build signals identify the real branch. For example, raw local labels may still show `Windows 10 Pro` on a Windows 11 build family. The guard preserves the raw values for admins and flags conflicts instead of letting labels override build evidence.

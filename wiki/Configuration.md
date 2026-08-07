@@ -34,7 +34,7 @@ Use this when choosing runtime defaults or documenting CLI/env knobs for fleet u
 
 | Area | Default behavior |
 | --- | --- |
-| HTTP fetch | Bounded timeout and byte cap. |
+| HTTP fetch | Shared client with consistent headers, transparent decompression, bounded timeout and byte cap, retry with backoff on transient failures, and conditional (`ETag`) requests. |
 | WUA subprocess | Bounded timeout. |
 | DISM / PowerShell probes | Bounded timeouts. |
 | Panther logs | Fixed known paths, bounded per-file tail reads, a generous global collection guard, and default JSON compaction unless `--include-raw-local-diagnostics` is used. |
