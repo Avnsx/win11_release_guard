@@ -3070,8 +3070,12 @@ def test_baseline_update_notice_atom_feed_lag_uses_msrc_month_fallback() -> None
     # joins the baseline KB exactly, and classifies security from MSRC without
     # synthesizing a /help/<KB> URL or fetching any support article.
     msrc_calls: list[str] = []
+    forbidden_support_calls: list[str] = []
 
     def forbidden_support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        # Record the call before raising so invocation is provable by direct
+        # observation, not solely by an exception that might get swallowed.
+        forbidden_support_calls.append(url)
         raise AssertionError(f"support fetch must not be attempted, got {url}")
 
     def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> object:
@@ -3087,6 +3091,7 @@ def test_baseline_update_notice_atom_feed_lag_uses_msrc_month_fallback() -> None
         msrc_cvrf_fetcher=msrc_fetcher,
     )
 
+    assert forbidden_support_calls == []
     assert msrc_calls == ["https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-Jun"]
     notice = policy.source_diagnostics["baseline_update_notice"]
     assert notice["active"] is True
@@ -3121,7 +3126,12 @@ def test_baseline_update_notice_atom_feed_lag_msrc_error_stays_unavailable_with_
     # The notice must degrade honestly to unavailable/unknown with the neutral
     # sentence, and the failure must now surface as an msrc_cvrf warning event
     # instead of being silently swallowed. Support fetching stays forbidden.
+    forbidden_support_calls: list[str] = []
+
     def forbidden_support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        # Record the call before raising so invocation is provable by direct
+        # observation, not solely by an exception that might get swallowed.
+        forbidden_support_calls.append(url)
         raise AssertionError(f"support fetch must not be attempted, got {url}")
 
     def failing_msrc_fetcher(url: str, timeout: float, max_bytes: int) -> object:
@@ -3136,6 +3146,7 @@ def test_baseline_update_notice_atom_feed_lag_msrc_error_stays_unavailable_with_
         msrc_cvrf_fetcher=failing_msrc_fetcher,
     )
 
+    assert forbidden_support_calls == []
     notice = policy.source_diagnostics["baseline_update_notice"]
     assert notice["active"] is True
     assert notice["kb_article"] == "KB5094126"

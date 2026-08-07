@@ -376,7 +376,12 @@ def test_unsafe_servicing_href_is_not_fetched_and_leaves_no_url_trace() -> None:
         }
     )
 
+    fetch_calls: list[str] = []
+
     def fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        # Record the call before raising so invocation is provable by direct
+        # observation, not solely by an exception that might get swallowed.
+        fetch_calls.append(url)
         raise AssertionError(f"unexpected support article fetch: {url}")
 
     policy = generate_policy(
@@ -385,6 +390,7 @@ def test_unsafe_servicing_href_is_not_fetched_and_leaves_no_url_trace() -> None:
         support_article_fetcher=fetcher,
     )
 
+    assert fetch_calls == []
     target = policy.broad_target_existing_devices
     assert target is not None
     assert not policy.source_diagnostics["support_articles"]
@@ -457,7 +463,12 @@ def test_kb_less_servicing_entry_triggers_no_support_article_fetch() -> None:
     is ever called.
     """
 
+    forbidden_calls: list[str] = []
+
     def forbidden_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        # Record the call before raising so invocation is provable by direct
+        # observation, not solely by an exception that might get swallowed.
+        forbidden_calls.append(url)
         raise AssertionError(f"support fetch must not be attempted for a KB-less entry, got {url}")
 
     policy = generate_policy(
@@ -467,6 +478,7 @@ def test_kb_less_servicing_entry_triggers_no_support_article_fetch() -> None:
         support_article_fetcher=forbidden_fetcher,
     )
 
+    assert forbidden_calls == []
     assert not policy.source_diagnostics["support_articles"]
     target = policy.broad_target_existing_devices
     assert target is not None
