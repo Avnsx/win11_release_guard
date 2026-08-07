@@ -35,6 +35,8 @@ evidence without affecting the signed verdict.
 * Local Windows build/edition details are now read natively on Windows
   instead of starting a PowerShell process, removing a slow step from the
   common local-check path.
+* A servicing index entry that carries a build but no KB article is now
+  reported as an informational diagnostic instead of being skipped.
 
 ### Added
 
