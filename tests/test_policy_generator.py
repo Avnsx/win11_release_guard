@@ -2403,6 +2403,124 @@ def test_msrc_cvrf_marks_atom_diagnostic_as_security_and_uses_single_month_fetch
     assert "cves" not in row
 
 
+def test_support_article_enrichment_propagates_programming_error_from_fetcher() -> None:
+    # A bug in our own code (or a test double) must never be reclassified as a
+    # degraded "source unavailable" record: it has to surface as itself.
+    def raising_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        raise AssertionError("support fetch must not be attempted")
+
+    with pytest.raises(AssertionError, match="support fetch must not be attempted"):
+        policy_generator_module._support_article_enrichment(
+            KB5094126_SUPPORT_URL,
+            fetcher=raising_fetcher,
+            timeout=1.0,
+        )
+
+
+def test_support_article_enrichment_still_degrades_genuine_fetch_failure() -> None:
+    # A real source failure (network/IO) must still degrade to the existing
+    # error-record shape, unchanged.
+    def failing_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        raise PolicyFetchError("support unavailable")
+
+    result = policy_generator_module._support_article_enrichment(
+        KB5094126_SUPPORT_URL,
+        fetcher=failing_fetcher,
+        timeout=1.0,
+    )
+
+    assert result == {
+        "url": KB5094126_SUPPORT_URL,
+        "status": "error",
+        "error": "support unavailable",
+    }
+
+
+def test_msrc_cvrf_payloads_propagates_programming_error_from_fetcher() -> None:
+    def raising_fetcher(url: str, timeout: float, max_bytes: int) -> object:
+        raise AssertionError("MSRC fetch must not be attempted")
+
+    with pytest.raises(AssertionError, match="MSRC fetch must not be attempted"):
+        policy_generator_module._msrc_cvrf_payloads(
+            ({"published": "2026-06-09T00:00:00+00:00"},),
+            fetcher=raising_fetcher,
+            timeout=1.0,
+        )
+
+
+def test_msrc_cvrf_payloads_still_degrades_genuine_fetch_failure() -> None:
+    def failing_fetcher(url: str, timeout: float, max_bytes: int) -> object:
+        raise PolicyFetchError("MSRC unavailable")
+
+    payloads, statuses = policy_generator_module._msrc_cvrf_payloads(
+        ({"published": "2026-06-09T00:00:00+00:00"},),
+        fetcher=failing_fetcher,
+        timeout=1.0,
+    )
+
+    assert payloads == {}
+    assert statuses == {
+        "2026-Jun": {
+            "status": "error",
+            "url": "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-Jun",
+            "error": "MSRC unavailable",
+        }
+    }
+
+
+def test_load_source_text_propagates_programming_error_from_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
+    # load_source_text's network-fetch except block shares the same "programming
+    # errors must surface, not degrade" contract as the other injection
+    # boundaries: this applies regardless of required=True/False.
+    def raising_fetch(url: str, *, timeout: float, charset: str | None, max_bytes: int) -> str:
+        raise AssertionError("fetch must not be attempted")
+
+    monkeypatch.setattr(policy_generator_module, "_fetch_url", raising_fetch)
+
+    with pytest.raises(AssertionError, match="fetch must not be attempted"):
+        policy_generator_module.load_source_text(
+            url="https://policy-source.invalid/source.json",
+            source_name="example_source",
+            required=False,
+        )
+
+
+def test_load_source_text_still_degrades_genuine_fetch_failure_when_not_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing_fetch(url: str, *, timeout: float, charset: str | None, max_bytes: int) -> str:
+        raise PolicyFetchError("network unavailable")
+
+    monkeypatch.setattr(policy_generator_module, "_fetch_url", failing_fetch)
+
+    result = policy_generator_module.load_source_text(
+        url="https://policy-source.invalid/source.json",
+        source_name="example_source",
+        required=False,
+    )
+
+    assert result.text == ""
+    assert result.status["url"] == "https://policy-source.invalid/source.json"
+    assert result.status["status"] == "error"
+    assert result.status["error"] == "network unavailable"
+
+
+def test_load_source_text_required_genuine_fetch_failure_still_raises_policy_fetch_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing_fetch(url: str, *, timeout: float, charset: str | None, max_bytes: int) -> str:
+        raise OSError("connection reset")
+
+    monkeypatch.setattr(policy_generator_module, "_fetch_url", failing_fetch)
+
+    with pytest.raises(PolicyFetchError, match="could not fetch"):
+        policy_generator_module.load_source_text(
+            url="https://policy-source.invalid/source.json",
+            source_name="example_source",
+            required=True,
+        )
+
+
 def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(tmp_path: Path) -> None:
     support_calls: list[tuple[str, float, int]] = []
     msrc_calls: list[tuple[str, float, int]] = []

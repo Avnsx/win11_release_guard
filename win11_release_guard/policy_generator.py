@@ -47,6 +47,14 @@ from .signing import sign_policy_bytes as sign_ed25519_policy_bytes
 from .wu_offer_probe import WindowsUpdateOffer
 
 
+# Fetcher/parser injection boundaries catch broad Exception so a genuine source
+# failure (network, IO, malformed payload) degrades into a status record
+# instead of blocking generation. That contract is narrower than "catch
+# everything": it must not also swallow a programming error in our own code or
+# in an injected test double. These types are re-raised immediately at those
+# boundaries instead of being folded into a degraded-status record.
+PROGRAMMING_ERROR_TYPES = (AssertionError, TypeError, AttributeError, NameError)
+
 DEFAULT_SERVICING_TOC_URL = SERVICING_TOC_URL
 DEFAULT_MAX_SUPPORT_ARTICLE_BYTES = 2 * 1024 * 1024
 DEFAULT_MAX_MSRC_CVRF_BYTES = 48 * 1024 * 1024
@@ -551,6 +559,8 @@ def load_source_text(
 
     try:
         text = _fetch_url(url, timeout=timeout, charset=charset, max_bytes=max_bytes)
+    except PROGRAMMING_ERROR_TYPES:
+        raise
     except Exception as exc:
         if required:
             raise PolicyFetchError(f"{source_name} source failure: could not fetch {url}: {exc}") from exc
@@ -1118,6 +1128,8 @@ def _support_article_enrichment(
         }
     try:
         html_text = fetcher(safe_url, timeout, DEFAULT_MAX_SUPPORT_ARTICLE_BYTES)
+    except PROGRAMMING_ERROR_TYPES:
+        raise
     except Exception as exc:
         return {
             "url": safe_url,
@@ -1126,6 +1138,8 @@ def _support_article_enrichment(
         }
     try:
         facts = _extract_support_article_facts(safe_url, html_text)
+    except PROGRAMMING_ERROR_TYPES:
+        raise
     except Exception as exc:
         return {
             "url": safe_url,
@@ -2666,6 +2680,8 @@ def _msrc_cvrf_payloads(
         url = _msrc_cvrf_url(month_id)
         try:
             payload = fetcher(url, timeout, DEFAULT_MAX_MSRC_CVRF_BYTES)
+        except PROGRAMMING_ERROR_TYPES:
+            raise
         except Exception as exc:
             statuses[month_id] = {
                 "status": "error",
