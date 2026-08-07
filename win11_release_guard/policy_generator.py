@@ -42,6 +42,7 @@ from .policy_schema import (
     validate_policy_document,
 )
 from .remote_policy import parse_windows11_release_health_html
+from .update_text import _extract_builds, _extract_kb, _is_out_of_band, _is_preview
 from .signing import sign_policy_bytes as sign_ed25519_policy_bytes
 
 
@@ -631,24 +632,6 @@ def _atom_diagnostic_id_hint(entry_id: str | None) -> str | None:
         return None
     diagnostic_id = f"{SOURCE_DIAGNOSTIC_ID_PREFIX}:{entry_id}"
     return diagnostic_id if is_source_diagnostic_id(diagnostic_id) else None
-
-
-def _extract_kb(text: str | None) -> str | None:
-    match = re.search(r"\bKB\d{6,8}\b", text or "", flags=re.IGNORECASE)
-    return match.group(0).upper() if match else None
-
-
-def _extract_builds(text: str | None) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(re.findall(r"\b\d{5}\.\d+\b", text or "")))
-
-
-def _is_preview(text: str) -> bool:
-    return "preview" in text.lower()
-
-
-def _is_out_of_band(text: str) -> bool:
-    normalized = text.lower().replace("_", "-")
-    return "out-of-band" in normalized or "out of band" in normalized or re.search(r"\boob\b", normalized) is not None
 
 
 def parse_atom_feed(xml_text: str) -> tuple[AtomFeedEntry, ...]:
