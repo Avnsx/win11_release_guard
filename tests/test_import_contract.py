@@ -67,7 +67,7 @@ def test_package_version_prefers_source_tree_pyproject_over_external_metadata(mo
     external_location = Path(__file__).resolve().parents[2] / "external-site-packages"
     monkeypatch.setattr(version_module, "_metadata_version", lambda: ("0.3.1", external_location))
 
-    assert package_version() == "0.3.6"
+    assert package_version() == "0.4.0"
 
 
 def test_import_has_no_side_effects(monkeypatch):

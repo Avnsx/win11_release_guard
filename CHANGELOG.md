@@ -4,6 +4,49 @@
 
 No unreleased changes yet.
 
+## v0.4.0 - 2026-08-07
+
+### Summary
+
+Windows 11 Release Guard now reads update history from Microsoft's Windows 11
+servicing index and the servicing support articles it references, covering
+every serviced Windows 11 lane in a single small request. Support-article
+validation and MSRC security classification work again, with security
+evidence now naming the affected Microsoft products directly instead of
+opaque identifiers. Local system checks are faster because Windows details
+are read natively instead of launching PowerShell, and administrators can
+optionally enable a Windows Update offer probe for additional corroborating
+evidence without affecting the signed verdict.
+
+### Changed
+
+* Release history, preview and out-of-band detection, and support article
+  discovery are now derived from Microsoft's Windows 11 servicing index
+  instead of the retired Update History feed.
+* Support article validation resolves current Microsoft article URLs again,
+  so stale or dead support links are caught before publishing.
+* MSRC CVRF security enrichment reports the affected Microsoft product names
+  alongside exact-KB security evidence, instead of opaque numeric product
+  identifiers.
+* Outbound requests to Microsoft sources now share one HTTP client with
+  consistent headers, transparent response decompression, bounded response
+  reads, retry with backoff, and conditional requests, improving resilience
+  to transient network and server issues.
+* Local Windows build/edition details are now read natively on Windows
+  instead of starting a PowerShell process, removing a slow step from the
+  common local-check path.
+
+### Added
+
+* Optional, off-by-default Windows Update offer probe that can add
+  corroborating current-offer evidence at notice severity. It never affects
+  the signed compliance verdict.
+
+### Removed
+
+* Removed the retired Windows Update History Atom feed source path; policy
+  generation no longer depends on it or carries its dead source metadata.
+
 ## v0.3.6 - 2026-07-18
 
 ### Summary
