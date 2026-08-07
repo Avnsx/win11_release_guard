@@ -44,12 +44,18 @@ from .remote_policy import parse_windows11_release_health_html
 from .servicing_toc import SERVICING_TOC_URL, ServicingTocEntry, parse_servicing_toc
 from .update_text import _extract_builds, _extract_kb
 from .signing import sign_policy_bytes as sign_ed25519_policy_bytes
+from .wu_offer_probe import WindowsUpdateOffer
 
 
 DEFAULT_WINDOWS11_ATOM_FEED_URL = "https://support.microsoft.com/en-us/feed/atom/4ec863cc-2ecd-e187-6cb3-b50c6545db92"
 DEFAULT_SERVICING_TOC_URL = SERVICING_TOC_URL
 DEFAULT_MAX_SUPPORT_ARTICLE_BYTES = 2 * 1024 * 1024
 DEFAULT_MAX_MSRC_CVRF_BYTES = 48 * 1024 * 1024
+WINDOWS_UPDATE_PROBE_UNAVAILABLE_KIND = "windows_update_probe_unavailable"
+WINDOWS_UPDATE_PROBE_CORROBORATION_KIND = "windows_update_probe_corroboration"
+WINDOWS_UPDATE_PROBE_OFFER_LIMIT = 4
+_WINDOWS_UPDATE_PROBE_BUILD_RE = re.compile(r"^\d{5,6}\.\d{1,5}$")
+_WINDOWS_UPDATE_PROBE_KB_RE = re.compile(r"^KB\d{6,8}$")
 MSRC_CVRF_CVE_LIMIT = 12
 MSRC_CVRF_SEVERITY_LIMIT = 8
 MSRC_CVRF_PRODUCT_LIMIT = 16
@@ -156,6 +162,7 @@ class ChangelogSection:
 _LAST_UTC_NOW_MS = 0
 SupportArticleFetcher = Callable[[str, float, int], str]
 MsrcCvrfFetcher = Callable[[str, float, int], Any]
+WindowsUpdateProbe = Callable[[], Sequence[WindowsUpdateOffer]]
 
 
 @dataclass(frozen=True)
@@ -3256,6 +3263,55 @@ def _source_input_event(kind: str, message: str, *, severity: str = "warning") -
     }
 
 
+def _windows_update_offer_label(offer: WindowsUpdateOffer) -> str:
+    build = str(offer.build or "").strip()
+    kb_article = str(offer.kb_article or "").strip()
+    if not _WINDOWS_UPDATE_PROBE_BUILD_RE.match(build):
+        build = ""
+    if not _WINDOWS_UPDATE_PROBE_KB_RE.match(kb_article):
+        kb_article = ""
+    if build and kb_article:
+        return f"{build} ({kb_article})"
+    return build or kb_article
+
+
+def _windows_update_probe_events(probe: WindowsUpdateProbe | None) -> list[dict[str, Any]]:
+    if probe is None:
+        return []
+    try:
+        offers = tuple(probe())
+    except Exception as exc:  # Corroborating evidence must never block generation.
+        detail = _short_diagnostic_text(exc, max_length=90) or "no detail reported"
+        return [
+            _source_input_event(
+                WINDOWS_UPDATE_PROBE_UNAVAILABLE_KIND,
+                f"Windows Update offer probe reported no corroborating evidence: {detail}",
+                severity="notice",
+            )
+        ]
+    labels = [
+        label
+        for label in (_windows_update_offer_label(offer) for offer in offers[:WINDOWS_UPDATE_PROBE_OFFER_LIMIT])
+        if label
+    ]
+    if not labels:
+        return [
+            _source_input_event(
+                WINDOWS_UPDATE_PROBE_UNAVAILABLE_KIND,
+                "Windows Update offer probe reported no corroborating evidence: "
+                "the offer snapshot carried no build or KB article.",
+                severity="notice",
+            )
+        ]
+    return [
+        _source_input_event(
+            WINDOWS_UPDATE_PROBE_CORROBORATION_KIND,
+            f"Windows Update offers corroborate the document sources: {_human_join(labels)}.",
+            severity="notice",
+        )
+    ]
+
+
 def _source_status(
     source_fetch_status: Mapping[str, Any],
     key: str,
@@ -3687,6 +3743,7 @@ def generate_policy(
     msrc_cvrf_fetcher: MsrcCvrfFetcher | None = None,
     msrc_cvrf_timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     published_urls: Mapping[str, str] | None = None,
+    windows_update_probe: WindowsUpdateProbe | None = None,
 ) -> ReleasePolicy:
     warnings: list[str] = []
     source_input_events: list[dict[str, Any]] = []
@@ -3724,6 +3781,8 @@ def generate_policy(
         message = "Servicing TOC missing; preview/out-of-band enrichment unavailable."
         warnings.append(message)
         source_input_events.append(_source_input_event("servicing_toc_missing", message))
+
+    source_input_events.extend(_windows_update_probe_events(windows_update_probe))
 
     release_history = _enrich_history(base_policy.release_history, servicing_entries)
     policy = _policy_with_enrichment(
@@ -8809,6 +8868,7 @@ def build_policy_from_sources(
     signature_status: str = "unsigned",
     support_article_fetcher: SupportArticleFetcher | None = None,
     msrc_cvrf_fetcher: MsrcCvrfFetcher | None = None,
+    windows_update_probe: WindowsUpdateProbe | None = None,
 ) -> ReleasePolicy:
     release_health = load_source_text(
         url=release_health_url,
@@ -8842,6 +8902,7 @@ def build_policy_from_sources(
         msrc_cvrf_fetcher=msrc_cvrf_fetcher or _default_msrc_cvrf_fetcher,
         msrc_cvrf_timeout=timeout,
         signature_status=signature_status,
+        windows_update_probe=windows_update_probe,
     )
 
 
