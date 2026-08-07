@@ -139,6 +139,11 @@ def _assert_hidden_and_original(kwargs):
 @requires_startupinfo
 def test_read_wmi_operating_system_hides_window(monkeypatch):
     _force_windows(monkeypatch)
+    # The native (registry + ctypes) read is tried first and, on this real
+    # Windows test host, would succeed without ever spawning powershell.exe.
+    # Force it unusable so this test still exercises (and can inspect) the
+    # PowerShell fallback's hidden-window subprocess call.
+    monkeypatch.setattr(local_state, "_read_native_operating_system", lambda: None)
     recorder = _Recorder(stdout='{"Caption":"Windows 11","Version":"10.0.26200"}')
     monkeypatch.setattr(local_state.subprocess, "run", recorder)
 
