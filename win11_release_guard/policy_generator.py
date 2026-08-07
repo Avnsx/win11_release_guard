@@ -1105,12 +1105,13 @@ def _msrc_month_id_from_atom_date(value: Any) -> str | None:
 def _record_msrc_month_id(record: Mapping[str, Any]) -> str | None:
     """Resolve the MSRC CVRF month id for an enrichment record.
 
-    Prefers Atom-derived published/updated dates. The active baseline-update
-    notice record carries ``msrc_cvrf_month_fallback`` (the Release Health
-    baseline month) only when the Atom feed lags Patch Tuesday and provides no
-    published/updated dates, so security classification does not have to wait
-    for Microsoft's Atom entry. No other record type sets that field, so this
-    fallback never affects release-history or latest-observed enrichment.
+    Prefers source-derived published/updated dates. Two record types carry
+    ``msrc_cvrf_month_fallback`` instead: the active baseline-update notice
+    record when the discovery source provides no published/updated dates, and
+    the release-history record built for the broad target, whose month comes
+    from the Release Health availability date. Both resolve a month id without
+    any discovery-source entry, so security classification keeps working while
+    that source is unavailable.
     """
     month_id = _msrc_month_id_from_atom_date(record.get("published") or record.get("updated"))
     if month_id:
@@ -2461,6 +2462,50 @@ def _support_article_validation_for_record(
     return {key: value for key, value in validation.items() if value not in (None, "", [], ())}
 
 
+def _release_history_enrichment_record(
+    target: ReleasePolicyEntry | None,
+    release_history: tuple[ReleaseHistoryEntry, ...],
+) -> dict[str, Any] | None:
+    if target is None:
+        return None
+    candidates = [
+        row
+        for row in release_history
+        if row.release == target.version
+        and row.build_family == target.build_family
+        and not row.preview
+        and not row.out_of_band
+        and (row.update_type_letter or "B") == "B"
+        and _extract_kb(row.kb_article)
+    ]
+    if not candidates:
+        return None
+    row = max(candidates, key=_history_sort_key)
+    metadata = row.metadata if isinstance(row.metadata, Mapping) else {}
+    support_url = _safe_support_article_url(str(metadata.get("atom_feed_url") or "") or None)
+    record: dict[str, Any] = {
+        "release": row.release,
+        "build_family": row.build_family,
+        "build": row.build,
+        "kb_article": _extract_kb(row.kb_article),
+        "update_type": row.update_type,
+        "update_type_letter": row.update_type_letter,
+        "availability_date": row.availability_date,
+        "release_history_record": True,
+        "preview": row.preview,
+        "out_of_band": row.out_of_band,
+    }
+    if support_url:
+        record["support_url"] = support_url
+        record["atom_feed_url"] = support_url
+    official_date = _baseline_notice_official_date(row.availability_date)
+    if official_date is not None:
+        month_id = _msrc_month_id_from_atom_date(_datetime_utc_z(official_date))
+        if month_id:
+            record["msrc_cvrf_month_fallback"] = month_id
+    return {key: value for key, value in record.items() if value not in (None, "", [], ())}
+
+
 def _records_for_support_article_enrichment(
     *,
     target: ReleasePolicyEntry | None,
@@ -2468,6 +2513,7 @@ def _records_for_support_article_enrichment(
     release_history: tuple[ReleaseHistoryEntry, ...],
     observed_record: Mapping[str, Any] | None,
     baseline_update_record: Mapping[str, Any] | None = None,
+    release_history_record: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], ...]:
     if target is None:
         return ()
@@ -2503,6 +2549,20 @@ def _records_for_support_article_enrichment(
         current = records_by_url.get(url)
         if current is None or _atom_observed_record_is_preferred(record, current):
             records_by_url[url] = dict(record)
+    if release_history_record is not None:
+        record = dict(release_history_record)
+        build = str(record.get("build") or "")
+        url = _support_article_record_url(record)
+        already_known = any(
+            str(existing.get("build") or "") == build
+            for existing in (*records_by_url.values(), *urlless_records)
+        )
+        if not already_known:
+            if url:
+                records_by_url.setdefault(url, record)
+            elif record.get("msrc_cvrf_month_fallback"):
+                urlless_records.append(record)
+
     return (*(records_by_url[url] for url in sorted(records_by_url)), *urlless_records)
 
 
@@ -3488,10 +3548,17 @@ def _policy_with_enrichment(
 
     baseline_update_row = _required_baseline_history_row(target, release_history)
     baseline_update_record = _baseline_update_notice_record(target, baseline_update_row)
+    baseline_notice_active = _baseline_notice_is_active(
+        baseline_update_row, generated_at_utc=generated_at_utc
+    )
     baseline_update_enrichment_record = (
         baseline_update_record
-        if baseline_update_record is not None
-        and _baseline_notice_is_active(baseline_update_row, generated_at_utc=generated_at_utc)
+        if baseline_update_record is not None and baseline_notice_active
+        else None
+    )
+    release_history_enrichment_record = (
+        _release_history_enrichment_record(target, release_history)
+        if baseline_notice_active
         else None
     )
     support_article_records = _records_for_support_article_enrichment(
@@ -3500,6 +3567,7 @@ def _policy_with_enrichment(
         release_history=release_history,
         observed_record=observed_record,
         baseline_update_record=baseline_update_enrichment_record,
+        release_history_record=release_history_enrichment_record,
     )
     support_articles = _support_article_enrichments(
         support_article_records,
@@ -8718,6 +8786,8 @@ def build_policy_from_sources(
     atom_feed_path: str | Path | None = None,
     timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     signature_status: str = "unsigned",
+    support_article_fetcher: SupportArticleFetcher | None = None,
+    msrc_cvrf_fetcher: MsrcCvrfFetcher | None = None,
 ) -> ReleasePolicy:
     release_health = load_source_text(
         url=release_health_url,
@@ -8743,9 +8813,9 @@ def build_policy_from_sources(
         release_health_url=release_health_url,
         atom_feed_url=atom_feed_url,
         source_fetch_status=source_fetch_status,
-        support_article_fetcher=_default_support_article_fetcher,
+        support_article_fetcher=support_article_fetcher or _default_support_article_fetcher,
         support_article_timeout=timeout,
-        msrc_cvrf_fetcher=_default_msrc_cvrf_fetcher,
+        msrc_cvrf_fetcher=msrc_cvrf_fetcher or _default_msrc_cvrf_fetcher,
         msrc_cvrf_timeout=timeout,
         signature_status=signature_status,
     )

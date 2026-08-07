@@ -204,8 +204,9 @@ def _kb5094126_fixture_policy() -> ReleasePolicy:
         return _kb5094126_support_fixture()
 
     def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> dict[str, object]:
-        assert url == "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-Jun"
-        return _kb5094126_msrc_fixture()
+        if url.endswith("/2026-Jun"):
+            return _kb5094126_msrc_fixture()
+        return {"Vulnerability": []}
 
     return generate_policy(
         release_health_html=_html_file("windows11-release-health-header-variants.html"),
@@ -308,7 +309,8 @@ def _kb5094126_generated_fixture_policy(
         return support_html if support_html is not None else _kb5094126_support_fixture()
 
     def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> object:
-        assert url == "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-Jun"
+        if not url.endswith("/2026-Jun"):
+            return {"Vulnerability": []}
         if msrc_error is not None:
             raise msrc_error
         return msrc_payload if msrc_payload is not None else _kb5094126_msrc_fixture()
@@ -440,8 +442,9 @@ def _kb5094126_policy_with_support_html(
     msrc_fetcher = None
     if msrc_payload is not None:
         def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> dict[str, object]:
-            assert url == "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-Jun"
-            return msrc_payload
+            if url.endswith("/2026-Jun"):
+                return msrc_payload
+            return {"Vulnerability": []}
 
     return generate_policy(
         release_health_html=_html_file("windows11-release-health-header-variants.html"),
@@ -1276,6 +1279,8 @@ def test_generate_policy_from_local_html_and_atom_fixtures(tmp_path):
         release_health_html_path=FIXTURES / "windows11-release-health.html",
         atom_feed_path=FIXTURES / "windows11-atom.xml",
         signature_status="valid",
+        support_article_fetcher=_offline_support_article_fetcher,
+        msrc_cvrf_fetcher=_offline_msrc_cvrf_fetcher,
     )
     data = policy.to_dict()
     validation_warnings = validate_policy_document(data)
@@ -4156,7 +4161,7 @@ def test_parse_atom_feed_keeps_legacy_or_malformed_ids_without_diagnostic_hint()
     assert entries[2].diagnostic_id_hint is None
 
 
-def test_generator_source_failure_exits_nonzero_and_explains_failure(tmp_path, capsys):
+def test_generator_source_failure_exits_nonzero_and_explains_failure(tmp_path, capsys, offline_enrichment_fetchers):
     code = generate_policy_cli.main([
         "--release-health-html",
         str(tmp_path / "missing.html"),
@@ -4171,7 +4176,7 @@ def test_generator_source_failure_exits_nonzero_and_explains_failure(tmp_path, c
     assert "release_health_html source failure" in captured.err
 
 
-def test_generator_cli_writes_pages_support_files(tmp_path):
+def test_generator_cli_writes_pages_support_files(tmp_path, offline_enrichment_fetchers):
     output_dir = tmp_path / "site"
 
     code = generate_policy_cli.main([
@@ -4209,11 +4214,16 @@ def test_generator_cli_does_not_accept_github_issue_mutation_flags():
     assert "--source-diagnostic-issue-status-file" in help_text
 
 
-def test_generator_cli_merges_static_source_diagnostic_issue_status(tmp_path):
+def test_generator_cli_merges_static_source_diagnostic_issue_status(tmp_path, offline_enrichment_fetchers):
     output_dir = tmp_path / "site"
     atom_feed = tmp_path / "windows11-atom-new-baseline.xml"
     atom_feed.write_text(_atom_with_new_b_release(), encoding="utf-8")
-    preview_policy = generate_policy(release_health_html=_html(), atom_feed_xml=atom_feed.read_text(encoding="utf-8"))
+    preview_policy = generate_policy(
+        release_health_html=_html(),
+        atom_feed_xml=atom_feed.read_text(encoding="utf-8"),
+        support_article_fetcher=_offline_support_article_fetcher,
+        msrc_cvrf_fetcher=_offline_msrc_cvrf_fetcher,
+    )
     diagnostic_id = next(
         event["id"]
         for event in preview_policy.source_diagnostics["events"]
@@ -4358,7 +4368,7 @@ def test_policy_index_issue_status_links_only_real_warning_error_event_rows() ->
     assert '<a class="diag-ticket-link"' not in derived_index
 
 
-def test_generator_cli_strips_extra_source_diagnostic_issue_status_fields(tmp_path):
+def test_generator_cli_strips_extra_source_diagnostic_issue_status_fields(tmp_path, offline_enrichment_fetchers):
     output_dir = tmp_path / "site"
     preview_policy = generate_policy(release_health_html=_html(), atom_feed_xml=_atom())
     diagnostic_id = preview_policy.source_diagnostics["events"][0]["id"]
@@ -4414,7 +4424,7 @@ def test_generator_cli_strips_extra_source_diagnostic_issue_status_fields(tmp_pa
     }
 
 
-def test_generator_cli_merges_degraded_source_diagnostic_issue_sync_metadata(tmp_path):
+def test_generator_cli_merges_degraded_source_diagnostic_issue_sync_metadata(tmp_path, offline_enrichment_fetchers):
     output_dir = tmp_path / "site"
     issue_status = tmp_path / "issue-status.json"
     forbidden = "safe-test-token-value-that-must-not-print"
@@ -4468,7 +4478,7 @@ def test_generator_cli_merges_degraded_source_diagnostic_issue_sync_metadata(tmp
         assert forbidden not in path.read_text(encoding="utf-8")
 
 
-def test_generator_cli_rejects_invalid_source_diagnostic_issue_status_key(tmp_path, capsys):
+def test_generator_cli_rejects_invalid_source_diagnostic_issue_status_key(tmp_path, capsys, offline_enrichment_fetchers):
     output_dir = tmp_path / "site"
     issue_status = tmp_path / "issue-status.json"
     issue_status.write_text(json.dumps({"issue_status": {"not-a-diagnostic-id": {"number": 42}}}), encoding="utf-8")
@@ -4489,7 +4499,7 @@ def test_generator_cli_rejects_invalid_source_diagnostic_issue_status_key(tmp_pa
     assert "source diagnostic issue status keys must be deterministic diagnostic IDs" in captured.err
 
 
-def test_generator_cli_rejects_noncanonical_source_diagnostic_issue_status_url(tmp_path, capsys):
+def test_generator_cli_rejects_noncanonical_source_diagnostic_issue_status_url(tmp_path, capsys, offline_enrichment_fetchers):
     output_dir = tmp_path / "site"
     diagnostic_id = "wrg-source-diagnostic-v1:1111111111111111"
     issue_status = tmp_path / "issue-status.json"
@@ -5500,3 +5510,143 @@ def test_default_support_article_fetcher_follows_help_kb_redirect_to_servicing_a
     )
 
     assert html == "<html><title>KB5101650</title></html>"
+
+
+def _offline_support_article_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+    return (
+        "<html><body><h1>May 12, 2026-KB5089549 "
+        "(OS Builds 26200.8457 and 26100.8457)</h1></body></html>"
+    )
+
+
+def _offline_msrc_cvrf_fetcher(url: str, timeout: float, max_bytes: int) -> dict[str, object]:
+    return {"Vulnerability": []}
+
+
+@pytest.fixture
+def offline_enrichment_fetchers(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+    """Keep every generator entry point that resolves its own fetchers offline."""
+    calls: dict[str, list[str]] = {"support": [], "msrc": []}
+
+    def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        calls["support"].append(url)
+        return _offline_support_article_fetcher(url, timeout, max_bytes)
+
+    def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> dict[str, object]:
+        calls["msrc"].append(url)
+        return _offline_msrc_cvrf_fetcher(url, timeout, max_bytes)
+
+    monkeypatch.setattr(policy_generator_module, "_default_support_article_fetcher", support_fetcher)
+    monkeypatch.setattr(policy_generator_module, "_default_msrc_cvrf_fetcher", msrc_fetcher)
+    return calls
+
+
+def _broad_target_25h2() -> ReleasePolicyEntry:
+    return ReleasePolicyEntry(
+        version="25H2",
+        build_family=26200,
+        latest_build="26200.8875",
+        baseline_build="26200.8875",
+        required_baseline_build="26200.8875",
+    )
+
+
+def _release_history_25h2() -> tuple[object, ...]:
+    return (
+        policy_generator_module.ReleaseHistoryEntry(
+            release="25H2",
+            build_family=26200,
+            build="26200.8875",
+            availability_date="2026-07-14",
+            update_type="2026-07 B",
+            update_type_letter="B",
+            kb_article="KB5101650",
+            kb_url=KB5101650_SERVICING_URL,
+            metadata={"atom_feed_url": KB5101650_SERVICING_URL},
+        ),
+        policy_generator_module.ReleaseHistoryEntry(
+            release="25H2",
+            build_family=26200,
+            build="26200.8973",
+            availability_date="2026-07-28",
+            update_type="2026-07 D",
+            update_type_letter="D",
+            preview=True,
+            kb_article="KB5101684",
+        ),
+        policy_generator_module.ReleaseHistoryEntry(
+            release="25H2",
+            build_family=26200,
+            build="26200.8894",
+            availability_date="2026-07-18",
+            update_type="2026-07 OOB",
+            update_type_letter="OOB",
+            out_of_band=True,
+            kb_article="KB5121767",
+        ),
+    )
+
+
+def test_release_history_enrichment_record_selects_the_newest_broad_target_b_row() -> None:
+    record = policy_generator_module._release_history_enrichment_record(
+        _broad_target_25h2(), _release_history_25h2()
+    )
+
+    assert record is not None
+    assert record["kb_article"] == "KB5101650"
+    assert record["build"] == "26200.8875"
+    assert record["release"] == "25H2"
+    assert record["build_family"] == 26200
+    assert record["update_type_letter"] == "B"
+    assert record["availability_date"] == "2026-07-14"
+    assert record["release_history_record"] is True
+    assert record["preview"] is False
+    assert record["out_of_band"] is False
+    assert record["support_url"] == KB5101650_SERVICING_URL
+    assert record["atom_feed_url"] == KB5101650_SERVICING_URL
+    assert record["msrc_cvrf_month_fallback"] == "2026-Jul"
+    assert policy_generator_module._record_msrc_month_id(record) == "2026-Jul"
+
+
+def test_release_history_record_enters_the_enrichment_work_set_once() -> None:
+    record = policy_generator_module._release_history_enrichment_record(
+        _broad_target_25h2(), _release_history_25h2()
+    )
+
+    records = policy_generator_module._records_for_support_article_enrichment(
+        target=_broad_target_25h2(),
+        atom_entries=(),
+        release_history=_release_history_25h2(),
+        observed_record=None,
+        release_history_record=record,
+    )
+
+    assert len(records) == 1
+    assert records[0]["build"] == "26200.8875"
+    assert not any(item.get("preview") for item in records)
+    assert not any(item.get("out_of_band") for item in records)
+
+
+def test_required_baseline_kb_is_enriched_alongside_a_newer_observed_kb() -> None:
+    support_calls: list[str] = []
+    msrc_calls: list[str] = []
+
+    def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        support_calls.append(url)
+        return _offline_support_article_fetcher(url, timeout, max_bytes)
+
+    def msrc_fetcher(url: str, timeout: float, max_bytes: int) -> dict[str, object]:
+        msrc_calls.append(url)
+        return _offline_msrc_cvrf_fetcher(url, timeout, max_bytes)
+
+    policy = generate_policy(
+        release_health_html=_html(),
+        atom_feed_xml=_atom(),
+        generated_at_utc="2026-05-20T00:00:00+00:00",
+        support_article_fetcher=support_fetcher,
+        msrc_cvrf_fetcher=msrc_fetcher,
+    )
+
+    assert msrc_calls == ["https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/2026-May"]
+    assert "https://support.microsoft.com/help/5089549" in support_calls
+    assert policy.source_diagnostics["msrc_cvrf"]["2026-May"]["status"] == "ok"
