@@ -170,6 +170,50 @@ def test_server_lying_about_gzip_encoding_falls_back_to_raw_bytes() -> None:
     assert result.content == payload
 
 
+def test_gzip_decompression_bomb_fails_closed_on_decompressed_size() -> None:
+    # A small, genuinely valid gzip payload whose decompressed size is far
+    # larger than the cap -- the compressed body alone fits comfortably
+    # under the wire cap, so only a check on the decompressed output can
+    # catch this.
+    huge_payload = b"0" * (2 * 1024 * 1024)
+    compressed = gzip.compress(huge_payload)
+    assert len(compressed) < 4096
+    opener = _ScriptedOpener(
+        [_FakeResponse(headers={"Content-Encoding": "gzip"}, body=compressed)]
+    )
+    sleep, _delays = _recording_sleep()
+
+    with pytest.raises(PolicyFetchError, match="exceeds safety cap"):
+        http_client.request(DEFAULT_URL, timeout=1.0, max_bytes=4096, opener=opener, sleep=sleep)
+
+
+def test_deflate_decompression_bomb_fails_closed_on_decompressed_size() -> None:
+    huge_payload = b"1" * (2 * 1024 * 1024)
+    compressed = zlib.compress(huge_payload)
+    assert len(compressed) < 4096
+    opener = _ScriptedOpener(
+        [_FakeResponse(headers={"Content-Encoding": "deflate"}, body=compressed)]
+    )
+    sleep, _delays = _recording_sleep()
+
+    with pytest.raises(PolicyFetchError, match="exceeds safety cap"):
+        http_client.request(DEFAULT_URL, timeout=1.0, max_bytes=4096, opener=opener, sleep=sleep)
+
+
+def test_truncated_gzip_degrades_to_raw_bytes_instead_of_raising_eoferror() -> None:
+    payload = b"a payload long enough to survive truncation" * 10
+    compressed = gzip.compress(payload)
+    truncated = compressed[: len(compressed) - 10]
+    opener = _ScriptedOpener(
+        [_FakeResponse(headers={"Content-Encoding": "gzip"}, body=truncated)]
+    )
+    sleep, _delays = _recording_sleep()
+
+    result = http_client.request(DEFAULT_URL, timeout=1.0, max_bytes=1 << 20, opener=opener, sleep=sleep)
+
+    assert result.content == truncated
+
+
 def test_429_then_503_then_success_retries_and_returns_body() -> None:
     opener = _ScriptedOpener(
         [

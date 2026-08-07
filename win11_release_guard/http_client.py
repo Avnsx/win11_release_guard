@@ -3,6 +3,7 @@ from __future__ import annotations
 import email.message
 import email.utils
 import gzip
+import io
 import time
 import urllib.error
 import urllib.request
@@ -128,23 +129,51 @@ def _read_bounded(response: Any, *, max_bytes: int, label: str) -> bytes:
     return data
 
 
-def _decompress(data: bytes, content_encoding: str | None) -> bytes:
+class _DecompressionCapExceeded(Exception):
+    """Internal marker: decompressed output would exceed the byte cap."""
+
+
+def _bounded_gzip_decompress(data: bytes, *, max_bytes: int, label: str) -> bytes:
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as reader:
+            output = reader.read(max_bytes + 1)
+    except (OSError, EOFError, zlib.error):
+        return data
+    if len(output) > max_bytes:
+        raise PolicyFetchError(_too_large_message(label, max_bytes))
+    return output
+
+
+def _bounded_inflate(data: bytes, *, max_bytes: int, wbits: int) -> bytes:
+    decompressor = zlib.decompressobj(wbits)
+    output = decompressor.decompress(data, max_bytes + 1)
+    if len(output) > max_bytes or decompressor.unconsumed_tail:
+        raise _DecompressionCapExceeded()
+    output += decompressor.flush()
+    if len(output) > max_bytes:
+        raise _DecompressionCapExceeded()
+    return output
+
+
+def _bounded_deflate_decompress(data: bytes, *, max_bytes: int, label: str) -> bytes:
+    for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
+        try:
+            return _bounded_inflate(data, max_bytes=max_bytes, wbits=wbits)
+        except _DecompressionCapExceeded:
+            raise PolicyFetchError(_too_large_message(label, max_bytes))
+        except (zlib.error, EOFError):
+            continue
+    return data
+
+
+def _decompress(data: bytes, content_encoding: str | None, *, max_bytes: int, label: str) -> bytes:
     if not data or not content_encoding:
         return data
     normalized = content_encoding.strip().lower()
     if normalized == "gzip":
-        try:
-            return gzip.decompress(data)
-        except OSError:
-            return data
+        return _bounded_gzip_decompress(data, max_bytes=max_bytes, label=label)
     if normalized == "deflate":
-        try:
-            return zlib.decompress(data)
-        except zlib.error:
-            try:
-                return zlib.decompress(data, -zlib.MAX_WBITS)
-            except zlib.error:
-                return data
+        return _bounded_deflate_decompress(data, max_bytes=max_bytes, label=label)
     return data
 
 
@@ -205,7 +234,7 @@ def _finalize(
     content_encoding = _header(raw_headers, "Content-Encoding")
     headers = _headers_dict(raw_headers)
     raw = _read_bounded(response, max_bytes=max_bytes, label=label)
-    content = _decompress(raw, content_encoding)
+    content = _decompress(raw, content_encoding, max_bytes=max_bytes, label=label)
     return HttpResponse(url=final_url or url, status_code=status_code, headers=headers, content=content)
 
 
