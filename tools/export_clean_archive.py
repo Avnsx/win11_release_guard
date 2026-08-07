@@ -21,15 +21,15 @@ ALLOWED_NORMALIZED_PYPI_BADGE_ENDPOINTS = (
     "https://img.shields.io/pypi/dm/win11-release-guard",
 )
 REQUIRED_PUBLIC_ENRICHMENT_SOURCE_STATEMENT = (
-    "The production generator may use public Microsoft Release Health HTML, public Microsoft Update History Atom data, "
-    "Atom-linked public Microsoft Support articles, and unauthenticated public MSRC CVRF data for source diagnostics "
-    "and informational enrichment; it does not use Microsoft "
+    "The production generator may use public Microsoft Release Health HTML, the public Microsoft servicing "
+    "table-of-contents JSON, public Microsoft servicing support articles, and unauthenticated public MSRC CVRF "
+    "data for source diagnostics and informational enrichment; it does not use Microsoft "
     "Graph or token-authenticated Microsoft APIs."
 )
 REQUIRED_AGENTS_PUBLIC_ENRICHMENT_STATEMENT = (
-    "The production generator may use public Microsoft Release Health HTML, public Microsoft Update History Atom feed data, "
-    "Atom-linked public Microsoft Support articles, and unauthenticated public MSRC CVRF data for source diagnostics "
-    "and informational enrichment."
+    "The production generator may use public Microsoft Release Health HTML, the public Microsoft servicing "
+    "table-of-contents JSON, public Microsoft servicing support articles, and unauthenticated public MSRC CVRF "
+    "data for source diagnostics and informational enrichment."
 )
 ALLOWED_ACTIVE_AUTH_BOUNDARIES = (
     REQUIRED_PUBLIC_ENRICHMENT_SOURCE_STATEMENT,

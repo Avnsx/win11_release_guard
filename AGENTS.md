@@ -18,7 +18,7 @@ This repository is public software for Windows administrators. Future agents mus
 12. GitHub Pages output is public static non-secret data.
 13. Retiring or retired public policy keys must be bounded by `verify_not_after_utc`; runtime verification must not accept fresh signatures from retired keys.
 14. WUA is secondary evidence only and must never override the signed policy verdict.
-15. The production generator may use public Microsoft Release Health HTML, public Microsoft Update History Atom feed data, Atom-linked public Microsoft Support articles, and unauthenticated public MSRC CVRF data for source diagnostics and informational enrichment.
+15. The production generator may use public Microsoft Release Health HTML, the public Microsoft servicing table-of-contents JSON, public Microsoft servicing support articles, and unauthenticated public MSRC CVRF data for source diagnostics and informational enrichment.
 16. Authenticated Microsoft Graph, token-authenticated Microsoft APIs, and historical authenticated metadata research remain out of active production generator architecture; historical research may remain only in `docs/architecture-insight.md` when explicitly marked out of scope.
 17. `.git` is never included in clean archives.
 18. The source of truth is current code, tests, workflows, docs, and tools, not handover text.

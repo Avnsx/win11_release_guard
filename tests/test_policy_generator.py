@@ -29,7 +29,6 @@ from win11_release_guard.policy_generator import (
     _source_diagnostic_id,
     build_policy_from_sources,
     generate_policy,
-    parse_atom_feed,
     render_changelog_pages,
     render_robots_txt,
     write_policy_outputs,
@@ -647,71 +646,25 @@ def test_source_label_requires_exact_upstream_hosts() -> None:
     assert _source_label(spoofed_servicing_url) == spoofed_servicing_url
 
 
-def test_atom_link_selection_prefers_safe_alternate_after_self_feed_url() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_links(
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            (
-                '<link rel="self" href="https://support.microsoft.com/en-us/feed/atom/not-an-article" />',
-                f'<link rel="alternate" href="{KB5094126_SUPPORT_URL}?utm_source=feed" />',
-            ),
-        )
+def test_unsafe_servicing_article_urls_are_rejected() -> None:
+    assert policy_generator_module._safe_support_article_url(
+        "https://evil.example/servicing/os/windows-11/2026/07/kb5101650"
+    ) is None
+    assert policy_generator_module._safe_support_article_url(
+        "https://support.microsoft.com/en-us/search?query=KB5101650"
+    ) is None
+    assert policy_generator_module._safe_support_article_url(
+        "https://support.microsoft.com/en-us/servicing/os/windows-11/../../secret"
+    ) is None
+
+
+def test_safe_servicing_article_url_is_accepted_and_canonicalized() -> None:
+    url = (
+        "https://support.microsoft.com/en-us/servicing/os/windows-11/"
+        "2026/07/july-14-2026-kb5101650-os-builds-26200-8875-and-26100-8875"
     )
 
-    entry = parse_atom_feed(atom)[0]
-
-    assert entry.link == KB5094126_SUPPORT_URL
-
-
-def test_atom_link_selection_skips_unsafe_alternate_before_safe_alternate() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_links(
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            (
-                '<link rel="alternate" href="https://evil.example/topic/kb5094126" />',
-                '<link rel="alternate" href="https://support.microsoft.com/help/5094126" />',
-            ),
-        )
-    )
-
-    entry = parse_atom_feed(atom)[0]
-
-    assert entry.link == "https://support.microsoft.com/help/5094126"
-
-
-def test_atom_unsafe_links_create_missing_href_without_latest_observed_advancement() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_links(
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            (
-                '<link rel="self" href="https://support.microsoft.com/en-us/feed/atom/not-an-article" />',
-                '<link rel="alternate" href="https://support.microsoft.com/en-us/search?query=KB5094126" />',
-                '<link rel="alternate" href="https://evil.example/topic/kb5094126" />',
-            ),
-        )
-    )
-
-    policy = generate_policy(
-        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
-        generated_at_utc="2026-06-11T00:00:00+00:00",
-    )
-    target = policy.broad_target_existing_devices
-
-    assert parse_atom_feed(atom)[0].link is None
-    assert target is not None
-    assert target.latest_build == "26200.8524"
-    assert target.latest_observed_build == "26200.8524"
-    assert "latest_observed_source_url" not in target.metadata
-    assert not policy.source_diagnostics["support_articles"]
-    missing = next(
-        event
-        for event in policy.source_diagnostics["events"]
-        if event["kind"] == "atom_support_article_href_missing"
-    )
-    assert missing["kb_article"] == "KB5094126"
-    assert missing["build"] == "26200.8655"
-    assert "support_url" not in missing
+    assert policy_generator_module._safe_support_article_url(url) == url
 
 
 def test_kb_url_rejects_unsafe_direct_atom_link() -> None:
@@ -1501,16 +1454,19 @@ def test_source_diagnostics_notice_when_atom_preview_is_newer_than_release_histo
 
 
 def test_source_diagnostics_notice_when_atom_newer_is_not_broad_target() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry(
-            "KB5089602",
-            "June 9, 2026-KB5089602 (OS Build 28000.2114)",
-            link="https://support.microsoft.com/help/5089602",
-        )
+    toc = json.dumps(
+        {
+            "items": [
+                {
+                    "toc_title": "June 9, 2026-KB5089602 (OS Build 28000.2114)",
+                    "href": "2026/06/june-9-2026-kb5089602-os-build-28000-2114",
+                },
+            ]
+        }
     )
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=atom,
+        servicing_toc_json=toc,
         generated_at_utc="2026-06-10T00:00:00+00:00",
     )
 
@@ -1527,16 +1483,19 @@ def test_source_diagnostics_notice_when_atom_newer_is_not_broad_target() -> None
 
 
 def test_source_diagnostics_notice_when_atom_build_family_has_no_release_mapping() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry(
-            "KB5089603",
-            "June 9, 2026-KB5089603 (OS Build 29999.1000)",
-            link="https://support.microsoft.com/help/5089603",
-        )
+    toc = json.dumps(
+        {
+            "items": [
+                {
+                    "toc_title": "June 9, 2026-KB5089603 (OS Build 29999.1000)",
+                    "href": "2026/06/june-9-2026-kb5089603-os-build-29999-1000",
+                },
+            ]
+        }
     )
     policy = generate_policy(
         release_health_html=_html(),
-        atom_feed_xml=atom,
+        servicing_toc_json=toc,
         generated_at_utc="2026-06-10T00:00:00+00:00",
     )
 
@@ -1550,34 +1509,6 @@ def test_source_diagnostics_notice_when_atom_build_family_has_no_release_mapping
     assert event["build_family"] == 29999
     assert event["affects_broad_target"] is False
     assert event["affects_required_baseline"] is False
-
-
-def test_source_diagnostics_notice_when_atom_broad_target_build_lacks_kb() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry(
-            "no-kb-build",
-            "June 9, 2026 servicing update (OS Build 26200.8462)",
-            link="https://support.microsoft.com/help/no-kb-build",
-            content="Windows 11 servicing update without KB metadata.",
-        )
-    )
-    policy = generate_policy(
-        release_health_html=_html(),
-        atom_feed_xml=atom,
-        generated_at_utc="2026-06-10T00:00:00+00:00",
-    )
-
-    event = next(
-        event
-        for event in policy.source_diagnostics["events"]
-        if event["kind"] == "atom_newer_than_release_history" and event["build"] == "26200.8462"
-    )
-    assert event["severity"] == "notice"
-    assert event["release"] == "25H2"
-    assert event["kb_article"] is None
-    assert event["affects_broad_target"] is True
-    assert event["affects_required_baseline"] is False
-    assert not any("unknown KB build 26200.8462" in warning for warning in policy.validation_warnings)
 
 
 def test_source_diagnostics_ignores_atom_build_older_than_release_history() -> None:
@@ -1786,58 +1717,6 @@ def test_source_diagnostics_warn_when_atom_has_newer_b_release_for_broad_target(
     assert any("newer non-preview build for the broad target" in warning for warning in policy.validation_warnings)
 
 
-def test_source_diagnostics_atom_entry_id_propagates_to_event_and_dashboard() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-        )
-    )
-    policy = generate_policy(
-        release_health_html=_html(),
-        atom_feed_xml=atom,
-        generated_at_utc="2026-06-10T18:00:00+00:00",
-    )
-    drift = [
-        item
-        for item in policy.source_diagnostics["drift"]["atom_newer_than_release_history"]
-        if item["build"] == "26200.8655"
-    ]
-    events = [
-        event
-        for event in policy.source_diagnostics["events"]
-        if event["kind"] == "atom_newer_than_release_history" and event["build"] == "26200.8655"
-    ]
-
-    assert len(drift) == 1
-    assert drift[0]["kb_article"] == "KB5094126"
-    assert drift[0]["atom_entry_id"] == ATOM_ENTRY_ID
-    assert drift[0]["atom_support_article_id"] == ATOM_SUPPORT_ARTICLE_ID
-    assert drift[0]["atom_feed_url"] == KB5094126_SUPPORT_URL
-    assert drift[0]["support_url"] == KB5094126_SUPPORT_URL
-    assert drift[0]["diagnostic_id_hint"] == ATOM_SOURCE_DIAGNOSTIC_ID
-    assert len(events) == 1
-    event = events[0]
-    assert event["id"] == ATOM_SOURCE_DIAGNOSTIC_ID
-    assert event["severity"] == "warning"
-    assert event["release"] == "25H2"
-    assert event["kb_article"] == "KB5094126"
-    assert event["affects_broad_target"] is True
-    assert event["affects_required_baseline"] is True
-    assert event["atom_entry_id"] == ATOM_ENTRY_ID
-    assert event["atom_support_article_id"] == ATOM_SUPPORT_ARTICLE_ID
-    assert event["atom_feed_url"] == KB5094126_SUPPORT_URL
-    assert event["support_url"] == KB5094126_SUPPORT_URL
-    assert event["source_url"] == KB5094126_SUPPORT_URL
-    assert event["diagnostic_id_hint"] == ATOM_SOURCE_DIAGNOSTIC_ID
-    assert any("newer non-preview build for the broad target" in warning for warning in policy.validation_warnings)
-    validate_policy_document(policy.to_dict())
-
-    index = policy_generator_module.render_policy_index(policy, policy_bytes=None, signature=None)
-    assert f'data-diagnostic-id="{ATOM_SOURCE_DIAGNOSTIC_ID}"' in index
-    assert "diagnostic_id:row.getAttribute('data-diagnostic-id')||''" in index
-
-
 def test_kb5094126_multi_build_atom_events_get_unique_diagnostic_ids() -> None:
     policy = _kb5094126_fixture_policy()
     events = [
@@ -1898,92 +1777,6 @@ def test_kb5094126_dashboard_rows_and_visible_export_ids_are_unique(tmp_path: Pa
     ]
     assert export_like_ids == row_ids
     assert len(set(export_like_ids)) == len(export_like_ids)
-
-
-def test_atom_support_latest_observed_does_not_change_required_baseline() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-        )
-    )
-    policy = generate_policy(
-        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
-        generated_at_utc="2026-06-10T18:00:00+00:00",
-    )
-
-    target = policy.broad_target_existing_devices
-    assert target is not None
-    assert target.version == "25H2"
-    assert target.latest_build == "26200.8524"
-    assert target.latest_observed_build == "26200.8655"
-    assert target.baseline_build == "26200.8457"
-    assert target.required_baseline_build == "26200.8457"
-    assert target.metadata["latest_observed_source"] == "atom_support_article"
-    assert target.metadata["latest_observed_source_url"] == KB5094126_SUPPORT_URL
-    assert target.metadata["latest_observed_kb_article"] == "KB5094126"
-    assert target.metadata["latest_observed_published"] == "2026-06-09T17:04:01Z"
-    assert target.metadata["latest_observed_updated"] == "2026-06-10T17:20:31Z"
-    assert target.metadata["latest_observed_atom_entry_id"] == ATOM_ENTRY_ID
-    assert target.metadata["latest_observed_atom_support_article_id"] == ATOM_SUPPORT_ARTICLE_ID
-
-    current_25h2 = next(
-        entry
-        for entry in policy.current_versions
-        if entry.version == "25H2" and entry.build_family == 26200
-    )
-    assert current_25h2.latest_build == "26200.8524"
-    assert current_25h2.latest_observed_build == "26200.8655"
-    assert current_25h2.required_baseline_build == "26200.8457"
-    assert current_25h2.metadata["latest_observed_source_url"] == KB5094126_SUPPORT_URL
-
-    generated_policy = policy.to_dict()
-    broad_target = generated_policy["broad_target_existing_devices"]
-    assert broad_target["latest_build"] == "26200.8524"
-    assert broad_target["latest_observed_build"] == "26200.8655"
-    assert broad_target["required_baseline_build"] == "26200.8457"
-    assert broad_target["metadata"]["latest_observed_atom_entry_id"] == ATOM_ENTRY_ID
-    validate_policy_document(generated_policy)
-
-
-def test_atom_support_latest_observed_renders_dashboard_and_manifest_evidence() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-        )
-    )
-    policy = generate_policy(
-        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
-    )
-
-    index = policy_generator_module.render_policy_index(policy, policy_bytes=None, signature=None)
-    assert "26200.8655" in index
-    assert "Microsoft Support article" in index
-    assert (
-        '<div class="metric">26200.8655</div><span class="label">Microsoft Current Versions table</span>'
-        not in index
-    )
-
-    policy_bytes = json.dumps(policy.to_dict(), sort_keys=True).encode("utf-8")
-    manifest = json.loads(
-        policy_generator_module.render_policy_manifest(
-            policy,
-            policy_bytes=policy_bytes,
-            signature_bytes=None,
-        )
-    )
-    evidence = manifest["latest_observed_evidence"]
-    assert manifest["latest_observed_build"] == "26200.8655"
-    assert manifest["broad_target_existing_devices"]["latest_observed_build"] == "26200.8655"
-    assert manifest["broad_target_existing_devices"]["latest_observed_evidence"] == evidence
-    assert evidence["latest_observed_source"] == "atom_support_article"
-    assert evidence["latest_observed_source_url"] == KB5094126_SUPPORT_URL
-    assert evidence["latest_observed_kb_article"] == "KB5094126"
-    assert evidence["latest_observed_atom_entry_id"] == ATOM_ENTRY_ID
-    assert evidence["latest_observed_atom_support_article_id"] == ATOM_SUPPORT_ARTICLE_ID
 
 
 def test_support_article_fact_extraction_for_kb5094126() -> None:
@@ -2150,13 +1943,6 @@ def test_support_article_applies_to_release_miss_is_untrusted_for_windows11_even
 
 
 def test_applies_to_release_mismatch_blocks_support_summary_but_not_msrc_security() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_links(
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            (f'<link rel="alternate" href="{KB5094126_SUPPORT_URL}" />',),
-        )
-    )
-
     def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
         assert url == KB5094126_SUPPORT_URL
         return _support_article_html(
@@ -2170,7 +1956,7 @@ def test_applies_to_release_mismatch_blocks_support_summary_but_not_msrc_securit
 
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
+        servicing_toc_json=_kb5094126_toc_fixture(),
         generated_at_utc="2026-06-11T00:00:00+00:00",
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
@@ -2368,12 +2154,6 @@ def test_msrc_cvrf_kb_absent_is_not_security() -> None:
 
 
 def test_support_article_enrichment_adds_diagnostic_context_and_dashboard_summary() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-        )
-    )
     fetched: list[tuple[str, float, int]] = []
 
     def fetcher(url: str, timeout: float, max_bytes: int) -> str:
@@ -2382,7 +2162,7 @@ def test_support_article_enrichment_adds_diagnostic_context_and_dashboard_summar
 
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
+        servicing_toc_json=_kb5094126_toc_fixture(),
         support_article_fetcher=fetcher,
         support_article_timeout=3.5,
     )
@@ -2578,20 +2358,19 @@ def test_support_article_validation_renders_and_exports_without_raw_html(tmp_pat
 
 
 def test_msrc_cvrf_marks_atom_diagnostic_as_security_and_uses_single_month_fetch() -> None:
-    second_support_url = (
-        "https://support.microsoft.com/en-us/topic/"
-        "june-9-2026-kb5094127-os-build-26200-8660-1a9bcba6-5f53-4075-8156-fe11ac631738"
-    )
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Build 26200.8655) - Microsoft Support",
-        ),
-        _atom_entry_with_raw_id(
-            "uuid:07747009-7264-44f2-86c2-1c3e09919af4;id=968481",
-            "June 9, 2026&#8212;KB5094127 (OS Build 26200.8660) - Microsoft Support",
-            link=second_support_url,
-        ),
+    toc = json.dumps(
+        {
+            "items": [
+                {
+                    "toc_title": "June 9, 2026-KB5094126 (OS Build 26200.8655)",
+                    "href": "2026/06/june-9-2026-kb5094126-os-build-26200-8655",
+                },
+                {
+                    "toc_title": "June 9, 2026-KB5094127 (OS Build 26200.8660)",
+                    "href": "2026/06/june-9-2026-kb5094127-os-build-26200-8660",
+                },
+            ]
+        }
     )
     msrc_urls: list[tuple[str, float, int]] = []
 
@@ -2604,7 +2383,7 @@ def test_msrc_cvrf_marks_atom_diagnostic_as_security_and_uses_single_month_fetch
 
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
+        servicing_toc_json=toc,
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
         msrc_cvrf_timeout=4.0,
@@ -2854,42 +2633,9 @@ def test_kb5094126_generated_output_when_release_health_has_caught_up(tmp_path: 
     assert "Servicing index shows a newer non-preview build for the broad target" not in index
 
 
-def test_generated_output_hardens_unsafe_atom_and_expired_notice_paths(tmp_path: Path) -> None:
-    unsafe_atom = _atom_feed_with_entries(
-        _atom_entry_with_links(
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            (
-                '<link rel="self" href="https://support.microsoft.com/en-us/feed/atom/not-an-article" />',
-                '<link rel="alternate" href="https://evil.example/topic/kb5094126" />',
-            ),
-        )
-    )
-    unsafe_policy = generate_policy(
-        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=unsafe_atom,
-        generated_at_utc="2026-06-11T00:00:00+00:00",
-    )
-    unsafe_outputs = _generated_output_bundle(unsafe_policy, tmp_path / "unsafe")
-    unsafe_data = unsafe_outputs["policy"]
-    unsafe_combined = "\n".join(
-        str(unsafe_outputs[key]) for key in ("policy_text", "manifest_text", "index")
-    )
-
-    assert isinstance(unsafe_data, dict)
-    _assert_unique_source_diagnostic_ids(unsafe_data, str(unsafe_outputs["index"]))
-    validate_policy_document(unsafe_data)
-    assert "evil.example" not in unsafe_combined
-    assert "https://support.microsoft.com/help/5094126" not in unsafe_combined
-    assert unsafe_data["source_diagnostics"]["support_articles"] == {}
-
+def test_generated_output_hardens_expired_notice_path(tmp_path: Path) -> None:
     support_calls: list[str] = []
     msrc_calls: list[str] = []
-    safe_single_build_atom = _atom_feed_with_entries(
-        _atom_entry_with_links(
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            (f'<link rel="alternate" href="{KB5094126_SUPPORT_URL}" />',),
-        )
-    )
 
     def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
         support_calls.append(url)
@@ -2901,7 +2647,7 @@ def test_generated_output_hardens_unsafe_atom_and_expired_notice_paths(tmp_path:
 
     expired_policy = generate_policy(
         release_health_html=_release_health_caught_up_to_kb5094126(),
-        atom_feed_xml=safe_single_build_atom,
+        servicing_toc_json=_kb5094126_toc_fixture(),
         generated_at_utc="2026-07-01T00:00:00+00:00",
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
@@ -3463,13 +3209,6 @@ def test_generated_output_surfaces_msrc_unavailable_and_malformed_as_unknown(tmp
 
 
 def test_msrc_cvrf_absent_kb_keeps_generic_os_build_non_security() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-        )
-    )
-
     def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
         return KB5094126_SUPPORT_HTML_NO_SECURITY
 
@@ -3478,7 +3217,7 @@ def test_msrc_cvrf_absent_kb_keeps_generic_os_build_non_security() -> None:
 
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
+        servicing_toc_json=_kb5094126_toc_fixture(),
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
     )
@@ -3498,13 +3237,6 @@ def test_msrc_cvrf_absent_kb_keeps_generic_os_build_non_security() -> None:
 
 
 def test_msrc_cvrf_unavailable_uses_support_article_security_fallback() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-        )
-    )
-
     def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
         return KB5094126_SUPPORT_HTML
 
@@ -3513,7 +3245,7 @@ def test_msrc_cvrf_unavailable_uses_support_article_security_fallback() -> None:
 
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
+        servicing_toc_json=_kb5094126_toc_fixture(),
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
     )
@@ -3539,13 +3271,6 @@ def test_msrc_cvrf_unavailable_uses_support_article_security_fallback() -> None:
 
 
 def test_malformed_msrc_cvrf_is_nonfatal_unknown_security_status() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-        )
-    )
-
     def support_fetcher(url: str, timeout: float, max_bytes: int) -> str:
         return KB5094126_SUPPORT_HTML_NO_SECURITY
 
@@ -3554,7 +3279,7 @@ def test_malformed_msrc_cvrf_is_nonfatal_unknown_security_status() -> None:
 
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
+        servicing_toc_json=_kb5094126_toc_fixture(),
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
     )
@@ -3572,19 +3297,12 @@ def test_malformed_msrc_cvrf_is_nonfatal_unknown_security_status() -> None:
 
 
 def test_support_article_fetch_failure_is_source_diagnostic_metadata() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-        )
-    )
-
     def fetcher(url: str, timeout: float, max_bytes: int) -> str:
         raise PolicyFetchError("network unavailable")
 
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
+        servicing_toc_json=_kb5094126_toc_fixture(),
         support_article_fetcher=fetcher,
     )
 
@@ -3614,19 +3332,12 @@ def test_support_article_fetch_failure_is_source_diagnostic_metadata() -> None:
 
 
 def test_malformed_support_article_html_is_degraded_metadata() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-        )
-    )
-
     def fetcher(url: str, timeout: float, max_bytes: int) -> str:
         return "<html><head><script>ignored()</script></head><body><svg>ignored</svg></body></html>"
 
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
+        servicing_toc_json=_kb5094126_toc_fixture(),
         support_article_fetcher=fetcher,
     )
 
@@ -3652,16 +3363,19 @@ def test_malformed_support_article_html_is_degraded_metadata() -> None:
 
 
 def test_atom_support_missing_href_creates_diagnostic_without_help_fallback() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-            link="",
-        )
+    toc = json.dumps(
+        {
+            "items": [
+                {
+                    "toc_title": "June 9, 2026-KB5094126 (OS Builds 26200.8655 and 26100.8655)",
+                    "href": "../escape",
+                },
+            ]
+        }
     )
     policy = generate_policy(
         release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
+        servicing_toc_json=toc,
     )
     target = policy.broad_target_existing_devices
     assert target is not None
@@ -3680,50 +3394,8 @@ def test_atom_support_missing_href_creates_diagnostic_without_help_fallback() ->
     assert event["kb_article"] == "KB5094126"
     assert event["affects_broad_target"] is True
     assert event["affects_required_baseline"] is True
-    assert event["atom_entry_id"] == ATOM_ENTRY_ID
     assert "https://support.microsoft.com/help/5094126" not in json.dumps(policy.to_dict())
 
-
-@pytest.mark.parametrize(
-    "href",
-    (
-        "http://support.microsoft.com/en-us/topic/kb5094126",
-        "https://example.com/en-us/topic/kb5094126",
-        "https://support.microsoft.com/feed/atom/kb5094126",
-    ),
-)
-def test_malformed_or_non_support_atom_href_is_not_fetched(href: str) -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-            link=href,
-        )
-    )
-
-    def fetcher(url: str, timeout: float, max_bytes: int) -> str:
-        raise AssertionError(f"unexpected support article fetch: {url}")
-
-    policy = generate_policy(
-        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
-        support_article_fetcher=fetcher,
-    )
-
-    target = policy.broad_target_existing_devices
-    assert target is not None
-    assert parse_atom_feed(atom)[0].link is None
-    assert target.latest_observed_build == "26200.8524"
-    assert not policy.source_diagnostics["support_articles"]
-    missing = next(
-        event
-        for event in policy.source_diagnostics["events"]
-        if event["kind"] == "atom_support_article_href_missing"
-    )
-    assert missing["kb_article"] == "KB5094126"
-    assert missing["build"] == "26200.8655"
-    assert "atom_feed_url" not in missing
-    assert "support_url" not in missing
 
 
 def test_preview_atom_support_entry_does_not_update_latest_observed() -> None:
@@ -3764,60 +3436,6 @@ def test_out_of_band_atom_support_entry_does_not_update_latest_observed() -> Non
     assert "latest_observed_source" not in target.metadata
 
 
-def test_source_diagnostics_dedupes_duplicate_atom_ids_by_newest_updated() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry(
-            "KB5094126",
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            updated="2026-06-09T17:20:31Z",
-            link=KB5094126_SUPPORT_URL,
-        ),
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 (OS Build 26200.8655) - Microsoft Support",
-            updated="2026-06-10T17:20:31Z",
-        ),
-    )
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=atom)
-    events = [
-        event
-        for event in policy.source_diagnostics["events"]
-        if event["kind"] == "atom_newer_than_release_history"
-        and event["build"] == "26200.8655"
-        and event["kb_article"] == "KB5094126"
-    ]
-
-    assert len(events) == 1
-    assert events[0]["id"] == ATOM_SOURCE_DIAGNOSTIC_ID
-    assert events[0]["atom_entry_id"] == ATOM_ENTRY_ID
-
-
-def test_source_diagnostics_dedupes_duplicate_atom_ids_by_stable_id_tiebreaker() -> None:
-    earlier_entry_id = "uuid:00000000-0000-4000-8000-000000000001;id=111"
-    later_entry_id = "uuid:ffffffff-ffff-4fff-8fff-ffffffffffff;id=999"
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            later_entry_id,
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            updated="2026-06-10T17:20:31Z",
-        ),
-        _atom_entry_with_raw_id(
-            earlier_entry_id,
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            updated="2026-06-10T17:20:31Z",
-        ),
-    )
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=atom)
-    event = next(
-        event
-        for event in policy.source_diagnostics["events"]
-        if event["kind"] == "atom_newer_than_release_history"
-        and event["build"] == "26200.8655"
-        and event["kb_article"] == "KB5094126"
-    )
-
-    assert event["atom_entry_id"] == earlier_entry_id
-    assert event["id"] == f"{SOURCE_DIAGNOSTIC_ID_PREFIX}:{earlier_entry_id}"
 
 
 def test_source_diagnostics_unresolved_after_24h_only_for_warning_drift() -> None:
@@ -4109,81 +3727,6 @@ def test_publish_workflow_keeps_source_diagnostic_error_events_publish_relevant(
 
     assert 'event.get("severity") == "error"' in workflow
     assert "source diagnostics error events block publish" in workflow
-
-
-def test_parse_atom_feed_extracts_kb_build_and_classification():
-    entries = parse_atom_feed((FIXTURES / "windows11-atom.xml").read_text(encoding="utf-8"))
-    preview = next(entry for entry in entries if entry.kb_article == "KB5083631")
-    oob = next(entry for entry in entries if entry.kb_article == "KB5089550")
-
-    assert preview.preview is True
-    assert preview.builds == ("26200.8328",)
-    assert oob.out_of_band is True
-
-
-def test_parse_atom_feed_preserves_namespaced_atom_entry_id_metadata():
-    entries = parse_atom_feed(
-        _atom_feed_with_entries(
-            _atom_entry_with_raw_id(
-                ATOM_ENTRY_ID,
-                "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-            )
-        )
-    )
-
-    assert len(entries) == 1
-    entry = entries[0]
-    assert entry.entry_id == ATOM_ENTRY_ID
-    assert entry.support_article_id == ATOM_SUPPORT_ARTICLE_ID
-    assert entry.diagnostic_id_hint == ATOM_SOURCE_DIAGNOSTIC_ID
-    assert entry.link == KB5094126_SUPPORT_URL
-    assert entry.kb_article == "KB5094126"
-    assert entry.builds == ("26200.8655", "26100.8655")
-
-
-def test_parse_atom_feed_preserves_non_namespaced_atom_entry_id_metadata():
-    atom = f"""<?xml version="1.0" encoding="utf-8"?>
-<feed>
-  {_atom_entry_with_raw_id(
-        ATOM_ENTRY_ID,
-        "June 9, 2026&#8212;KB5094126 (OS Builds 26200.8655 and 26100.8655) - Microsoft Support",
-    )}
-</feed>
-"""
-
-    entry = parse_atom_feed(atom)[0]
-
-    assert entry.entry_id == ATOM_ENTRY_ID
-    assert entry.support_article_id == ATOM_SUPPORT_ARTICLE_ID
-    assert entry.diagnostic_id_hint == ATOM_SOURCE_DIAGNOSTIC_ID
-    assert entry.link == KB5094126_SUPPORT_URL
-
-
-def test_parse_atom_feed_keeps_legacy_or_malformed_ids_without_diagnostic_hint():
-    atom = _atom_feed_with_entries(
-        _atom_entry(
-            "KB5089600",
-            "June 9, 2026-KB5089600 (OS Build 26200.8461)",
-        ),
-        _atom_entry_with_raw_id(
-            "uuid:not-a-canonical-id;id=968480",
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-        ),
-        """  <entry>
-    <title>June 9, 2026-KB5094127 (OS Build 26200.8656)</title>
-    <link rel="alternate" href="https://support.microsoft.com/help/5094127" />
-  </entry>""",
-    )
-
-    entries = parse_atom_feed(atom)
-
-    assert entries[0].entry_id == "tag:support.microsoft.com,2026:KB5089600"
-    assert entries[0].diagnostic_id_hint is None
-    assert entries[1].entry_id == "uuid:not-a-canonical-id;id=968480"
-    assert entries[1].support_article_id == ATOM_SUPPORT_ARTICLE_ID
-    assert entries[1].diagnostic_id_hint is None
-    assert entries[2].entry_id is None
-    assert entries[2].diagnostic_id_hint is None
 
 
 def test_generator_source_failure_exits_nonzero_and_explains_failure(tmp_path, capsys, offline_enrichment_fetchers):
@@ -4644,7 +4187,7 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
     assert manifest["status"] == "Policy current"
     assert manifest["published_urls"]["policy"] == DEFAULT_POLICY_URL
     assert manifest["published_urls"]["api_policy"].endswith("/api/v1/policy.json")
-    assert manifest["source_diagnostics"]["atom_feed"]["newest_atom_build"] == "26200.8460"
+    assert manifest["source_diagnostics"]["servicing_toc"]["newest_servicing_build"] == "26200.8460"
     source_diagnostic_ids = [
         event["id"] for event in generated_policy["source_diagnostics"]["events"]
     ]
@@ -4836,7 +4379,7 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
     assert index.find("No source issues reported") < index.find("26H1 excluded for existing devices")
     assert "existing devi." not in index
     assert "Microsoft Release Health" in index
-    assert "Microsoft Atom feed" in index
+    assert "Microsoft servicing index" in index
     assert "Ed25519" in index or "ed25519" in index
     assert "test-policy-key" in index
     assert "/windows-release-policy.json" in index

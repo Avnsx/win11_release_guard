@@ -139,7 +139,7 @@ GitHub Actions schedules are best-effort platform automation and do not guarante
 ## Verify
 
 ```powershell
-python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --atom-feed tests/fixtures/windows11-atom.xml --output-dir site --write-index --write-robots --write-sitemap --write-manifest
+python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --servicing-toc tests/fixtures/windows11-servicing-toc.json --output-dir site --write-index --write-robots --write-sitemap --write-manifest
 pytest -q tests/test_pages_landing.py tests/test_policy_generator.py tests/test_wiki_markdown_links.py tests/test_source_diagnostics_issue_metadata.py
 python -m win11_release_guard --check-public-pages
 ```

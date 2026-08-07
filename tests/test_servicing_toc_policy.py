@@ -242,3 +242,43 @@ def test_generator_cli_writes_policy_from_the_servicing_toc_fixture(tmp_path) ->
     assert policy["source_diagnostics"]["servicing_toc"]["status"] == "ok"
     assert not any("feed/atom" in url for url in policy["source_urls"])
     assert "atom_feed" not in policy["source_fetch_status"]
+
+
+import win11_release_guard.policy_generator as policy_generator_module
+
+
+def test_atom_parameters_are_accepted_and_ignored() -> None:
+    policy = generate_policy(
+        release_health_html=_html_with_kb5101650(),
+        servicing_toc_json=_july_toc(),
+        atom_feed_xml="<feed><entry><title>ignored</title></entry></feed>",
+        atom_feed_url="https://support.microsoft.com/en-us/feed/atom/ignored",
+        generated_at_utc="2026-07-15T00:00:00+00:00",
+    )
+    kinds = {event["kind"] for event in policy.source_diagnostics["events"]}
+
+    assert not kinds & RETIRED_ATOM_EVENT_KINDS
+    assert "atom_feed" not in policy.source_fetch_status
+    assert "atom_feed" not in policy.source_diagnostics
+    assert not any("atom" in url.lower() for url in policy.source_urls)
+
+
+def test_missing_servicing_toc_no_longer_reports_a_missing_atom_feed() -> None:
+    policy = generate_policy(
+        release_health_html=_html(),
+        servicing_toc_json=None,
+        generated_at_utc="2026-05-20T00:00:00+00:00",
+    )
+    kinds = [event["kind"] for event in policy.source_diagnostics["events"]]
+
+    assert kinds.count("servicing_toc_missing") == 1
+    assert not set(kinds) & RETIRED_ATOM_EVENT_KINDS
+
+
+def test_atom_feed_parser_is_gone() -> None:
+    assert not hasattr(policy_generator_module, "parse_atom_feed")
+
+
+def test_atom_fixtures_are_removed() -> None:
+    assert not (FIXTURES / "windows11-atom.xml").exists()
+    assert not (FIXTURES / "windows11-atom-kb5094126.xml").exists()

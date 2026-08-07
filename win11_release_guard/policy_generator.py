@@ -13,7 +13,6 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 from urllib.parse import unquote, urlparse
-from xml.etree import ElementTree
 
 from .config import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -43,7 +42,7 @@ from .policy_schema import (
 )
 from .remote_policy import parse_windows11_release_health_html
 from .servicing_toc import SERVICING_TOC_URL, ServicingTocEntry, parse_servicing_toc
-from .update_text import _extract_builds, _extract_kb, _is_out_of_band, _is_preview
+from .update_text import _extract_builds, _extract_kb
 from .signing import sign_policy_bytes as sign_ed25519_policy_bytes
 
 
@@ -597,89 +596,6 @@ def load_source_text(
             "fetched_at_utc": _utc_now(),
         },
     )
-
-
-def _text(element: ElementTree.Element, name: str, ns: Mapping[str, str]) -> str | None:
-    child = element.find(name, ns)
-    if child is None or child.text is None:
-        return None
-    text = re.sub(r"\s+", " ", child.text).strip()
-    return text or None
-
-
-def _link(element: ElementTree.Element, ns: Mapping[str, str]) -> str | None:
-    for link in element.findall("atom:link", ns):
-        rel = str(link.attrib.get("rel") or "alternate").strip().lower()
-        if rel != "alternate":
-            continue
-        href = link.attrib.get("href")
-        safe_href = _safe_support_article_url(href)
-        if safe_href:
-            return safe_href
-    for link in element.findall("link"):
-        rel = str(link.attrib.get("rel") or "alternate").strip().lower()
-        if rel != "alternate":
-            continue
-        href = link.attrib.get("href")
-        safe_href = _safe_support_article_url(href)
-        if safe_href:
-            return safe_href
-    return None
-
-
-def _atom_support_article_id(entry_id: str | None) -> str | None:
-    match = re.search(r"(?:^|;)id=([1-9][0-9]*)(?:$|;)", entry_id or "")
-    return match.group(1) if match else None
-
-
-def _atom_diagnostic_id_hint(entry_id: str | None) -> str | None:
-    if not entry_id:
-        return None
-    diagnostic_id = f"{SOURCE_DIAGNOSTIC_ID_PREFIX}:{entry_id}"
-    return diagnostic_id if is_source_diagnostic_id(diagnostic_id) else None
-
-
-def parse_atom_feed(xml_text: str) -> tuple[AtomFeedEntry, ...]:
-    if not xml_text.strip():
-        return ()
-
-    try:
-        root = ElementTree.fromstring(xml_text)
-    except ElementTree.ParseError as exc:
-        raise PolicyParseError(f"Atom feed is malformed: {exc}") from exc
-
-    ns = {"atom": "http://www.w3.org/2005/Atom"}
-    entries = root.findall("atom:entry", ns)
-    if not entries:
-        entries = root.findall("entry")
-
-    parsed: list[AtomFeedEntry] = []
-    for entry in entries:
-        entry_id = _text(entry, "atom:id", ns) or _text(entry, "id", ns)
-        title = _text(entry, "atom:title", ns) or _text(entry, "title", ns) or ""
-        content = _text(entry, "atom:content", ns) or _text(entry, "content", ns)
-        published = _text(entry, "atom:published", ns) or _text(entry, "published", ns)
-        updated = _text(entry, "atom:updated", ns) or _text(entry, "updated", ns)
-        link = _link(entry, ns)
-        blob = " ".join(part for part in (title, content or "") if part)
-        kb_article = _extract_kb(blob)
-        parsed.append(
-            AtomFeedEntry(
-                title=title,
-                entry_id=entry_id,
-                support_article_id=_atom_support_article_id(entry_id),
-                diagnostic_id_hint=_atom_diagnostic_id_hint(entry_id),
-                link=link,
-                published=published,
-                updated=updated,
-                content=content,
-                kb_article=kb_article,
-                builds=_extract_builds(blob),
-                preview=_is_preview(blob),
-                out_of_band=_is_out_of_band(blob),
-            )
-        )
-    return tuple(parsed)
 
 
 def _feed_entries_from_servicing_toc(
@@ -3387,13 +3303,6 @@ def _source_diagnostics(
         text=release_health_html,
         generated_at_utc=generated_at_utc,
     )
-    atom_status = _source_status(
-        source_fetch_status,
-        "atom_feed",
-        source_url=atom_feed_url,
-        text=atom_feed_xml,
-        generated_at_utc=generated_at_utc,
-    )
     servicing_status = _source_status(
         source_fetch_status,
         "servicing_toc",
@@ -3460,28 +3369,6 @@ def _source_diagnostics(
                     ),
                 }
             )
-    if (
-        generated_after_hours is not None
-        and generated_after_hours >= 24
-        and not atom_entries
-        and atom_status.get("status") != "ok"
-    ):
-        events.append(
-            {
-                "severity": "warning",
-                "kind": "atom_diagnostics_unavailable",
-                "release": broad_target.version if broad_target else None,
-                "build_family": broad_target.build_family if broad_target else None,
-                "build": broad_target.latest_build if broad_target else None,
-                "kb_article": None,
-                "affects_broad_target": bool(broad_target),
-                "affects_required_baseline": False,
-                "message": (
-                    "Policy was generated more than 24 hours after the newest Release Health timestamp and "
-                    "Atom diagnostics are unavailable; preview/out-of-band enrichment may be incomplete."
-                ),
-            }
-        )
     events = _source_diagnostic_events_with_ids(_dedupe_source_events(events))
     parser_events = _source_diagnostic_events_with_ids(
         [dict(item) for item in parser_diagnostics if isinstance(item, Mapping)]
@@ -3497,15 +3384,6 @@ def _source_diagnostics(
             "status": release_health_status.get("status"),
             "newest_current_version_revision_date": newest_current_revision,
             "newest_release_history_availability_date": newest_history_availability,
-        },
-        "atom_feed": {
-            "source_url": atom_status.get("url"),
-            "fetched_at_utc": atom_status.get("fetched_at_utc"),
-            "bytes": atom_status.get("bytes"),
-            "status": atom_status.get("status"),
-            "newest_atom_updated": newest_atom_updated,
-            "newest_atom_published": newest_atom_published,
-            "newest_atom_build": _newest_atom_build(atom_entries),
         },
         "servicing_toc": {
             "source_url": servicing_status.get("url"),
@@ -3623,8 +3501,6 @@ def _policy_with_enrichment(
     preview_builds = tuple(row.to_dict() for row in release_history if row.preview)
     out_of_band_builds = tuple(row.to_dict() for row in release_history if row.out_of_band)
     source_urls = [release_health_url]
-    if atom_feed_url:
-        source_urls.append(atom_feed_url)
     if servicing_toc_url and servicing_toc_json:
         source_urls.append(servicing_toc_url)
 
@@ -3800,7 +3676,7 @@ def generate_policy(
     release_health_html: str,
     atom_feed_xml: str | None = None,
     release_health_url: str = DEFAULT_RELEASE_HEALTH_URL,
-    atom_feed_url: str | None = DEFAULT_WINDOWS11_ATOM_FEED_URL,
+    atom_feed_url: str | None = None,
     servicing_toc_json: str | None = None,
     servicing_toc_url: str | None = DEFAULT_SERVICING_TOC_URL,
     generated_at_utc: str | None = None,
@@ -3824,18 +3700,6 @@ def generate_policy(
             generated_at_utc=generated,
         ),
     }
-    # The Atom feed is a retired source: a fresh generator run only carries an "atom_feed" entry
-    # forward when the caller still supplies Atom data (or an already-published fetch-status
-    # record for it), so source_fetch_status stops advertising the dead feed once no one still
-    # references it.
-    if atom_feed_url or atom_feed_xml or (source_fetch_status and "atom_feed" in source_fetch_status):
-        effective_source_fetch_status["atom_feed"] = _source_status(
-            source_fetch_status or {},
-            "atom_feed",
-            source_url=atom_feed_url,
-            text=atom_feed_xml,
-            generated_at_utc=generated,
-        )
     effective_source_fetch_status["servicing_toc"] = _source_status(
         source_fetch_status or {},
         "servicing_toc",
@@ -3844,20 +3708,7 @@ def generate_policy(
         generated_at_utc=generated,
     )
     base_policy = parse_windows11_release_health_html(release_health_html)
-    atom_entries: tuple[AtomFeedEntry, ...] = ()
     servicing_entries: tuple[AtomFeedEntry, ...] = ()
-    if atom_feed_xml:
-        try:
-            atom_entries = parse_atom_feed(atom_feed_xml)
-        except PolicyParseError as exc:
-            message = f"Atom feed could not be parsed: {exc}"
-            warnings.append(message)
-            source_input_events.append(_source_input_event("atom_feed_parse_failed", message))
-        if not atom_entries:
-            message = "Atom feed contained no usable entries."
-            warnings.append(message)
-            source_input_events.append(_source_input_event("atom_feed_no_usable_entries", message))
-
     if servicing_toc_json:
         try:
             servicing_entries = _feed_entries_from_servicing_toc(parse_servicing_toc(servicing_toc_json))
@@ -3869,26 +3720,21 @@ def generate_policy(
             message = "Servicing TOC contained no usable entries."
             warnings.append(message)
             source_input_events.append(_source_input_event("servicing_toc_no_usable_entries", message))
-
-    if not servicing_toc_json and not atom_feed_xml:
+    else:
         message = "Servicing TOC missing; preview/out-of-band enrichment unavailable."
         warnings.append(message)
         source_input_events.append(_source_input_event("servicing_toc_missing", message))
-        message = "Atom feed missing; preview/out-of-band enrichment unavailable."
-        warnings.append(message)
-        source_input_events.append(_source_input_event("atom_feed_missing", message))
 
-    enrichment_entries = servicing_entries or atom_entries
-    release_history = _enrich_history(base_policy.release_history, enrichment_entries)
+    release_history = _enrich_history(base_policy.release_history, servicing_entries)
     policy = _policy_with_enrichment(
         base_policy,
         release_history=release_history,
-        atom_entries=enrichment_entries,
+        atom_entries=servicing_entries,
         generated_at_utc=generated,
         release_health_url=release_health_url,
-        atom_feed_url=atom_feed_url,
+        atom_feed_url=None,
         release_health_html=release_health_html,
-        atom_feed_xml=atom_feed_xml,
+        atom_feed_xml=None,
         source_fetch_status=effective_source_fetch_status,
         validation_warnings=tuple(dict.fromkeys(warnings)),
         source_input_events=tuple(source_input_events),
@@ -9008,7 +8854,6 @@ __all__ = [
     "generate_policy",
     "generate_policy_json",
     "load_source_text",
-    "parse_atom_feed",
     "render_changelog_pages",
     "render_policy_index",
     "render_policy_manifest",
