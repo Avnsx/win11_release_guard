@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import json
 import re
+import urllib.request
+import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from html import escape, unescape
-from typing import Mapping
+from pathlib import Path
+from typing import Callable, Mapping
 from xml.etree import ElementTree
+
+from .exceptions import PolicyFetchError
+from .freshness import parse_iso_utc_datetime
 
 
 WINDOWS_UPDATE_CLIENT_URL = "https://fe3.delivery.mp.microsoft.com/ClientWebService/client.asmx"
@@ -41,6 +49,16 @@ _TITLE_RE = re.compile(r"<Title>(.*?)</Title>", re.DOTALL | re.IGNORECASE)
 _MORE_INFO_URL_RE = re.compile(r"<MoreInfoUrl>(.*?)</MoreInfoUrl>", re.DOTALL | re.IGNORECASE)
 _SUPPORT_URL_RE = re.compile(r"^https://support\.microsoft\.com/[^\s\"'<>]*$")
 
+DEFAULT_MAX_SYNC_UPDATES_BYTES = 24 * 1024 * 1024
+DEFAULT_WINDOWS_UPDATE_PROBE_TIMEOUT_SECONDS = 20.0
+DEFAULT_COOKIE_CACHE_PATH = Path(".tmp") / "windows-update-cookie.json"
+DEFAULT_PROBE_OS_VERSION = "10.0.26200.8000"
+COOKIE_SAFETY_MARGIN_SECONDS = 3600
+_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+_FRACTION_RE = re.compile(r"\.(\d+)")
+
+SoapPost = Callable[[str, float], str]
+
 
 @dataclass(frozen=True)
 class WindowsUpdateOffer:
@@ -52,8 +70,66 @@ class WindowsUpdateOffer:
     is_preview: bool
 
 
+@dataclass(frozen=True)
+class WindowsUpdateCookie:
+    expiration: str
+    encrypted_data: str
+
+
 def _local_name(tag: object) -> str:
     return str(tag).rsplit("}", 1)[-1]
+
+
+def parse_get_cookie(xml_text: str) -> WindowsUpdateCookie | None:
+    if not xml_text:
+        return None
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError:
+        return None
+    if any(_local_name(node.tag) == "Fault" for node in root.iter()):
+        return None
+    expiration = ""
+    encrypted_data = ""
+    for node in root.iter():
+        local = _local_name(node.tag)
+        if local == "Expiration" and not expiration and node.text:
+            expiration = node.text.strip()
+        elif local == "EncryptedData" and not encrypted_data and node.text:
+            encrypted_data = node.text.strip()
+    if not expiration or not encrypted_data:
+        return None
+    return WindowsUpdateCookie(expiration=expiration, encrypted_data=encrypted_data)
+
+
+def _cookie_expiry(value: str) -> datetime | None:
+    return parse_iso_utc_datetime(_FRACTION_RE.sub(lambda match: "." + match.group(1)[:6], str(value), count=1))
+
+
+def load_cached_cookie(path: str | Path, *, now: datetime) -> WindowsUpdateCookie | None:
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, Mapping):
+        return None
+    expiration = str(raw.get("expiration") or "").strip()
+    encrypted_data = str(raw.get("encrypted_data") or "").strip()
+    if not expiration or not encrypted_data:
+        return None
+    expires_at = _cookie_expiry(expiration)
+    if expires_at is None or expires_at <= now + timedelta(seconds=COOKIE_SAFETY_MARGIN_SECONDS):
+        return None
+    return WindowsUpdateCookie(expiration=expiration, encrypted_data=encrypted_data)
+
+
+def store_cached_cookie(path: str | Path, cookie: WindowsUpdateCookie) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps({"expiration": cookie.expiration, "encrypted_data": cookie.encrypted_data}, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _security_header(*, created: str, expires: str) -> str:
@@ -247,19 +323,89 @@ def parse_sync_updates(xml_text: str) -> tuple[WindowsUpdateOffer, ...]:
     return tuple(offer for offer in offers if offer.build or offer.kb_article)
 
 
+def _urlopen_soap_post(body: str, timeout: float) -> str:
+    request = urllib.request.Request(
+        WINDOWS_UPDATE_CLIENT_URL,
+        data=body.encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": WINDOWS_UPDATE_SOAP_CONTENT_TYPE,
+            "User-Agent": WINDOWS_UPDATE_USER_AGENT,
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        charset = response.headers.get_content_charset() or "utf-8"
+        data = response.read(DEFAULT_MAX_SYNC_UPDATES_BYTES + 1)
+    if len(data) > DEFAULT_MAX_SYNC_UPDATES_BYTES:
+        raise PolicyFetchError(
+            "Windows Update response is too large: exceeds safety cap of "
+            f"{DEFAULT_MAX_SYNC_UPDATES_BYTES} bytes."
+        )
+    return data.decode(charset, errors="replace")
+
+
+def _timestamp(moment: datetime) -> str:
+    return moment.astimezone(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+
+
+def fetch_offers(
+    *,
+    post: SoapPost | None = None,
+    cookie_cache_path: str | Path = DEFAULT_COOKIE_CACHE_PATH,
+    os_version: str = DEFAULT_PROBE_OS_VERSION,
+    now: datetime | None = None,
+    timeout: float = DEFAULT_WINDOWS_UPDATE_PROBE_TIMEOUT_SECONDS,
+) -> tuple[WindowsUpdateOffer, ...]:
+    send = post or _urlopen_soap_post
+    moment = now or datetime.now(timezone.utc)
+    created = _timestamp(moment)
+    expires = _timestamp(moment + timedelta(minutes=5))
+    cookie = load_cached_cookie(cookie_cache_path, now=moment)
+    if cookie is None:
+        cookie = parse_get_cookie(
+            send(build_get_cookie_envelope(created=created, expires=expires, message_id=str(uuid.uuid4())), timeout)
+        )
+        if cookie is None:
+            raise PolicyFetchError("Windows Update GetCookie response carried no cookie.")
+        store_cached_cookie(cookie_cache_path, cookie)
+    return parse_sync_updates(
+        send(
+            build_sync_updates_envelope(
+                cookie_expiration=cookie.expiration,
+                encrypted_data=cookie.encrypted_data,
+                os_version=os_version,
+                created=created,
+                expires=expires,
+                message_id=str(uuid.uuid4()),
+            ),
+            timeout,
+        )
+    )
+
+
 __all__ = [
     "CALLER_ATTRIBUTES",
     "CLIENT_WEB_SERVICE_NS",
+    "DEFAULT_COOKIE_CACHE_PATH",
+    "DEFAULT_MAX_SYNC_UPDATES_BYTES",
+    "DEFAULT_PROBE_OS_VERSION",
+    "DEFAULT_WINDOWS_UPDATE_PROBE_TIMEOUT_SECONDS",
     "GET_COOKIE_ACTION",
     "INSTALLED_NON_LEAF_UPDATE_IDS",
     "PRODUCT_BRANCH",
     "PRODUCT_NAME",
     "SYNC_UPDATES_ACTION",
+    "SoapPost",
     "WINDOWS_UPDATE_CLIENT_URL",
     "WINDOWS_UPDATE_SOAP_CONTENT_TYPE",
     "WINDOWS_UPDATE_USER_AGENT",
+    "WindowsUpdateCookie",
     "WindowsUpdateOffer",
     "build_get_cookie_envelope",
     "build_sync_updates_envelope",
+    "fetch_offers",
+    "load_cached_cookie",
+    "parse_get_cookie",
     "parse_sync_updates",
+    "store_cached_cookie",
 ]

@@ -19,10 +19,12 @@ from win11_release_guard.config import (
 from win11_release_guard.exceptions import WindowsReleaseCheckerError
 from win11_release_guard.policy_generator import (
     DEFAULT_SERVICING_TOC_URL,
+    WindowsUpdateProbe,
     build_policy_from_sources,
     write_policy_outputs,
 )
 from win11_release_guard.policy_schema import is_source_diagnostic_id
+from win11_release_guard.wu_offer_probe import WindowsUpdateOffer, fetch_offers
 
 
 SOURCE_DIAGNOSTIC_ISSUE_URL_RE = re.compile(
@@ -54,6 +56,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Merge static source-diagnostic issue metadata before rendering Pages artifacts.",
     )
     parser.add_argument(
+        "--windows-update-probe",
+        action="store_true",
+        help="Attach corroborating Windows Update offer evidence when the probe succeeds.",
+    )
+    parser.add_argument(
         "--signing-key-env",
         default=None,
         help="Environment variable containing an Ed25519 private key PEM or base64 raw seed.",
@@ -78,6 +85,16 @@ def _signing_key(args: argparse.Namespace) -> str | None:
     if args.signing_key_env:
         return os.environ.get(args.signing_key_env)
     return None
+
+
+def _windows_update_probe(args: argparse.Namespace) -> WindowsUpdateProbe | None:
+    if not args.windows_update_probe:
+        return None
+
+    def probe() -> tuple[WindowsUpdateOffer, ...]:
+        return fetch_offers(timeout=args.timeout)
+
+    return probe
 
 
 def _issue_status_mapping(value: Any) -> dict[str, Mapping[str, Any]]:
@@ -168,6 +185,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             servicing_toc_path=args.servicing_toc,
             timeout=args.timeout,
             signature_status="valid" if signing_key else "unsigned",
+            windows_update_probe=_windows_update_probe(args),
         )
         issue_status, issue_sync = _load_issue_status(args.source_diagnostic_issue_status_file)
         policy = _policy_with_issue_status(policy, issue_status, issue_sync)

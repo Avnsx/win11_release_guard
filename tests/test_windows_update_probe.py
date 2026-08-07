@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
+from tools import generate_policy as generate_policy_cli
 from win11_release_guard.policy_generator import generate_policy
-from win11_release_guard.wu_offer_probe import WindowsUpdateOffer
+from win11_release_guard.wu_offer_probe import (
+    WindowsUpdateCookie,
+    WindowsUpdateOffer,
+    fetch_offers,
+    load_cached_cookie,
+    store_cached_cookie,
+)
 
 
 FIXTURES = Path("tests/fixtures")
@@ -99,3 +107,65 @@ def test_probe_build_newer_than_every_document_source_never_moves_the_baseline()
     assert corroboration[0]["severity"] == "notice"
     assert corroboration[0]["affects_required_baseline"] is False
     assert "26200.9999 (KB5101650)" in corroboration[0]["message"]
+
+
+SYNC_UPDATES_RESPONSE = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body>'
+    '<SyncUpdatesResponse xmlns="http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService">'
+    "<SyncUpdatesResult><NewUpdates><UpdateInfo><ID>1</ID><Xml>"
+    "&lt;Properties&gt;&lt;ExtendedProperties ReleaseVersion=&quot;10.0.26200.8875&quot;/&gt;&lt;/Properties&gt;"
+    "&lt;ApplicabilityRules&gt;&lt;KBArticleID&gt;5101650&lt;/KBArticleID&gt;&lt;/ApplicabilityRules&gt;"
+    "</Xml></UpdateInfo></NewUpdates>"
+    "<ExtendedUpdateInfo><Updates><Update><ID>1</ID><Xml>"
+    "&lt;LocalizedProperties&gt;&lt;Title&gt;2026-07 Security Update (KB5101650) (26200.8875)&lt;/Title&gt;"
+    "&lt;MoreInfoUrl&gt;https://support.microsoft.com/help/5101650&lt;/MoreInfoUrl&gt;"
+    "&lt;/LocalizedProperties&gt;"
+    "</Xml></Update></Updates></ExtendedUpdateInfo>"
+    "</SyncUpdatesResult></SyncUpdatesResponse></s:Body></s:Envelope>"
+)
+
+
+def test_cached_cookie_is_reused_until_its_expiration_passes(tmp_path) -> None:
+    cache_path = tmp_path / "windows-update-cookie.json"
+    cookie = WindowsUpdateCookie(expiration="2026-11-03T12:00:00Z", encrypted_data="ZW5jcnlwdGVk")
+    store_cached_cookie(cache_path, cookie)
+
+    assert load_cached_cookie(cache_path, now=datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)) == cookie
+    assert load_cached_cookie(cache_path, now=datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)) is None
+    assert load_cached_cookie(tmp_path / "missing.json", now=datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)) is None
+
+
+def test_fetch_offers_reuses_the_cached_cookie_and_parses_the_offer_snapshot(tmp_path) -> None:
+    cache_path = tmp_path / "windows-update-cookie.json"
+    store_cached_cookie(
+        cache_path, WindowsUpdateCookie(expiration="2026-11-03T12:00:00Z", encrypted_data="ZW5jcnlwdGVk")
+    )
+    bodies: list[str] = []
+
+    def fake_post(body: str, timeout: float) -> str:
+        bodies.append(body)
+        return SYNC_UPDATES_RESPONSE
+
+    offers = fetch_offers(
+        post=fake_post,
+        cookie_cache_path=cache_path,
+        os_version="10.0.26200.8000",
+        now=datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(bodies) == 1
+    assert "<SyncUpdates" in bodies[0]
+    assert "<EncryptedData>ZW5jcnlwdGVk</EncryptedData>" in bodies[0]
+    assert offers[0].build == "26200.8875"
+    assert offers[0].kb_article == "KB5101650"
+    assert offers[0].is_preview is False
+
+
+def test_cli_windows_update_probe_flag_is_optional_and_off_by_default() -> None:
+    parser = generate_policy_cli._build_parser()
+
+    assert parser.parse_args([]).windows_update_probe is False
+    assert parser.parse_args(["--windows-update-probe"]).windows_update_probe is True
+    assert generate_policy_cli._windows_update_probe(parser.parse_args([])) is None
+    assert callable(generate_policy_cli._windows_update_probe(parser.parse_args(["--windows-update-probe"])))
