@@ -502,6 +502,57 @@ def test_connection_errors_retry_then_raise_after_exhausting_attempts() -> None:
     assert len(delays) == 1
 
 
+def _cert_verification_error() -> ssl.SSLCertVerificationError:
+    return ssl.SSLCertVerificationError(
+        1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate"
+    )
+
+
+def test_certificate_verification_failure_is_not_retried_and_names_the_remedy() -> None:
+    opener = _ScriptedOpener([_cert_verification_error()])
+    sleep, delays = _recording_sleep()
+
+    with pytest.raises(PolicyFetchError) as excinfo:
+        http_client.request(
+            DEFAULT_URL,
+            timeout=1.0,
+            max_bytes=1024,
+            attempts=3,
+            opener=opener,
+            sleep=sleep,
+        )
+
+    message = str(excinfo.value)
+    assert "system trust store" in message
+    assert "SSL_CERT_FILE" in message
+    assert "SSL_CERT_DIR" in message
+    assert "REQUESTS_CA_BUNDLE" not in message
+    assert len(opener.calls) == 1
+    assert delays == []
+
+
+def test_certificate_verification_failure_wrapped_in_urlerror_is_not_retried() -> None:
+    # This is what real urlopen actually raises: http.client establishes the
+    # TLS connection inside AbstractHTTPHandler.do_open's try/except OSError
+    # block, which wraps the ssl.SSLCertVerificationError in a URLError.
+    wrapped = urllib.error.URLError(_cert_verification_error())
+    opener = _ScriptedOpener([wrapped])
+    sleep, delays = _recording_sleep()
+
+    with pytest.raises(PolicyFetchError, match="system trust store"):
+        http_client.request(
+            DEFAULT_URL,
+            timeout=1.0,
+            max_bytes=1024,
+            attempts=3,
+            opener=opener,
+            sleep=sleep,
+        )
+
+    assert len(opener.calls) == 1
+    assert delays == []
+
+
 def test_charset_from_content_type_extracts_charset_param() -> None:
     assert http_client.charset_from_content_type("text/html; charset=iso-8859-1") == "iso-8859-1"
     assert http_client.charset_from_content_type("application/json") is None

@@ -5,6 +5,7 @@ import email.utils
 import gzip
 import io
 import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -39,6 +40,15 @@ DEFAULT_LABEL = "HTTP response"
 DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS = 3.0
 DEFAULT_DNS_CACHE_TTL_SECONDS = 60.0
 _DNS_CACHE_MAX_ENTRIES = 256
+
+_CERT_VERIFICATION_MESSAGE = (
+    "The server's certificate could not be verified against the system trust store. "
+    "The most common cause on a corporate network is a TLS-inspecting proxy that "
+    "presents a certificate issued by a private root certificate authority which is "
+    "not installed in the system trust store. Install that root certificate into the "
+    "system trust store, or point Python at an alternative CA bundle with the "
+    "SSL_CERT_FILE or SSL_CERT_DIR environment variable."
+)
 
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
@@ -310,6 +320,23 @@ def _dns_preflight(url: str, *, resolver: Resolver, timeout: float) -> None:
     _dns_cache_store(host, now=now, ttl=DEFAULT_DNS_CACHE_TTL_SECONDS)
 
 
+def _cert_verification_error(exc: BaseException) -> ssl.SSLCertVerificationError | None:
+    """Return the SSLCertVerificationError behind exc, if any.
+
+    urlopen never raises ssl.SSLCertVerificationError directly: http.client
+    establishes the TLS connection inside AbstractHTTPHandler.do_open's
+    try/except OSError block, which wraps it in a urllib.error.URLError
+    (exposed as .reason). Check both forms so the check is correct for the
+    real urlopen path as well as an opener that raises it unwrapped.
+    """
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return exc
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return reason
+    return None
+
+
 def _finalize(
     response: Any,
     *,
@@ -390,6 +417,8 @@ def request(
                 if callable(closer):
                     closer()
         except OSError as exc:
+            if _cert_verification_error(exc) is not None:
+                raise PolicyFetchError(f"Failed to fetch {url}: {_CERT_VERIFICATION_MESSAGE}") from exc
             if attempt < total_attempts:
                 sleep(_backoff_delay(attempt, backoff_base, backoff_cap))
                 last_exc = exc
