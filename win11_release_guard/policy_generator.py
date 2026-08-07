@@ -42,11 +42,13 @@ from .policy_schema import (
     validate_policy_document,
 )
 from .remote_policy import parse_windows11_release_health_html
+from .servicing_toc import SERVICING_TOC_URL, ServicingTocEntry, parse_servicing_toc
 from .update_text import _extract_builds, _extract_kb, _is_out_of_band, _is_preview
 from .signing import sign_policy_bytes as sign_ed25519_policy_bytes
 
 
 DEFAULT_WINDOWS11_ATOM_FEED_URL = "https://support.microsoft.com/en-us/feed/atom/4ec863cc-2ecd-e187-6cb3-b50c6545db92"
+DEFAULT_SERVICING_TOC_URL = SERVICING_TOC_URL
 DEFAULT_MAX_SUPPORT_ARTICLE_BYTES = 2 * 1024 * 1024
 DEFAULT_MAX_MSRC_CVRF_BYTES = 48 * 1024 * 1024
 MSRC_CVRF_CVE_LIMIT = 12
@@ -171,6 +173,7 @@ class AtomFeedEntry:
     builds: tuple[str, ...] = ()
     preview: bool = False
     out_of_band: bool = False
+    release: str | None = None
 
 
 def _utc_now() -> str:
@@ -502,6 +505,7 @@ def _fetch_url(
     timeout: float,
     max_bytes: int = DEFAULT_MAX_MICROSOFT_SOURCE_BYTES,
     final_url_validator: Callable[[str], str | None] | None = None,
+    charset: str | None = None,
 ) -> str:
     request = urllib.request.Request(
         url,
@@ -515,7 +519,7 @@ def _fetch_url(
             final_url = response.geturl() if hasattr(response, "geturl") else url
             if final_url_validator(final_url) is None:
                 raise PolicyFetchError("Microsoft source response redirected to an unsafe URL.")
-        charset = response.headers.get_content_charset() or "utf-8"
+        response_charset = charset or response.headers.get_content_charset() or "utf-8"
         content_length = _content_length_from_headers(response.headers)
         if content_length is not None and content_length > max_bytes:
             raise PolicyFetchError(
@@ -526,7 +530,7 @@ def _fetch_url(
             raise PolicyFetchError(
                 f"Microsoft source response is too large: exceeds safety cap of {max_bytes} bytes."
             )
-        return data.decode(charset, errors="replace")
+        return data.decode(response_charset, errors="replace")
 
 
 def load_source_text(
@@ -536,6 +540,7 @@ def load_source_text(
     source_name: str,
     timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     required: bool = True,
+    charset: str | None = None,
 ) -> SourceText:
     if fixture_path is not None:
         path = Path(fixture_path)
@@ -568,7 +573,7 @@ def load_source_text(
         )
 
     try:
-        text = _fetch_url(url, timeout=timeout)
+        text = _fetch_url(url, timeout=timeout, charset=charset)
     except Exception as exc:
         if required:
             raise PolicyFetchError(f"{source_name} source failure: could not fetch {url}: {exc}") from exc
@@ -675,6 +680,25 @@ def parse_atom_feed(xml_text: str) -> tuple[AtomFeedEntry, ...]:
             )
         )
     return tuple(parsed)
+
+
+def _feed_entries_from_servicing_toc(
+    entries: tuple[ServicingTocEntry, ...],
+) -> tuple[AtomFeedEntry, ...]:
+    return tuple(
+        AtomFeedEntry(
+            title=entry.title,
+            link=entry.url,
+            published=entry.published,
+            updated=entry.published,
+            kb_article=entry.kb_article,
+            builds=entry.builds,
+            preview=entry.preview,
+            out_of_band=entry.out_of_band,
+            release=entry.release,
+        )
+        for entry in entries
+    )
 
 
 def _release_key(release: str | None) -> tuple[int, int]:
@@ -1509,6 +1533,10 @@ def _preferred_atom_entry(entries: Iterable[AtomFeedEntry]) -> AtomFeedEntry | N
     return max(candidates, key=_atom_entry_preference_key)
 
 
+def _release_matches(row: ReleaseHistoryEntry, entry: AtomFeedEntry) -> bool:
+    return bool(entry.release) and str(entry.release).upper() == str(row.release or "").upper()
+
+
 def _atom_entry_build_families(entry: AtomFeedEntry) -> set[int]:
     families = {_build_key(build)[0] for build in entry.builds}
     return {family for family in families if family >= 0}
@@ -1557,6 +1585,7 @@ def _unambiguous_kb_only_atom_entries(
         if not entry.builds
         and _atom_entry_support_url(entry)
         and (bool(entry.preview), bool(entry.out_of_band)) == row_flags
+        and (not entry.release or _release_matches(row, entry))
     ]
     if not candidates:
         return ()
@@ -1575,6 +1604,16 @@ def _unambiguous_kb_only_atom_entries(
 def _match_atom(row: ReleaseHistoryEntry, entries: tuple[AtomFeedEntry, ...]) -> AtomFeedEntry | None:
     row_kb = _extract_kb(row.kb_article)
     if row_kb:
+        lane_matches = tuple(
+            entry
+            for entry in entries
+            if entry.kb_article == row_kb
+            and _release_matches(row, entry)
+            and not _is_contradictory_same_family_atom_entry(row, entry)
+        )
+        match = _preferred_atom_entry(lane_matches)
+        if match is not None:
+            return match
         kb_and_build_matches = tuple(
             entry for entry in entries if entry.kb_article == row_kb and row.build in entry.builds
         )
@@ -3221,6 +3260,10 @@ def _atom_newer_event(
         event["source_url"] = source_url
     if support_articles and source_url not in (None, ""):
         event = _event_with_support_article(event, support_articles.get(str(source_url)))
+    if "msrc_cvrf_month_id" not in event:
+        month_id = _record_msrc_month_id(item)
+        if month_id:
+            event["msrc_cvrf_month_id"] = month_id
     return event
 
 
@@ -3325,6 +3368,9 @@ def _source_diagnostics(
     release_health_html: str,
     atom_feed_xml: str | None,
     generated_at_utc: str,
+    servicing_toc_url: str | None = None,
+    servicing_toc_json: str | None = None,
+    servicing_toc_entries: tuple[AtomFeedEntry, ...] = (),
 ) -> dict[str, Any]:
     release_health_status = _source_status(
         source_fetch_status,
@@ -3338,6 +3384,13 @@ def _source_diagnostics(
         "atom_feed",
         source_url=atom_feed_url,
         text=atom_feed_xml,
+        generated_at_utc=generated_at_utc,
+    )
+    servicing_status = _source_status(
+        source_fetch_status,
+        "servicing_toc",
+        source_url=servicing_toc_url,
+        text=servicing_toc_json,
         generated_at_utc=generated_at_utc,
     )
     newest_current_revision = _newest_current_version_revision_date(current_versions)
@@ -3438,6 +3491,14 @@ def _source_diagnostics(
             "newest_atom_published": newest_atom_published,
             "newest_atom_build": _newest_atom_build(atom_entries),
         },
+        "servicing_toc": {
+            "source_url": servicing_status.get("url"),
+            "fetched_at_utc": servicing_status.get("fetched_at_utc"),
+            "bytes": servicing_status.get("bytes"),
+            "status": servicing_status.get("status"),
+            "newest_servicing_build": _newest_atom_build(servicing_toc_entries),
+            "entry_count": len(servicing_toc_entries),
+        },
         "drift": {
             "atom_newer_than_release_history": [dict(item) for item in atom_newer],
             "current_version_latest_older_than_release_history": [dict(item) for item in current_stale],
@@ -3520,6 +3581,9 @@ def _policy_with_enrichment(
     source_fetch_status: Mapping[str, Any],
     validation_warnings: tuple[str, ...],
     source_input_events: tuple[Mapping[str, Any], ...] = (),
+    servicing_toc_url: str | None = None,
+    servicing_toc_json: str | None = None,
+    servicing_toc_entries: tuple[AtomFeedEntry, ...] = (),
     support_article_fetcher: SupportArticleFetcher | None = None,
     support_article_timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     msrc_cvrf_fetcher: MsrcCvrfFetcher | None = None,
@@ -3545,6 +3609,8 @@ def _policy_with_enrichment(
     source_urls = [release_health_url]
     if atom_feed_url:
         source_urls.append(atom_feed_url)
+    if servicing_toc_url and servicing_toc_json:
+        source_urls.append(servicing_toc_url)
 
     target = base_policy.broad_target_existing_devices
     if target is not None:
@@ -3664,6 +3730,9 @@ def _policy_with_enrichment(
         release_health_html=release_health_html,
         atom_feed_xml=atom_feed_xml,
         generated_at_utc=generated_at_utc,
+        servicing_toc_url=servicing_toc_url,
+        servicing_toc_json=servicing_toc_json,
+        servicing_toc_entries=servicing_toc_entries,
     )
     combined_warnings = tuple(
         dict.fromkeys([*validation_warnings, *source_diagnostics.get("warnings", [])])
@@ -3708,6 +3777,8 @@ def generate_policy(
     atom_feed_xml: str | None = None,
     release_health_url: str = DEFAULT_RELEASE_HEALTH_URL,
     atom_feed_url: str | None = DEFAULT_WINDOWS11_ATOM_FEED_URL,
+    servicing_toc_json: str | None = None,
+    servicing_toc_url: str | None = DEFAULT_SERVICING_TOC_URL,
     generated_at_utc: str | None = None,
     signature_status: str = "unsigned",
     source_fetch_status: Mapping[str, Any] | None = None,
@@ -3735,9 +3806,17 @@ def generate_policy(
             text=atom_feed_xml,
             generated_at_utc=generated,
         ),
+        "servicing_toc": _source_status(
+            source_fetch_status or {},
+            "servicing_toc",
+            source_url=servicing_toc_url,
+            text=servicing_toc_json,
+            generated_at_utc=generated,
+        ),
     }
     base_policy = parse_windows11_release_health_html(release_health_html)
     atom_entries: tuple[AtomFeedEntry, ...] = ()
+    servicing_entries: tuple[AtomFeedEntry, ...] = ()
     if atom_feed_xml:
         try:
             atom_entries = parse_atom_feed(atom_feed_xml)
@@ -3745,21 +3824,37 @@ def generate_policy(
             message = f"Atom feed could not be parsed: {exc}"
             warnings.append(message)
             source_input_events.append(_source_input_event("atom_feed_parse_failed", message))
-    else:
+        if not atom_entries:
+            message = "Atom feed contained no usable entries."
+            warnings.append(message)
+            source_input_events.append(_source_input_event("atom_feed_no_usable_entries", message))
+
+    if servicing_toc_json:
+        try:
+            servicing_entries = _feed_entries_from_servicing_toc(parse_servicing_toc(servicing_toc_json))
+        except PolicyParseError as exc:
+            message = f"Servicing TOC could not be parsed: {exc}"
+            warnings.append(message)
+            source_input_events.append(_source_input_event("servicing_toc_parse_failed", message))
+        if not servicing_entries:
+            message = "Servicing TOC contained no usable entries."
+            warnings.append(message)
+            source_input_events.append(_source_input_event("servicing_toc_no_usable_entries", message))
+
+    if not servicing_toc_json and not atom_feed_xml:
+        message = "Servicing TOC missing; preview/out-of-band enrichment unavailable."
+        warnings.append(message)
+        source_input_events.append(_source_input_event("servicing_toc_missing", message))
         message = "Atom feed missing; preview/out-of-band enrichment unavailable."
         warnings.append(message)
         source_input_events.append(_source_input_event("atom_feed_missing", message))
 
-    if atom_feed_xml and not atom_entries:
-        message = "Atom feed contained no usable entries."
-        warnings.append(message)
-        source_input_events.append(_source_input_event("atom_feed_no_usable_entries", message))
-
-    release_history = _enrich_history(base_policy.release_history, atom_entries)
+    enrichment_entries = servicing_entries or atom_entries
+    release_history = _enrich_history(base_policy.release_history, enrichment_entries)
     policy = _policy_with_enrichment(
         base_policy,
         release_history=release_history,
-        atom_entries=atom_entries,
+        atom_entries=enrichment_entries,
         generated_at_utc=generated,
         release_health_url=release_health_url,
         atom_feed_url=atom_feed_url,
@@ -3768,6 +3863,9 @@ def generate_policy(
         source_fetch_status=effective_source_fetch_status,
         validation_warnings=tuple(dict.fromkeys(warnings)),
         source_input_events=tuple(source_input_events),
+        servicing_toc_url=servicing_toc_url,
+        servicing_toc_json=servicing_toc_json,
+        servicing_toc_entries=servicing_entries,
         support_article_fetcher=support_article_fetcher,
         support_article_timeout=support_article_timeout,
         msrc_cvrf_fetcher=msrc_cvrf_fetcher,
@@ -6312,6 +6410,12 @@ def _source_label(url: str) -> str:
         return "Microsoft Release Health"
     if host == "support.microsoft.com" and has_atom_feed_path:
         return "Microsoft Atom feed"
+    has_servicing_path = any(
+        left == "servicing" and right == "os"
+        for left, right in zip(path_segments, path_segments[1:])
+    )
+    if host == "support.microsoft.com" and has_servicing_path:
+        return "Microsoft servicing index"
     return url
 
 
@@ -6321,7 +6425,7 @@ def _status_text(policy: ReleasePolicy) -> str:
 
 def _latest_observed_source_label(entry: ReleasePolicyEntry | None) -> str:
     if entry and str(entry.metadata.get("latest_observed_source") or "") == "atom_support_article":
-        return "Microsoft Support article via Atom feed"
+        return "Microsoft Support article"
     return "Microsoft Current Versions table"
 
 
@@ -7209,7 +7313,7 @@ def _source_diagnostic_rows_by_priority(rows: Sequence[dict[str, Any]]) -> tuple
 
 def _source_diagnostic_source_class(source: Any) -> str:
     text = _source_diagnostic_text(source, fallback="source").lower()
-    if "atom" in text or "feed" in text:
+    if "atom" in text or "feed" in text or "microsoft servicing index" in text:
         return "src-atom-feed"
     if "release policy" in text:
         return "src-release-policy"
@@ -7970,6 +8074,8 @@ def _source_status_for_url(policy: ReleasePolicy, url: str, *, generated_at_utc:
         source = _source_diagnostics_for_policy(policy).get("release_health_html")
     elif label == "Microsoft Atom feed":
         source = _source_diagnostics_for_policy(policy).get("atom_feed")
+    elif label == "Microsoft servicing index":
+        source = _source_diagnostics_for_policy(policy).get("servicing_toc")
     else:
         source = None
     if not isinstance(source, Mapping):
@@ -8822,6 +8928,8 @@ def build_policy_from_sources(
     atom_feed_url: str = DEFAULT_WINDOWS11_ATOM_FEED_URL,
     release_health_html_path: str | Path | None = None,
     atom_feed_path: str | Path | None = None,
+    servicing_toc_url: str = DEFAULT_SERVICING_TOC_URL,
+    servicing_toc_path: str | Path | None = None,
     timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     signature_status: str = "unsigned",
     support_article_fetcher: SupportArticleFetcher | None = None,
@@ -8841,15 +8949,26 @@ def build_policy_from_sources(
         timeout=timeout,
         required=False,
     )
+    servicing_toc = load_source_text(
+        url=servicing_toc_url,
+        fixture_path=servicing_toc_path,
+        source_name="servicing_toc",
+        timeout=timeout,
+        required=False,
+        charset="utf-8",
+    )
     source_fetch_status = {
         "release_health_html": dict(release_health.status),
         "atom_feed": dict(atom_feed.status),
+        "servicing_toc": dict(servicing_toc.status),
     }
     return generate_policy(
         release_health_html=release_health.text,
         atom_feed_xml=atom_feed.text or None,
         release_health_url=release_health_url,
         atom_feed_url=atom_feed_url,
+        servicing_toc_json=servicing_toc.text or None,
+        servicing_toc_url=servicing_toc_url,
         source_fetch_status=source_fetch_status,
         support_article_fetcher=support_article_fetcher or _default_support_article_fetcher,
         support_article_timeout=timeout,
@@ -8860,6 +8979,7 @@ def build_policy_from_sources(
 
 
 __all__ = [
+    "DEFAULT_SERVICING_TOC_URL",
     "DEFAULT_WINDOWS11_ATOM_FEED_URL",
     "AtomFeedEntry",
     "SourceText",

@@ -1036,7 +1036,7 @@ def test_pages_index_latest_observed_label_uses_atom_support_metadata() -> None:
     assert '<h2><span>Latest observed</span>' in index
     assert (
         '<div class="metric">26200.8655</div><span class="label">'
-        "Microsoft Support article via Atom feed</span>"
+        "Microsoft Support article</span>"
     ) in index
     assert (
         '<div class="metric">26200.8655</div><span class="label">'

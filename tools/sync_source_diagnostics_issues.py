@@ -414,11 +414,19 @@ def _diagnostic_issue_tip(diagnostic: DiagnosticIssue) -> tuple[str, str]:
             "preserve the build-first policy model when future Windows releases add new rows.",
             _wiki_url("Source-Diagnostics", "common-issues"),
         )
-    if kind in {"atom_feed_missing", "atom_feed_parse_failed", "atom_feed_no_usable_entries", "atom_diagnostics_unavailable"}:
+    if kind in {
+        "atom_feed_missing",
+        "atom_feed_parse_failed",
+        "atom_feed_no_usable_entries",
+        "atom_diagnostics_unavailable",
+        "servicing_toc_missing",
+        "servicing_toc_parse_failed",
+        "servicing_toc_no_usable_entries",
+    }:
         return (
-            "Atom enrichment is unavailable or unusable for this run. Release Health remains "
-            "the primary policy source, but preview/OOB classification and drift context may "
-            "be incomplete until the public Atom source or parser path is healthy again.",
+            "Servicing index enrichment is unavailable or unusable for this run. Release Health "
+            "remains the primary policy source, but preview/OOB classification and drift context "
+            "may be incomplete until the public servicing index or parser path is healthy again.",
             _wiki_url("Source-Diagnostics", "diagnostic-sources"),
         )
     if kind == "source_drift_unresolved_after_24h":

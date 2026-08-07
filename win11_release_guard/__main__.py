@@ -1843,6 +1843,15 @@ def _print_policy_source_payload(payload: dict[str, object]) -> None:
                 f"newest_atom_updated={atom_feed.get('newest_atom_updated') or 'unknown'}, "
                 f"newest_atom_published={atom_feed.get('newest_atom_published') or 'unknown'}"
             )
+        servicing_toc = source_diagnostics.get("servicing_toc")
+        if isinstance(servicing_toc, dict):
+            emit(
+                "- servicing_toc: "
+                f"fetched_at={servicing_toc.get('fetched_at_utc') or 'unknown'}, "
+                f"bytes={servicing_toc.get('bytes') if servicing_toc.get('bytes') is not None else 'unknown'}, "
+                f"newest_servicing_build={servicing_toc.get('newest_servicing_build') or 'unknown'}, "
+                f"entries={servicing_toc.get('entry_count') if servicing_toc.get('entry_count') is not None else 'unknown'}"
+            )
     published_urls = payload.get("published_urls") or {}
     if isinstance(published_urls, dict) and published_urls:
         emit("Published URLs:")

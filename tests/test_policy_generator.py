@@ -1938,7 +1938,7 @@ def test_atom_support_latest_observed_renders_dashboard_and_manifest_evidence() 
 
     index = policy_generator_module.render_policy_index(policy, policy_bytes=None, signature=None)
     assert "26200.8655" in index
-    assert "Microsoft Support article via Atom feed" in index
+    assert "Microsoft Support article" in index
     assert (
         '<div class="metric">26200.8655</div><span class="label">Microsoft Current Versions table</span>'
         not in index
@@ -2735,7 +2735,7 @@ def test_kb5094126_fixture_end_to_end_policy_dashboard_manifest_and_issue_title(
     assert manifest["latest_observed_evidence"]["latest_observed_source_url"] == KB5094126_SUPPORT_URL
     assert manifest["latest_observed_evidence"]["latest_observed_atom_entry_id"] == ATOM_ENTRY_ID
     assert "26200.8655" in index
-    assert "Microsoft Support article via Atom feed" in index
+    assert "Microsoft Support article" in index
     assert ATOM_SOURCE_DIAGNOSTIC_ID in index
     assert "Microsoft published KB5094126 for Windows 11 25H2 build 26200.8655" in index
     assert "Security patch" in index
