@@ -395,14 +395,14 @@ def _diagnostic_issue_tip(diagnostic: DiagnosticIssue) -> tuple[str, str]:
     if kind == "atom_newer_than_release_history":
         if affects_required_baseline:
             return (
-                "Atom feed data can surface a new broad-target, non-preview build before "
+                "Servicing index data can surface a new broad-target, non-preview build before "
                 "Release Health release history catches up. Verify the KB/build against "
                 "Microsoft source tables and keep WUA as read-only local context; do not "
                 "promote a required baseline from display labels alone.",
                 _wiki_url("Source-Diagnostics", "common-issues"),
             )
         return (
-            "Atom feed drift outside the required baseline is usually preview, out-of-band, "
+            "Servicing index drift outside the required baseline is usually preview, out-of-band, "
             "or non-target context. Keep the row visible for source awareness, but only "
             "treat it as release-policy work after confirming it affects the broad fleet target.",
             _wiki_url("Source-Diagnostics", "common-issues"),

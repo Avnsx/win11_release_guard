@@ -6608,7 +6608,7 @@ def _source_diagnostic_display_title(event: Mapping[str, Any]) -> str:
 def _source_diagnostic_source_label(kind: Any) -> str:
     text = str(kind or "").strip().lower()
     if "atom" in text:
-        return "Atom feed"
+        return "Servicing index"
     if "manifest" in text:
         return "Manifest"
     if (
@@ -7204,7 +7204,7 @@ def _source_diagnostic_rows_by_priority(rows: Sequence[dict[str, Any]]) -> tuple
 
 def _source_diagnostic_source_class(source: Any) -> str:
     text = _source_diagnostic_text(source, fallback="source").lower()
-    if "atom" in text or "feed" in text or "microsoft servicing index" in text:
+    if "atom" in text or "feed" in text or "servicing index" in text:
         return "src-atom-feed"
     if "release policy" in text:
         return "src-release-policy"
