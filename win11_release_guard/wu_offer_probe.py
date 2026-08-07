@@ -17,7 +17,6 @@ from . import http_client
 
 WINDOWS_UPDATE_CLIENT_URL = "https://fe3.delivery.mp.microsoft.com/ClientWebService/client.asmx"
 WINDOWS_UPDATE_SOAP_CONTENT_TYPE = "application/soap+xml; charset=utf-8"
-WINDOWS_UPDATE_USER_AGENT = "Windows-Update-Agent/10.0.10011.16384 Client-Protocol/2.0"
 CLIENT_WEB_SERVICE_NS = "http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService"
 GET_COOKIE_ACTION = f"{CLIENT_WEB_SERVICE_NS}/GetCookie"
 SYNC_UPDATES_ACTION = f"{CLIENT_WEB_SERVICE_NS}/SyncUpdates"
@@ -392,7 +391,6 @@ __all__ = [
     "SoapPost",
     "WINDOWS_UPDATE_CLIENT_URL",
     "WINDOWS_UPDATE_SOAP_CONTENT_TYPE",
-    "WINDOWS_UPDATE_USER_AGENT",
     "WindowsUpdateCookie",
     "WindowsUpdateOffer",
     "build_get_cookie_envelope",

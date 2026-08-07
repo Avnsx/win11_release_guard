@@ -47,10 +47,13 @@ from .signing import sign_policy_bytes as sign_ed25519_policy_bytes
 from .wu_offer_probe import WindowsUpdateOffer
 
 
-DEFAULT_WINDOWS11_ATOM_FEED_URL = "https://support.microsoft.com/en-us/feed/atom/4ec863cc-2ecd-e187-6cb3-b50c6545db92"
 DEFAULT_SERVICING_TOC_URL = SERVICING_TOC_URL
 DEFAULT_MAX_SUPPORT_ARTICLE_BYTES = 2 * 1024 * 1024
 DEFAULT_MAX_MSRC_CVRF_BYTES = 48 * 1024 * 1024
+# The servicing index is a small JSON listing (tens of KB in production); this
+# cap leaves generous headroom for years of future releases while staying far
+# below the general-purpose DEFAULT_MAX_MICROSOFT_SOURCE_BYTES ceiling.
+DEFAULT_MAX_SERVICING_TOC_BYTES = 1 * 1024 * 1024
 WINDOWS_UPDATE_PROBE_UNAVAILABLE_KIND = "windows_update_probe_unavailable"
 WINDOWS_UPDATE_PROBE_CORROBORATION_KIND = "windows_update_probe_corroboration"
 WINDOWS_UPDATE_PROBE_OFFER_LIMIT = 4
@@ -514,6 +517,7 @@ def load_source_text(
     timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     required: bool = True,
     charset: str | None = None,
+    max_bytes: int = DEFAULT_MAX_MICROSOFT_SOURCE_BYTES,
 ) -> SourceText:
     if fixture_path is not None:
         path = Path(fixture_path)
@@ -546,7 +550,7 @@ def load_source_text(
         )
 
     try:
-        text = _fetch_url(url, timeout=timeout, charset=charset)
+        text = _fetch_url(url, timeout=timeout, charset=charset, max_bytes=max_bytes)
     except Exception as exc:
         if required:
             raise PolicyFetchError(f"{source_name} source failure: could not fetch {url}: {exc}") from exc
@@ -1962,10 +1966,10 @@ def _baseline_update_notice_record(
         "preview": row.preview,
         "out_of_band": row.out_of_band,
     }
-    # Atom feed lag fallback: when Microsoft's Update History Atom feed has no
-    # entry for the new baseline KB, there is no Atom published/updated date to
-    # derive an MSRC month from. Fall back to the Release Health baseline month
-    # (the same official_release_date the notice reports) so MSRC CVRF can still
+    # MSRC month fallback: when the servicing index has no entry attached to
+    # the new baseline KB, there is no published/updated date to derive an
+    # MSRC month from. Fall back to the Release Health baseline month (the
+    # same official_release_date the notice reports) so MSRC CVRF can still
     # classify the baseline KB. Only the baseline record ever carries this.
     if not published and not updated:
         official_date = _baseline_notice_official_date(row.availability_date)
@@ -3300,9 +3304,7 @@ def _source_diagnostics(
     source_input_events: tuple[Mapping[str, Any], ...] = (),
     source_fetch_status: Mapping[str, Any],
     release_health_url: str,
-    atom_feed_url: str | None,
     release_health_html: str,
-    atom_feed_xml: str | None,
     generated_at_utc: str,
     servicing_toc_url: str | None = None,
     servicing_toc_json: str | None = None,
@@ -3482,9 +3484,7 @@ def _policy_with_enrichment(
     atom_entries: tuple[AtomFeedEntry, ...],
     generated_at_utc: str,
     release_health_url: str,
-    atom_feed_url: str | None,
     release_health_html: str,
-    atom_feed_xml: str | None,
     source_fetch_status: Mapping[str, Any],
     validation_warnings: tuple[str, ...],
     source_input_events: tuple[Mapping[str, Any], ...] = (),
@@ -3638,9 +3638,7 @@ def _policy_with_enrichment(
         source_input_events=source_input_events,
         source_fetch_status=source_fetch_status,
         release_health_url=release_health_url,
-        atom_feed_url=atom_feed_url,
         release_health_html=release_health_html,
-        atom_feed_xml=atom_feed_xml,
         generated_at_utc=generated_at_utc,
         servicing_toc_url=servicing_toc_url,
         servicing_toc_json=servicing_toc_json,
@@ -3687,9 +3685,7 @@ def _policy_with_enrichment(
 def generate_policy(
     *,
     release_health_html: str,
-    atom_feed_xml: str | None = None,
     release_health_url: str = DEFAULT_RELEASE_HEALTH_URL,
-    atom_feed_url: str | None = None,
     servicing_toc_json: str | None = None,
     servicing_toc_url: str | None = DEFAULT_SERVICING_TOC_URL,
     generated_at_utc: str | None = None,
@@ -3748,9 +3744,7 @@ def generate_policy(
         atom_entries=servicing_entries,
         generated_at_utc=generated,
         release_health_url=release_health_url,
-        atom_feed_url=None,
         release_health_html=release_health_html,
-        atom_feed_xml=None,
         source_fetch_status=effective_source_fetch_status,
         validation_warnings=tuple(dict.fromkeys(warnings)),
         source_input_events=tuple(source_input_events),
@@ -8816,9 +8810,7 @@ def render_policy_manifest(
 def build_policy_from_sources(
     *,
     release_health_url: str = DEFAULT_RELEASE_HEALTH_URL,
-    atom_feed_url: str | None = None,
     release_health_html_path: str | Path | None = None,
-    atom_feed_path: str | Path | None = None,
     servicing_toc_url: str = DEFAULT_SERVICING_TOC_URL,
     servicing_toc_path: str | Path | None = None,
     timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -8841,6 +8833,7 @@ def build_policy_from_sources(
         timeout=timeout,
         required=False,
         charset="utf-8",
+        max_bytes=DEFAULT_MAX_SERVICING_TOC_BYTES,
     )
     source_fetch_status = {
         "release_health_html": dict(release_health.status),
@@ -8848,9 +8841,7 @@ def build_policy_from_sources(
     }
     return generate_policy(
         release_health_html=release_health.text,
-        atom_feed_xml=None,
         release_health_url=release_health_url,
-        atom_feed_url=None,
         servicing_toc_json=servicing_toc.text or None,
         servicing_toc_url=servicing_toc_url,
         source_fetch_status=source_fetch_status,
@@ -8865,7 +8856,6 @@ def build_policy_from_sources(
 
 __all__ = [
     "DEFAULT_SERVICING_TOC_URL",
-    "DEFAULT_WINDOWS11_ATOM_FEED_URL",
     "AtomFeedEntry",
     "SourceText",
     "build_policy_from_sources",

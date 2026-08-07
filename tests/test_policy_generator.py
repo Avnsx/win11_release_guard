@@ -1511,25 +1511,6 @@ def test_source_diagnostics_notice_when_atom_build_family_has_no_release_mapping
     assert event["affects_required_baseline"] is False
 
 
-def test_source_diagnostics_ignores_atom_build_older_than_release_history() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry(
-            "KB5089000",
-            "May 1, 2026-KB5089000 (OS Build 26200.8000)",
-            published="2026-05-01T18:00:00Z",
-            updated="2026-05-01T18:00:00Z",
-            link="https://support.microsoft.com/help/5089000",
-        )
-    )
-    policy = generate_policy(release_health_html=_html(), atom_feed_xml=atom)
-
-    assert policy.source_diagnostics["drift"]["atom_newer_than_release_history"] == []
-    assert not any(
-        event["kind"] == "atom_newer_than_release_history"
-        for event in policy.source_diagnostics["events"]
-    )
-
-
 def test_source_diagnostic_id_is_stable_for_equivalent_input():
     first = _source_diagnostic_id(
         severity="Warning",
@@ -2851,16 +2832,8 @@ def test_caught_up_baseline_update_notice_expires_after_visibility_window() -> N
         msrc_calls.append(url)
         raise PolicyFetchError("msrc fetch should not run for expired notice")
 
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_links(
-            "June 9, 2026-KB5094126 (OS Build 26200.8655)",
-            (f'<link rel="alternate" href="{KB5094126_SUPPORT_URL}" />',),
-        )
-    )
-
     policy = generate_policy(
         release_health_html=_release_health_caught_up_to_kb5094126(),
-        atom_feed_xml=atom,
         generated_at_utc="2026-07-01T00:00:00+00:00",
         support_article_fetcher=support_fetcher,
         msrc_cvrf_fetcher=msrc_fetcher,
@@ -3396,44 +3369,6 @@ def test_atom_support_missing_href_creates_diagnostic_without_help_fallback() ->
     assert event["affects_required_baseline"] is True
     assert "https://support.microsoft.com/help/5094126" not in json.dumps(policy.to_dict())
 
-
-
-def test_preview_atom_support_entry_does_not_update_latest_observed() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 Preview (OS Builds 26200.8655 and 26100.8655)",
-        )
-    )
-    policy = generate_policy(
-        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
-    )
-
-    target = policy.broad_target_existing_devices
-    assert target is not None
-    assert target.latest_build == "26200.8524"
-    assert target.latest_observed_build == "26200.8524"
-    assert "latest_observed_source" not in target.metadata
-
-
-def test_out_of_band_atom_support_entry_does_not_update_latest_observed() -> None:
-    atom = _atom_feed_with_entries(
-        _atom_entry_with_raw_id(
-            ATOM_ENTRY_ID,
-            "June 9, 2026&#8212;KB5094126 Out-of-band (OS Builds 26200.8655 and 26100.8655)",
-        )
-    )
-    policy = generate_policy(
-        release_health_html=_with_25h2_current_latest_build(_html(), "26200.8524"),
-        atom_feed_xml=atom,
-    )
-
-    target = policy.broad_target_existing_devices
-    assert target is not None
-    assert target.latest_build == "26200.8524"
-    assert target.latest_observed_build == "26200.8524"
-    assert "latest_observed_source" not in target.metadata
 
 
 

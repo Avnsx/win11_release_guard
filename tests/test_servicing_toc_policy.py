@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from win11_release_guard.policy_generator import DEFAULT_SERVICING_TOC_URL, generate_policy
+import pytest
+
+from win11_release_guard.policy_generator import (
+    DEFAULT_SERVICING_TOC_URL,
+    build_policy_from_sources,
+    generate_policy,
+)
 
 FIXTURES = Path("tests/fixtures")
 RETIRED_ATOM_EVENT_KINDS = {
@@ -82,6 +88,22 @@ def test_servicing_toc_run_emits_no_retired_atom_source_events() -> None:
     kinds = {event["kind"] for event in policy.source_diagnostics["events"]}
 
     assert not kinds & RETIRED_ATOM_EVENT_KINDS
+
+
+def test_preview_and_out_of_band_servicing_entries_do_not_update_latest_observed() -> None:
+    """The July fixture also lists a preview build (KB5101684, 26200.8973)
+    and an out-of-band build (KB5121767, 26200.8894), both numerically newer
+    than the KB5101650 baseline (26200.8875) that latest_observed_build does
+    track. Preview/out-of-band servicing entries must never advance
+    latest_observed_build past the newest normal (non-preview,
+    non-out-of-band) match.
+    """
+    policy = _policy_from_july_toc()
+
+    target = policy.broad_target_existing_devices
+    assert target is not None
+    assert target.latest_observed_build == "26200.8875"
+    assert target.metadata["latest_observed_kb_article"] == "KB5101650"
 
 
 def test_servicing_toc_status_is_recorded_in_source_fetch_status() -> None:
@@ -304,20 +326,77 @@ def test_generator_cli_writes_policy_from_the_servicing_toc_fixture(tmp_path) ->
 import win11_release_guard.policy_generator as policy_generator_module
 
 
-def test_atom_parameters_are_accepted_and_ignored() -> None:
-    policy = generate_policy(
-        release_health_html=_html_with_kb5101650(),
-        servicing_toc_json=_july_toc(),
-        atom_feed_xml="<feed><entry><title>ignored</title></entry></feed>",
-        atom_feed_url="https://support.microsoft.com/en-us/feed/atom/ignored",
-        generated_at_utc="2026-07-15T00:00:00+00:00",
-    )
-    kinds = {event["kind"] for event in policy.source_diagnostics["events"]}
+def test_retired_atom_parameters_are_rejected() -> None:
+    """atom_feed_xml/atom_feed_url/atom_feed_path were previously accepted and
+    silently discarded, which let a caller believe a fixture had an effect
+    when it never did. They are removed entirely now, so passing any of them
+    is a loud TypeError instead of a silent no-op.
+    """
+    with pytest.raises(TypeError):
+        generate_policy(
+            release_health_html=_html_with_kb5101650(),
+            servicing_toc_json=_july_toc(),
+            atom_feed_xml="<feed><entry><title>ignored</title></entry></feed>",
+            generated_at_utc="2026-07-15T00:00:00+00:00",
+        )
+    with pytest.raises(TypeError):
+        generate_policy(
+            release_health_html=_html_with_kb5101650(),
+            atom_feed_url="https://support.microsoft.com/en-us/feed/atom/ignored",
+        )
+    with pytest.raises(TypeError):
+        build_policy_from_sources(
+            release_health_html_path=FIXTURES / "windows11-release-health.html",
+            atom_feed_url="https://support.microsoft.com/en-us/feed/atom/ignored",
+        )
+    with pytest.raises(TypeError):
+        build_policy_from_sources(
+            release_health_html_path=FIXTURES / "windows11-release-health.html",
+            atom_feed_path=FIXTURES / "windows11-servicing-toc.json",
+        )
 
-    assert not kinds & RETIRED_ATOM_EVENT_KINDS
-    assert "atom_feed" not in policy.source_fetch_status
-    assert "atom_feed" not in policy.source_diagnostics
-    assert not any("atom" in url.lower() for url in policy.source_urls)
+
+def test_unsafe_servicing_href_is_not_fetched_and_leaves_no_url_trace() -> None:
+    """A servicing-index entry whose href resolves to nothing safe (here, an
+    absolute external URL rather than the expected site-relative path) must
+    never be fetched, and the rejected URL must never leak into the emitted
+    diagnostic. This is the servicing-index equivalent of the retired
+    Atom-feed guarantee that an unsafe/malformed href is not fetched and does
+    not leak: :func:`_resolve_url` in ``servicing_toc.py`` refuses any href
+    containing ``:`` or ``//``, so this also covers a missing/malformed href.
+    """
+    toc = json.dumps(
+        {
+            "items": [
+                {
+                    "toc_title": "June 9, 2026-KB5094126 (OS Builds 26200.8655 and 26100.8655)",
+                    "href": "https://evil.example/en-us/topic/kb5094126",
+                },
+            ]
+        }
+    )
+
+    def fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        raise AssertionError(f"unexpected support article fetch: {url}")
+
+    policy = generate_policy(
+        release_health_html=_html(),
+        servicing_toc_json=toc,
+        support_article_fetcher=fetcher,
+    )
+
+    target = policy.broad_target_existing_devices
+    assert target is not None
+    assert not policy.source_diagnostics["support_articles"]
+
+    event = next(
+        event
+        for event in policy.source_diagnostics["events"]
+        if event["kind"] == "atom_support_article_href_missing"
+    )
+    assert event["kb_article"] == "KB5094126"
+    assert "atom_feed_url" not in event
+    assert "evil.example" not in json.dumps(policy.to_dict())
 
 
 def test_missing_servicing_toc_no_longer_reports_a_missing_atom_feed() -> None:
