@@ -5419,3 +5419,84 @@ def test_wiki_changelog_renders_wrapped_bullets_as_list_items(tmp_path: Path) ->
         assert "<p>wording (" not in html
         assert "<p>pages carry the shared" not in html
         assert "<p>so commands stay fully visible" not in html
+
+
+SERVICING_HUB_URL = "https://support.microsoft.com/en-us/servicing/os/windows-11"
+KB5101650_SERVICING_URL = (
+    "https://support.microsoft.com/en-us/servicing/os/windows-11/2026/07/"
+    "july-14-2026-kb5101650-os-builds-26200-8875-and-26100-8875"
+)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    (
+        (KB5101650_SERVICING_URL, KB5101650_SERVICING_URL),
+        (f"{KB5101650_SERVICING_URL}?ocid=feed#knownissues", KB5101650_SERVICING_URL),
+        (SERVICING_HUB_URL, SERVICING_HUB_URL),
+        (f"{SERVICING_HUB_URL}/", f"{SERVICING_HUB_URL}/"),
+    ),
+)
+def test_safe_support_article_url_accepts_servicing_article_paths(url: str, expected: str) -> None:
+    assert policy_generator_module._safe_support_article_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "https://support.microsoft.com/en-us/servicing/../etc",
+        "https://support.microsoft.com/en-us/api/servicing/os/windows-11/2026/07/july-14-2026-kb5101650",
+        "https://evil.example/en-us/servicing/os/windows-11/2026/07/july-14-2026-kb5101650",
+        "http://support.microsoft.com/en-us/servicing/os/windows-11/2026/07/july-14-2026-kb5101650",
+        "https://support.microsoft.com:444/en-us/servicing/os/windows-11/2026/07/july-14-2026-kb5101650",
+        "https://support.microsoft.com/en-us/servicing/os/windows-11/2026/07/" + ("a" * 1100),
+        "https://support.microsoft.com/en-us/servicing/os/windows-11/2026/13/july-14-2026-kb5101650",
+        "https://support.microsoft.com/en-us/servicing/os/windows-11/2026/07/kb%2f5101650",
+    ),
+)
+def test_safe_support_article_url_rejects_unsafe_servicing_paths(url: str) -> None:
+    assert policy_generator_module._safe_support_article_url(url) is None
+
+
+def test_safe_atom_support_article_url_alias_is_the_renamed_helper() -> None:
+    assert (
+        policy_generator_module._safe_atom_support_article_url
+        is policy_generator_module._safe_support_article_url
+    )
+
+
+def test_default_support_article_fetcher_follows_help_kb_redirect_to_servicing_article(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Headers:
+        def get_content_charset(self) -> str:
+            return "utf-8"
+
+        def get(self, name: str) -> None:
+            return None
+
+    class Response:
+        headers = Headers()
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def geturl(self) -> str:
+            return KB5101650_SERVICING_URL
+
+        def read(self, size: int) -> bytes:
+            return b"<html><title>KB5101650</title></html>"
+
+    def fake_urlopen(request: object, timeout: float) -> Response:
+        return Response()
+
+    monkeypatch.setattr(policy_generator_module.urllib.request, "urlopen", fake_urlopen)
+
+    html = policy_generator_module._default_support_article_fetcher(
+        "https://support.microsoft.com/help/5101650", 1.0, 4096
+    )
+
+    assert html == "<html><title>KB5101650</title></html>"

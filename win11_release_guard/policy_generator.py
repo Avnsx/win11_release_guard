@@ -607,7 +607,7 @@ def _link(element: ElementTree.Element, ns: Mapping[str, str]) -> str | None:
         if rel != "alternate":
             continue
         href = link.attrib.get("href")
-        safe_href = _safe_atom_support_article_url(href)
+        safe_href = _safe_support_article_url(href)
         if safe_href:
             return safe_href
     for link in element.findall("link"):
@@ -615,7 +615,7 @@ def _link(element: ElementTree.Element, ns: Mapping[str, str]) -> str | None:
         if rel != "alternate":
             continue
         href = link.attrib.get("href")
-        safe_href = _safe_atom_support_article_url(href)
+        safe_href = _safe_support_article_url(href)
         if safe_href:
             return safe_href
     return None
@@ -727,6 +727,14 @@ def _kb_url(kb_article: str | None, feed_entry: AtomFeedEntry | None = None) -> 
 _MAX_SUPPORT_ARTICLE_URL_LENGTH = 2048
 _MAX_SUPPORT_ARTICLE_PATH_LENGTH = 1024
 _SUPPORT_ARTICLE_BLOCKED_PATH_PREFIXES = ("/api", "/assets", "/download", "/feed", "/search", "/static")
+_SUPPORT_ARTICLE_HELP_PATH_RE = re.compile(r"/help/[1-9][0-9]{5,7}")
+_SUPPORT_ARTICLE_TOPIC_PATH_RE = re.compile(r"/topic/[A-Za-z0-9][A-Za-z0-9._~!$&'()*+,;=:@%-]{1,900}")
+_SUPPORT_ARTICLE_SERVICING_HUB_PATH_RE = re.compile(r"/servicing/os/windows-[0-9]{1,3}/?", re.IGNORECASE)
+_SUPPORT_ARTICLE_SERVICING_PATH_RE = re.compile(
+    r"/servicing/os/windows-[0-9]{1,3}/(?:19|20)[0-9]{2}/(?:0[1-9]|1[0-2])/"
+    r"[A-Za-z0-9][A-Za-z0-9._~!$&'()*+,;=:@%-]{1,300}",
+    re.IGNORECASE,
+)
 
 
 def _support_article_content_path(path: str) -> str:
@@ -734,7 +742,7 @@ def _support_article_content_path(path: str) -> str:
     return match.group(1) if match else path
 
 
-def _safe_atom_support_article_url(value: str | None) -> str | None:
+def _safe_support_article_url(value: str | None) -> str | None:
     url = str(value or "").strip()
     if not url or len(url) > _MAX_SUPPORT_ARTICLE_URL_LENGTH:
         return None
@@ -770,17 +778,24 @@ def _safe_atom_support_article_url(value: str | None) -> str | None:
         return None
     if "/api/" in lowered_content_path or "/feed/" in lowered_content_path:
         return None
-    if re.fullmatch(r"/help/[1-9][0-9]{5,7}", lowered_content_path):
+    if _SUPPORT_ARTICLE_HELP_PATH_RE.fullmatch(lowered_content_path):
         return f"https://support.microsoft.com{path}"
-    if re.fullmatch(r"/topic/[A-Za-z0-9][A-Za-z0-9._~!$&'()*+,;=:@%-]{1,900}", content_path):
+    if _SUPPORT_ARTICLE_TOPIC_PATH_RE.fullmatch(content_path):
+        return f"https://support.microsoft.com{path}"
+    if _SUPPORT_ARTICLE_SERVICING_HUB_PATH_RE.fullmatch(content_path):
+        return f"https://support.microsoft.com{path}"
+    if _SUPPORT_ARTICLE_SERVICING_PATH_RE.fullmatch(content_path):
         return f"https://support.microsoft.com{path}"
     return None
+
+
+_safe_atom_support_article_url = _safe_support_article_url
 
 
 def _atom_entry_support_url(entry: AtomFeedEntry | None) -> str | None:
     if entry is None:
         return None
-    return _safe_atom_support_article_url(entry.link)
+    return _safe_support_article_url(entry.link)
 
 
 class _SupportArticleTextExtractor(HTMLParser):
@@ -1155,14 +1170,14 @@ def _extract_support_article_facts(url: str, html_text: str) -> dict[str, Any]:
 
 
 def _default_support_article_fetcher(url: str, timeout: float, max_bytes: int) -> str:
-    safe_url = _safe_atom_support_article_url(url)
+    safe_url = _safe_support_article_url(url)
     if safe_url is None:
         raise PolicyFetchError("Support article URL failed safety validation.")
     return _fetch_url(
         safe_url,
         timeout=timeout,
         max_bytes=max_bytes,
-        final_url_validator=_safe_atom_support_article_url,
+        final_url_validator=_safe_support_article_url,
     )
 
 
@@ -1202,7 +1217,7 @@ def _support_article_enrichment(
     fetcher: SupportArticleFetcher,
     timeout: float,
 ) -> dict[str, Any]:
-    safe_url = _safe_atom_support_article_url(url)
+    safe_url = _safe_support_article_url(url)
     if safe_url is None:
         return {
             "url": url,
@@ -1807,7 +1822,7 @@ def _latest_observed_atom_support_record(
         kb_article = _extract_kb(entry.kb_article)
         if not kb_article:
             continue
-        support_url = _safe_atom_support_article_url(entry.link)
+        support_url = _safe_support_article_url(entry.link)
         for build in entry.builds:
             build_key = _build_key(build)
             family = build_key[0]
@@ -1887,7 +1902,7 @@ def _entry_with_latest_observed_evidence(
 
 
 def _support_article_record_url(record: Mapping[str, Any]) -> str | None:
-    return _safe_atom_support_article_url(str(record.get("support_url") or record.get("atom_feed_url") or "") or None)
+    return _safe_support_article_url(str(record.get("support_url") or record.get("atom_feed_url") or "") or None)
 
 
 _SUPPORT_ARTICLE_VALIDATION_STATUSES = {"ok", "degraded", "mismatch", "unavailable", "skipped"}
@@ -1897,7 +1912,7 @@ _BASELINE_UPDATE_NOTICE_WINDOW_DAYS = 14
 
 
 def _support_article_canonical_url(value: Any) -> str | None:
-    safe_url = _safe_atom_support_article_url(str(value or "") or None)
+    safe_url = _safe_support_article_url(str(value or "") or None)
     if safe_url is None:
         return None
     parsed = urlparse(safe_url)
@@ -1929,7 +1944,7 @@ def _source_timestamp_utc_z(value: Any) -> str | None:
 
 def _baseline_notice_source_url(row: ReleaseHistoryEntry) -> str | None:
     metadata_url = row.metadata.get("atom_feed_url") if isinstance(row.metadata, Mapping) else None
-    return _safe_atom_support_article_url(str(metadata_url or "") or None)
+    return _safe_support_article_url(str(metadata_url or "") or None)
 
 
 def _required_baseline_history_row(
@@ -7109,7 +7124,7 @@ def _source_diagnostic_source_class(source: Any) -> str:
 
 def _source_diagnostic_support_url(row: Mapping[str, Any]) -> str | None:
     for key in ("support_article_url", "source_url", "support_url", "atom_feed_url"):
-        safe_url = _safe_atom_support_article_url(str(row.get(key) or "") or None)
+        safe_url = _safe_support_article_url(str(row.get(key) or "") or None)
         if safe_url:
             return safe_url
     return None
@@ -7614,7 +7629,7 @@ def _render_baseline_update_notice(policy: ReleasePolicy) -> str:
         precision_text = " (Release Health date-only)" if precision == "date" else ""
         official_label = f"{official_date}{precision_text}"
     visible_until = str(notice.get("visible_until_utc") or "").strip()
-    source_url = _safe_atom_support_article_url(str(notice.get("source_url") or "") or None)
+    source_url = _safe_support_article_url(str(notice.get("source_url") or "") or None)
     security_url = _baseline_update_security_url(notice)
     data_attrs = [
         f'data-baseline-notice-build="{escape(build, quote=True)}"',
