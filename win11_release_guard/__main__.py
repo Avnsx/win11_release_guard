@@ -7,8 +7,6 @@ import json
 import platform
 import sys
 import traceback
-import urllib.error
-import urllib.request
 from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
@@ -37,7 +35,6 @@ from .config import (
     DEFAULT_PUBLISHED_POLICY_URLS,
     DEFAULT_QUALITY_POLICY,
     DEFAULT_STALE_CACHE_MAX_AGE_HOURS,
-    DEFAULT_USER_AGENT,
     DEFAULT_WUA_MAX_HISTORY,
     DEFAULT_WUA_MAX_RELEVANT_UPDATES,
     DEFAULT_WUA_TIMEOUT_SECONDS,
@@ -52,6 +49,7 @@ from .config import (
 )
 from .exceptions import PolicyFetchError, PolicyParseError, PolicyTrustError, WindowsReleaseCheckerError
 from .freshness import epoch_seconds_from_iso
+from . import http_client
 from .json_utils import (
     DEFAULT_MAX_MANIFEST_BYTES,
     DEFAULT_MAX_POLICY_BYTES,
@@ -908,79 +906,30 @@ def _payload_too_large_message(label: str, max_bytes: int) -> str:
     return f"{label} is too large: exceeds safety cap of {max_bytes} bytes"
 
 
-def _content_length_from_headers(headers: Mapping[str, object] | None) -> int | None:
-    if headers is None:
-        return None
-    value = None
-    if hasattr(headers, "get"):
-        value = headers.get("content-length") or headers.get("Content-Length")
-    if value is None and hasattr(headers, "items"):
-        for key, candidate in headers.items():
-            if str(key).lower() == "content-length":
-                value = candidate
-                break
-    if value is None:
-        return None
-    try:
-        parsed = int(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed >= 0 else None
-
-
-def _read_public_response_content(response, *, max_bytes: int, label: str) -> bytes:
-    content_length = _content_length_from_headers(response.headers)
-    if content_length is not None and content_length > max_bytes:
-        raise PolicyFetchError(_payload_too_large_message(label, max_bytes))
-    data = response.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise PolicyFetchError(_payload_too_large_message(label, max_bytes))
-    return data
-
-
 def _fetch_public_url(
     url: str,
     *,
     timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     max_bytes: int = DEFAULT_MAX_POLICY_BYTES,
 ) -> PublicFetchResult:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": DEFAULT_USER_AGENT,
-            "Accept": "*/*",
-        },
-    )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            headers = {str(key): str(value) for key, value in response.headers.items()}
-            content_type = response.headers.get("Content-Type")
-            return PublicFetchResult(
-                url=url,
-                status_code=int(getattr(response, "status", 200)),
-                content=_read_public_response_content(
-                    response,
-                    max_bytes=max_bytes,
-                    label="Public Pages response",
-                ),
-                content_type=content_type,
-                headers=headers,
-            )
-    except urllib.error.HTTPError as exc:
-        headers = {str(key): str(value) for key, value in exc.headers.items()} if exc.headers else {}
-        return PublicFetchResult(
-            url=url,
-            status_code=int(exc.code),
-            content=_read_public_response_content(
-                exc,
-                max_bytes=max_bytes,
-                label="Public Pages error response",
-            ),
-            content_type=headers.get("Content-Type"),
-            headers=headers,
+        result = http_client.request(
+            url,
+            headers={"Accept": "*/*"},
+            timeout=timeout,
+            max_bytes=max_bytes,
+            label="Public Pages response",
+            raise_for_status=False,
         )
     except Exception as exc:
         raise PolicyFetchError(f"Failed to fetch public Pages URL {url}: {exc}") from exc
+    return PublicFetchResult(
+        url=url,
+        status_code=result.status_code,
+        content=result.content,
+        content_type=http_client.get_header(result.headers, "Content-Type"),
+        headers=result.headers,
+    )
 
 
 def _call_fetch_public_url(url: str, *, timeout: float, max_bytes: int) -> PublicFetchResult:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import urllib.request
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -13,6 +12,7 @@ from xml.etree import ElementTree
 
 from .exceptions import PolicyFetchError
 from .freshness import parse_iso_utc_datetime
+from . import http_client
 
 
 WINDOWS_UPDATE_CLIENT_URL = "https://fe3.delivery.mp.microsoft.com/ClientWebService/client.asmx"
@@ -324,24 +324,18 @@ def parse_sync_updates(xml_text: str) -> tuple[WindowsUpdateOffer, ...]:
 
 
 def _urlopen_soap_post(body: str, timeout: float) -> str:
-    request = urllib.request.Request(
+    result = http_client.request(
         WINDOWS_UPDATE_CLIENT_URL,
-        data=body.encode("utf-8"),
         method="POST",
-        headers={
-            "Content-Type": WINDOWS_UPDATE_SOAP_CONTENT_TYPE,
-            "User-Agent": WINDOWS_UPDATE_USER_AGENT,
-        },
+        data=body.encode("utf-8"),
+        headers={"Content-Type": WINDOWS_UPDATE_SOAP_CONTENT_TYPE},
+        timeout=timeout,
+        max_bytes=DEFAULT_MAX_SYNC_UPDATES_BYTES,
+        label="Windows Update response",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        data = response.read(DEFAULT_MAX_SYNC_UPDATES_BYTES + 1)
-    if len(data) > DEFAULT_MAX_SYNC_UPDATES_BYTES:
-        raise PolicyFetchError(
-            "Windows Update response is too large: exceeds safety cap of "
-            f"{DEFAULT_MAX_SYNC_UPDATES_BYTES} bytes."
-        )
-    return data.decode(charset, errors="replace")
+    content_type = http_client.get_header(result.headers, "Content-Type")
+    charset = http_client.charset_from_content_type(content_type) or "utf-8"
+    return result.content.decode(charset, errors="replace")
 
 
 def _timestamp(moment: datetime) -> str:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import unicodedata
-import urllib.request
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -14,9 +13,9 @@ from .config import (
     DEFAULT_POLICY_URL,
     DEFAULT_PUBLISHED_POLICY_URLS,
     DEFAULT_RELEASE_HEALTH_URL,
-    DEFAULT_USER_AGENT,
 )
 from .exceptions import PolicyError, PolicyFetchError, PolicyParseError
+from . import http_client
 from .json_utils import DEFAULT_MAX_POLICY_BYTES, StrictJSONError, strict_json_object
 from .models import (
     EditionScope,
@@ -1414,15 +1413,14 @@ def _read_limited_response(response: Any, *, max_bytes: int, label: str) -> byte
 
 
 def _default_http_get(url: str, timeout: float, *, max_bytes: int = DEFAULT_MAX_POLICY_BYTES) -> bytes:
-    request = urllib.request.Request(
+    result = http_client.request(
         url,
-        headers={
-            "User-Agent": DEFAULT_USER_AGENT,
-            "Accept": "application/json,text/html,application/xhtml+xml",
-        },
+        headers={"Accept": "application/json,text/html,application/xhtml+xml"},
+        timeout=timeout,
+        max_bytes=max_bytes,
+        label="Release policy response",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return _read_limited_response(response, max_bytes=max_bytes, label="Release policy response")
+    return result.content
 
 
 def _call_http_get(http_get: HttpGet, url: str, timeout: float) -> Any:

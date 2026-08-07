@@ -22,7 +22,6 @@ from .config import (
     DEFAULT_POLICY_WARNING_AGE_DAYS,
     DEFAULT_RELEASE_HEALTH_URL,
     DEFAULT_TRUSTED_POLICY_KEY_ID,
-    DEFAULT_USER_AGENT,
 )
 from .exceptions import PolicyFetchError, PolicyParseError
 from .freshness import (
@@ -31,6 +30,7 @@ from .freshness import (
     freshness_thresholds,
     parse_iso_utc_datetime,
 )
+from . import http_client
 from .json_utils import DEFAULT_MAX_MICROSOFT_SOURCE_BYTES
 from .models import QualityPolicy, ReleaseHistoryEntry, ReleasePolicy, ReleasePolicyEntry
 from .policy_schema import (
@@ -485,26 +485,6 @@ def _dashboard_age_display(
     return _age_unit_text(minutes, "minute"), "age-wide" if minutes >= 100 else "", full
 
 
-def _content_length_from_headers(headers: Mapping[str, object] | None) -> int | None:
-    if headers is None:
-        return None
-    value = None
-    if hasattr(headers, "get"):
-        value = headers.get("content-length") or headers.get("Content-Length")
-    if value is None and hasattr(headers, "items"):
-        for key, candidate in headers.items():
-            if str(key).lower() == "content-length":
-                value = candidate
-                break
-    if value is None:
-        return None
-    try:
-        parsed = int(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed >= 0 else None
-
-
 def _fetch_url(
     url: str,
     *,
@@ -513,30 +493,17 @@ def _fetch_url(
     final_url_validator: Callable[[str], str | None] | None = None,
     charset: str | None = None,
 ) -> str:
-    request = urllib.request.Request(
+    result = http_client.request(
         url,
-        headers={
-            "User-Agent": DEFAULT_USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml,application/atom+xml,application/xml,text/xml",
-        },
+        headers={"Accept": "text/html,application/xhtml+xml,application/atom+xml,application/xml,text/xml"},
+        timeout=timeout,
+        max_bytes=max_bytes,
+        label="Microsoft source response",
+        final_url_validator=final_url_validator,
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        if final_url_validator is not None:
-            final_url = response.geturl() if hasattr(response, "geturl") else url
-            if final_url_validator(final_url) is None:
-                raise PolicyFetchError("Microsoft source response redirected to an unsafe URL.")
-        response_charset = charset or response.headers.get_content_charset() or "utf-8"
-        content_length = _content_length_from_headers(response.headers)
-        if content_length is not None and content_length > max_bytes:
-            raise PolicyFetchError(
-                f"Microsoft source response is too large: exceeds safety cap of {max_bytes} bytes."
-            )
-        data = response.read(max_bytes + 1)
-        if len(data) > max_bytes:
-            raise PolicyFetchError(
-                f"Microsoft source response is too large: exceeds safety cap of {max_bytes} bytes."
-            )
-        return data.decode(response_charset, errors="replace")
+    content_type = http_client.get_header(result.headers, "Content-Type")
+    response_charset = charset or http_client.charset_from_content_type(content_type) or "utf-8"
+    return result.content.decode(response_charset, errors="replace")
 
 
 def load_source_text(
@@ -1117,26 +1084,16 @@ def _msrc_cvrf_url(month_id: str) -> str:
 
 
 def _default_msrc_cvrf_fetcher(url: str, timeout: float, max_bytes: int) -> Mapping[str, Any]:
-    request = urllib.request.Request(
+    result = http_client.request(
         url,
-        headers={
-            "User-Agent": DEFAULT_USER_AGENT,
-            "Accept": "application/json",
-        },
+        headers={"Accept": "application/json"},
+        timeout=timeout,
+        max_bytes=max_bytes,
+        label="MSRC CVRF response",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        content_length = _content_length_from_headers(response.headers)
-        if content_length is not None and content_length > max_bytes:
-            raise PolicyFetchError(
-                f"MSRC CVRF response is too large: exceeds safety cap of {max_bytes} bytes."
-            )
-        data = response.read(max_bytes + 1)
-        if len(data) > max_bytes:
-            raise PolicyFetchError(
-                f"MSRC CVRF response is too large: exceeds safety cap of {max_bytes} bytes."
-            )
-        decoded = json.loads(data.decode(charset, errors="replace"))
+    content_type = http_client.get_header(result.headers, "Content-Type")
+    charset = http_client.charset_from_content_type(content_type) or "utf-8"
+    decoded = json.loads(result.content.decode(charset, errors="replace"))
     if not isinstance(decoded, Mapping):
         raise PolicyFetchError("MSRC CVRF response must be a JSON object.")
     return decoded
