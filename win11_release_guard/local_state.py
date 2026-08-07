@@ -419,8 +419,12 @@ _PROCESSOR_ARCHITECTURE_TO_OS_ARCHITECTURE: Mapping[int, str] = {
 }
 
 # The dict keys _read_wmi_operating_system (native or PowerShell) must
-# populate for downstream code to treat the result as usable.
-NATIVE_OS_INFO_KEYS = ("Caption", "Version", "BuildNumber", "OperatingSystemSKU", "OSArchitecture")
+# populate for downstream code to treat the result as usable. "Caption" is
+# deliberately excluded: the native read has no faithful source for it (see
+# _read_native_operating_system), so requiring it here would force every
+# native read to be judged incomplete and fall back to spawning powershell.exe
+# on every run.
+NATIVE_OS_INFO_KEYS = ("Version", "BuildNumber", "OperatingSystemSKU", "OSArchitecture")
 
 
 # Only wProcessorArchitecture is used below; the rest of the fields exist so
@@ -483,8 +487,6 @@ def _read_native_operating_system() -> dict[str, Any] | None:
     (``Caption``, ``Version``, ``BuildNumber``, ``OperatingSystemSKU``,
     ``OSArchitecture``), sourced from:
 
-    * ``winreg`` under ``CURRENT_VERSION_REGISTRY_PATH`` for the product name
-      and build.
     * ``RtlGetVersion`` (via ntdll, immune to the GetVersionEx compatibility
       shim that misreports version on some hosts) for the accurate OS
       version/build.
@@ -495,6 +497,14 @@ def _read_native_operating_system() -> dict[str, Any] | None:
       function", so this is a direct, faithful passthrough rather than a
       guess.
 
+    ``Caption`` is always ``None``: the registry's ``ProductName`` is known to
+    go stale after some in-place upgrades (e.g. it can still read a "Windows
+    10" name on an updated Windows 11 host), unlike Win32_OperatingSystem's
+    CIM-computed ``Caption``. Synthesizing a ``Caption`` from it would ship a
+    display-only value that looks authoritative but can contradict the
+    build-derived release and misfire display-only conflict checks. Callers
+    that need a caption get it from the PowerShell/CIM fallback instead.
+
     Returns ``None`` on non-Windows, or lets a read failure raise so the
     caller can fall back to the PowerShell probe. A dict missing any expected
     key's value is still returned as-is; :func:`_native_os_info_is_complete`
@@ -503,10 +513,8 @@ def _read_native_operating_system() -> dict[str, Any] | None:
     if os.name != "nt":
         return None
 
-    registry = _read_registry_current_version()
     rtl = _read_rtl_get_version()
 
-    product_name = _optional_str(registry.get("ProductName"))
     build_number = rtl.get("build")
 
     product_info_code: int | None = None
@@ -518,7 +526,7 @@ def _read_native_operating_system() -> dict[str, Any] | None:
         product_info_code = None
 
     return {
-        "Caption": f"Microsoft {product_name}" if product_name else None,
+        "Caption": None,
         "Version": _optional_str(rtl.get("version")),
         "BuildNumber": str(build_number) if build_number is not None else None,
         "OperatingSystemSKU": product_info_code,

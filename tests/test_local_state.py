@@ -610,10 +610,17 @@ def test_native_os_info_is_complete_requires_every_key_populated():
     assert local_state._native_os_info_is_complete(complete) is True
     assert local_state._native_os_info_is_complete(None) is False
     assert local_state._native_os_info_is_complete({}) is False
-    for missing_key in complete:
+    for missing_key in local_state.NATIVE_OS_INFO_KEYS:
         incomplete = dict(complete)
         incomplete[missing_key] = None
         assert local_state._native_os_info_is_complete(incomplete) is False
+
+    # Caption is deliberately not part of NATIVE_OS_INFO_KEYS: the native read
+    # has no faithful source for it, so a missing/None Caption must not force
+    # the (otherwise complete) result to be treated as unusable.
+    caption_missing = dict(complete)
+    caption_missing["Caption"] = None
+    assert local_state._native_os_info_is_complete(caption_missing) is True
 
 
 def test_read_native_operating_system_returns_expected_shape(monkeypatch):
@@ -641,8 +648,13 @@ def test_read_native_operating_system_returns_expected_shape(monkeypatch):
 
     data = local_state._read_native_operating_system()
 
+    # Caption is always None: the registry ProductName it would otherwise be
+    # synthesized from can go stale after an in-place upgrade (still reading
+    # "Windows 10" on an updated Windows 11 host), which previously produced
+    # a bogus Caption that misfired the LOCAL_CAPTION_STALE conflict check on
+    # every native read. A missing Caption does not affect completeness.
     assert data == {
-        "Caption": "Microsoft Windows 11 Pro",
+        "Caption": None,
         "Version": "10.0.26200",
         "BuildNumber": "26200",
         "OperatingSystemSKU": 48,
