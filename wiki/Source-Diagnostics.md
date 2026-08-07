@@ -55,7 +55,10 @@ table-of-contents JSON can expose a KB or build before the Release Health HTML
 Current Versions or release-history tables are manually refreshed. That race
 is normal for Preview, out-of-band, unknown-family, non-broad-target, or
 incomplete servicing rows, so those rows stay `notice`. Missing KB metadata is
-an uncertainty marker, not permanent proof that a row is harmless.
+an uncertainty marker, not permanent proof that a row is harmless. A servicing
+row with a title and an href but no parseable KB is kept, not dropped: it
+carries `kb_article: null`, never advances `latest_observed_build`, is never
+fetched for support-article enrichment, and surfaces as `notice` severity.
 
 `latest_build` remains the Microsoft Release Health Current Versions value.
 `latest_observed_build` is the newest official observed public Microsoft build
@@ -223,7 +226,7 @@ Issues or writing tokens.
 | Current Versions parser fails. | Release Health table headers changed. | Update parser tests and code together. |
 | The servicing index was not supplied. | `servicing_toc_missing` warning. | Release Health still drives the policy, but preview/out-of-band classification and drift context are incomplete until the index is available. |
 | The servicing index could not be parsed. | `servicing_toc_parse_failed` warning. | Check the payload shape before changing parser behaviour; the generator keeps producing policy from Release Health alone. |
-| The servicing index carried no usable entries. | `servicing_toc_no_usable_entries` warning. | Every entry needs a KB in its title; an index of lane landing pages alone produces no entries. |
+| The servicing index carried no usable entries. | `servicing_toc_no_usable_entries` warning. | Every entry needs a title and an href; a KB in the title is not required, but an index of lane landing pages alone still produces no entries. |
 | Servicing index has newer build than Release Health. | `atom_newer_than_release_history` event. | Inspect the KB, Support article href, build family, and whether latest observed remains informational. |
 | Servicing KB row has no Support article href. | `atom_support_article_href_missing` event. | Treat as source evidence gap; do not add a `/help/<KB>` resolver. |
 | Servicing row links only to feed/API/search/download/static, non-support, or traversal URL. | `atom_support_article_href_missing` event with no latest-observed advancement. | Treat as unsafe or non-article evidence; use only a safe servicing-linked Support article URL. |

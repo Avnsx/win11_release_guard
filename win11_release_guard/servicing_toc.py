@@ -106,15 +106,17 @@ def _entry_for(title: str, href: Any, release: str | None) -> ServicingTocEntry 
     href_text = str(href or "").strip()
     if not title or not href_text:
         return None
-    kb_article = _extract_kb(title)
-    if not kb_article:
+    if _lane_release(title) is not None:
+        # A lane heading (e.g. "Windows 11, version 25H2") can itself carry an
+        # href to its update-history landing page. That landing page is not a
+        # servicing entry; it is skipped the same way an href-less lane node is.
         return None
     return ServicingTocEntry(
         title=title,
         release=release,
         href=href_text,
         url=_resolve_url(href_text),
-        kb_article=kb_article,
+        kb_article=_extract_kb(title),
         builds=_extract_builds(title),
         preview=_is_preview(title),
         out_of_band=_is_out_of_band(title),

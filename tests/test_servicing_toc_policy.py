@@ -399,6 +399,80 @@ def test_unsafe_servicing_href_is_not_fetched_and_leaves_no_url_trace() -> None:
     assert "evil.example" not in json.dumps(policy.to_dict())
 
 
+def _kb_less_newer_build_toc() -> str:
+    return json.dumps(
+        {
+            "items": [
+                {
+                    "toc_title": "Windows 11, version 25H2",
+                    "children": [
+                        {
+                            "href": "2026/08/august-3-2026-servicing-update-os-build-26200-9001",
+                            "toc_title": "August 3, 2026—Servicing update (OS Build 26200.9001)",
+                        },
+                    ],
+                }
+            ]
+        }
+    )
+
+
+def test_kb_less_servicing_entry_is_a_notice_that_does_not_advance_latest_observed_or_baseline() -> None:
+    """A servicing row with a valid href but no KB in its title (e.g. a bare
+    "Servicing update" row) used to vanish entirely (no entry, no diagnostic).
+    It must now survive parsing with kb_article=None and surface as exactly one
+    notice-severity `atom_newer_than_release_history` event -- never a warning,
+    since the documented escalation to warning requires a KB -- and it must not
+    move latest_observed_build or required_baseline_build off of what
+    Release Health alone already established.
+    """
+    policy = generate_policy(
+        release_health_html=_html(),
+        servicing_toc_json=_kb_less_newer_build_toc(),
+        generated_at_utc="2026-08-04T00:00:00+00:00",
+    )
+
+    target = policy.broad_target_existing_devices
+    assert target is not None
+    assert target.version == "25H2"
+    # Unchanged from what Release Health's own Current Versions/history report.
+    assert target.latest_observed_build == "26200.8457"
+    assert target.required_baseline_build == "26200.8457"
+
+    drift_events = [
+        event
+        for event in policy.source_diagnostics["events"]
+        if event["kind"] == "atom_newer_than_release_history" and event["build"] == "26200.9001"
+    ]
+    assert len(drift_events) == 1
+    assert drift_events[0]["severity"] == "notice"
+    assert drift_events[0]["kb_article"] is None
+    assert drift_events[0]["affects_required_baseline"] is False
+
+
+def test_kb_less_servicing_entry_triggers_no_support_article_fetch() -> None:
+    """The enrichment work set only ever fetches a support article for a
+    record with an extractable KB. A KB-less servicing entry must not reach
+    the fetcher at all -- proven here with a fetcher that fails the test if it
+    is ever called.
+    """
+
+    def forbidden_fetcher(url: str, timeout: float, max_bytes: int) -> str:
+        raise AssertionError(f"support fetch must not be attempted for a KB-less entry, got {url}")
+
+    policy = generate_policy(
+        release_health_html=_html(),
+        servicing_toc_json=_kb_less_newer_build_toc(),
+        generated_at_utc="2026-08-04T00:00:00+00:00",
+        support_article_fetcher=forbidden_fetcher,
+    )
+
+    assert not policy.source_diagnostics["support_articles"]
+    target = policy.broad_target_existing_devices
+    assert target is not None
+    assert target.latest_observed_build == "26200.8457"
+
+
 def test_missing_servicing_toc_no_longer_reports_a_missing_atom_feed() -> None:
     policy = generate_policy(
         release_health_html=_html(),

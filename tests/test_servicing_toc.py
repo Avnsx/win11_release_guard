@@ -80,6 +80,65 @@ def test_parse_servicing_toc_skips_lane_parents_and_hrefless_nodes() -> None:
     assert not any(entry.title.startswith("Windows 11, version ") for entry in entries)
 
 
+def test_parse_servicing_toc_retains_a_kb_less_entry_with_an_href() -> None:
+    payload = {
+        "items": [
+            {
+                "toc_title": "Windows 11, version 25H2",
+                "children": [
+                    {
+                        "href": "2026/08/august-3-2026-servicing-update-os-build-26200-9001",
+                        "toc_title": "August 3, 2026—Servicing update (OS Build 26200.9001)",
+                    },
+                ],
+            }
+        ]
+    }
+    entries = parse_servicing_toc(payload)
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.kb_article is None
+    assert entry.href == "2026/08/august-3-2026-servicing-update-os-build-26200-9001"
+    assert entry.url == (
+        "https://support.microsoft.com/en-us/servicing/os/windows-11/"
+        "2026/08/august-3-2026-servicing-update-os-build-26200-9001"
+    )
+    assert entry.release == "25H2"
+    assert entry.builds == ("26200.9001",)
+    assert entry.published == "2026-08-03"
+
+
+def test_parse_servicing_toc_still_skips_a_lane_parent_node_with_an_href_and_a_hrefless_node() -> None:
+    # Real servicing indexes sometimes nest a duplicate lane-titled node with its
+    # own "update history" landing page href underneath the href-less top-level
+    # lane heading. Neither is a servicing entry; both must still be skipped now
+    # that a missing KB alone no longer disqualifies a row.
+    payload = {
+        "items": [
+            {
+                "toc_title": "Windows 11, version 25H2",
+                "href": None,
+                "children": [
+                    {
+                        "toc_title": "Windows 11, version 25H2",
+                        "href": "2025/07/windows-11-version-25h2-update-history",
+                    },
+                    {
+                        "toc_title": "August 3, 2026—Servicing update (OS Build 26200.9001)",
+                        "href": "2026/08/august-3-2026-servicing-update-os-build-26200-9001",
+                    },
+                ],
+            }
+        ]
+    }
+    entries = parse_servicing_toc(payload)
+
+    assert len(entries) == 1
+    assert entries[0].title == "August 3, 2026—Servicing update (OS Build 26200.9001)"
+    assert not any(entry.title.startswith("Windows 11, version ") for entry in entries)
+
+
 def test_parse_servicing_toc_accepts_a_parsed_mapping() -> None:
     assert parse_servicing_toc(json.loads(_july_toc_text())) == parse_servicing_toc(_july_toc_text())
 
@@ -154,6 +213,10 @@ def test_live_capture_parses_every_lane_and_carries_dates() -> None:
 
     assert {entry.release for entry in entries} == {"26H1", "25H2", "24H2", "23H2", "22H2", "21H2"}
     assert len(entries) >= 250
-    assert all(entry.kb_article and entry.url and entry.published for entry in entries)
+    assert all(entry.url and entry.published for entry in entries)
+    # "End of servicing statement" is a real KB-less row (href present, no KB in
+    # its title): it is retained per the KB-less-entry contract, not dropped.
+    kb_less_titles = [entry.title for entry in entries if entry.kb_article is None]
+    assert kb_less_titles == ["End of servicing statement"]
     assert _entry(entries, "KB5101650", "25H2").builds == ("26200.8875", "26100.8875")
     assert _entry(entries, "KB5101650", "25H2").published == "2026-07-14"
