@@ -213,6 +213,63 @@ def test_servicing_drift_event_resolves_the_msrc_month() -> None:
     assert all(event["msrc_cvrf_month_id"] == "2026-Jul" for event in drift)
 
 
+def test_servicing_toc_dedupe_prefers_the_newest_updated_record() -> None:
+    """`_atom_drift_record_is_preferred` has three tie-break levels: newest
+    `updated` wins; else lowest `atom_entry_id`; else lexicographic title/url.
+    Servicing-toc-derived entries never set `atom_entry_id`, so level 2 is
+    permanently dead for this source and level 1 (date) is the only live,
+    reachable tie-break. Two servicing-toc entries can legitimately share the
+    same KB and build with different dates (e.g. a corrected/republished
+    article), so this proves level 1 still selects the newer record - not
+    merely that the duplicate pair collapses to a single event.
+    """
+    older_title = "June 9, 2026-KB5099001 (OS Build 30000.100)"
+    newer_title = "June 20, 2026-KB5099001 (OS Build 30000.100)"
+    toc = json.dumps(
+        {
+            "items": [
+                {
+                    "toc_title": older_title,
+                    "href": "2026/06/june-9-2026-kb5099001-os-build-30000-100",
+                },
+                {
+                    "toc_title": newer_title,
+                    "href": "2026/06/june-20-2026-kb5099001-os-build-30000-100",
+                },
+            ]
+        }
+    )
+
+    policy = generate_policy(
+        release_health_html=_html(),
+        servicing_toc_json=toc,
+        generated_at_utc="2026-06-21T00:00:00+00:00",
+    )
+    events = [
+        event
+        for event in policy.source_diagnostics["events"]
+        if event["kind"] == "atom_newer_than_release_history"
+        and event["kb_article"] == "KB5099001"
+        and event["build"] == "30000.100"
+    ]
+
+    assert len(events) == 1
+    event = events[0]
+    # These assertions target the surviving record's identity, not just its
+    # count: if the `candidate_updated > current_updated` comparison in
+    # `_atom_drift_record_is_preferred` were flipped to `<`, the 2026-06-09
+    # record would survive instead (verified empirically), and every
+    # assertion below would fail regardless of which entry appears first in
+    # the TOC JSON.
+    assert event["updated"] == "2026-06-20"
+    assert event["published"] == "2026-06-20"
+    assert event["title"] == newer_title
+    assert event["support_url"] == (
+        "https://support.microsoft.com/en-us/servicing/os/windows-11/"
+        "2026/06/june-20-2026-kb5099001-os-build-30000-100"
+    )
+
+
 from tools import generate_policy as generate_policy_cli
 
 
