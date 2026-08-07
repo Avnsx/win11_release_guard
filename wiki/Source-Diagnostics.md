@@ -28,7 +28,7 @@ verdict authority.
 | Microsoft servicing table-of-contents JSON | Bytes, fetch time, entry count, newest observed build. |
 | Microsoft servicing support articles | Public release-note evidence and deterministic article enrichment when available. |
 | Public MSRC CVRF data | Unauthenticated exact-KB security-update evidence when available. |
-| Windows Update offer probe | Optional current-offer corroboration; notice severity only. |
+| Windows Update offer probe | Optional; reports current-offer corroboration when offers match, or an unavailable notice otherwise. Notice severity only. |
 | Parser | Structured events for missing/changed headers and table anomalies. |
 | Drift checks | Current table lag, newer observed rows, generated-after-source age. |
 
@@ -230,6 +230,7 @@ Issues or writing tokens.
 | Same KB appears in multiple servicing entries. | Build-aware Release History enrichment selects the entry matching the row build when available. | Do not trust first-match ordering; inspect build, source URL, preview/OOB flags, and timestamps. |
 | Support article KB/build/applies-to disagrees with the servicing entry. | `support_article_enrichment_mismatch` event and validation reason codes. | Trust the servicing entry's KB/build/release and MSRC exact-KB evidence; do not use the mismatched article for summaries or Support-derived security labels. |
 | Windows Update probe reports no offers. | `windows_update_probe_unavailable` notice. | Informational only. The probe is a current-offer snapshot, carries no history, and does not include out-of-band releases. Policy output is unaffected. |
+| Windows Update probe finds matching offers. | `windows_update_probe_corroboration` notice. | Informational only. The probe's build/KB offers corroborate the document sources; this does not affect policy output, `latest_observed_build`, or `required_baseline_build`. |
 | Required baseline catches up to latest observed build. | `baseline_update_notice` plus `required_baseline_matched_latest_observed` notice. | Treat as dashboard-only context; do not open or sync a GitHub Issue. |
 | Active baseline notice says security classification is unavailable. | Notice fields `security_evidence_source: unavailable` and `support_article_validation_status: unavailable` with no `source_url`, plus an `msrc_cvrf_enrichment_unavailable` warning event for the baseline month. | When the servicing table-of-contents JSON lags Patch Tuesday, the notice no longer waits for it: it derives the MSRC month from the Release Health baseline date and joins the baseline KB from MSRC CVRF, so classification is credited to MSRC during servicing lag with support validation staying unavailable (no Support article is fetched). The neutral wording now means MSRC itself was unavailable or its fetch failed; that is recorded by the warning event, is honest no-data output rather than a parser error, and classification appears automatically once MSRC is reachable on a later publish run. |
 | Source diagnostics warning appears on dashboard. | Event kind and affected release/build. | Keep visible; only block if severity is error. |

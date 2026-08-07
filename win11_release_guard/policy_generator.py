@@ -1746,8 +1746,8 @@ def _atom_support_href_missing_event(
         "affects_broad_target": True,
         "affects_required_baseline": True,
         "message": (
-            f"Atom feed reports {kb_article} build {build} for the broad target but does not provide "
-            "a usable support.microsoft.com article href; latest observed build was not advanced from Atom evidence."
+            f"Servicing index reports {kb_article} build {build} for the broad target but does not provide "
+            "a usable support.microsoft.com article href; latest observed build was not advanced from that evidence."
         ),
         "published": entry.published,
         "updated": entry.updated,

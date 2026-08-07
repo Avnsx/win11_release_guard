@@ -20,10 +20,10 @@ Use this when documenting or changing installed-state detection. The evaluator m
 | `GetProductInfo` | Secondary edition/SKU signal. |
 | `ProductName`, WMI `Caption`, `DisplayVersion` | Display and diagnostic labels only. |
 
-Operating system identity fields are read natively first, through the registry
-and Win32 APIs, with no process spawn. The previous PowerShell
-`Get-CimInstance Win32_OperatingSystem` read is retained and used automatically
-only when the native read is unavailable or returns an incomplete result.
+Operating system identity fields are read natively, through the registry and
+Win32 APIs, with no process spawn. PowerShell `Get-CimInstance
+Win32_OperatingSystem` is the fallback path: it runs automatically only when
+the native read is unavailable or returns an incomplete result.
 
 ## Why Display Labels Are Not Decisive
 
