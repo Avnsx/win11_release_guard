@@ -3,7 +3,10 @@ from __future__ import annotations
 import email.message
 import gzip
 import io
+import socket
+import ssl
 import urllib.error
+import urllib.request
 import zlib
 
 import pytest
@@ -13,6 +16,14 @@ from win11_release_guard.exceptions import PolicyFetchError
 
 
 DEFAULT_URL = "https://http-client-tests.invalid/resource"
+DEFAULT_HOST = "http-client-tests.invalid"
+
+
+@pytest.fixture(autouse=True)
+def _clear_dns_cache():
+    http_client._dns_cache.clear()
+    yield
+    http_client._dns_cache.clear()
 
 
 def _headers(mapping: dict[str, str] | None = None) -> email.message.Message:
@@ -66,6 +77,21 @@ def _recording_sleep():
         delays.append(seconds)
 
     return sleep, delays
+
+
+def _scripted_resolver(outcomes):
+    """Replays fixed resolution outcomes; never touches a real resolver."""
+
+    outcomes = list(outcomes)
+    calls: list[tuple[str, float]] = []
+
+    def resolver(host: str, timeout: float) -> None:
+        calls.append((host, timeout))
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+
+    return resolver, calls
 
 
 def test_default_headers_include_shared_browser_identity() -> None:
@@ -212,6 +238,93 @@ def test_truncated_gzip_degrades_to_raw_bytes_instead_of_raising_eoferror() -> N
     result = http_client.request(DEFAULT_URL, timeout=1.0, max_bytes=1 << 20, opener=opener, sleep=sleep)
 
     assert result.content == truncated
+
+
+def test_dns_resolution_failure_raises_without_retrying() -> None:
+    resolver, calls = _scripted_resolver([socket.gaierror(-2, "Name or service not known")])
+    opener = _ScriptedOpener([_FakeResponse(body=b"unused")])
+    sleep, delays = _recording_sleep()
+
+    with pytest.raises(PolicyFetchError, match="DNS resolution"):
+        http_client.request(
+            DEFAULT_URL,
+            timeout=1.0,
+            max_bytes=1024,
+            attempts=3,
+            opener=opener,
+            resolver=resolver,
+            sleep=sleep,
+        )
+
+    assert calls == [(DEFAULT_HOST, pytest.approx(1.0))]
+    assert opener.calls == []
+    assert delays == []
+
+
+def test_dns_preflight_deadline_never_exceeds_the_overall_timeout() -> None:
+    resolver, calls = _scripted_resolver([None])
+    opener = _ScriptedOpener([_FakeResponse(body=b"ok")])
+    sleep, _delays = _recording_sleep()
+
+    http_client.request(
+        DEFAULT_URL,
+        timeout=1.0,
+        max_bytes=1024,
+        opener=opener,
+        resolver=resolver,
+        sleep=sleep,
+    )
+
+    assert len(calls) == 1
+    dns_timeout = calls[0][1]
+    assert dns_timeout <= 1.0
+    assert dns_timeout <= http_client.DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS
+
+
+def test_repeated_requests_to_same_host_reuse_cached_dns_resolution() -> None:
+    resolver, calls = _scripted_resolver([None])
+    opener = _ScriptedOpener([_FakeResponse(body=b"first"), _FakeResponse(body=b"second")])
+    sleep, _delays = _recording_sleep()
+
+    first = http_client.request(DEFAULT_URL, timeout=1.0, max_bytes=1024, opener=opener, resolver=resolver, sleep=sleep)
+    second = http_client.request(DEFAULT_URL, timeout=1.0, max_bytes=1024, opener=opener, resolver=resolver, sleep=sleep)
+
+    assert first.content == b"first"
+    assert second.content == b"second"
+    assert len(calls) == 1
+
+
+def test_dns_preflight_is_skipped_for_proxied_urls(monkeypatch) -> None:
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"https": "http://proxy.invalid:8080"})
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda host: False)
+    resolver, calls = _scripted_resolver([])
+    opener = _ScriptedOpener([_FakeResponse(body=b"ok")])
+    sleep, _delays = _recording_sleep()
+
+    result = http_client.request(
+        DEFAULT_URL,
+        timeout=1.0,
+        max_bytes=1024,
+        opener=opener,
+        resolver=resolver,
+        sleep=sleep,
+    )
+
+    assert result.content == b"ok"
+    assert calls == []
+
+
+def test_default_resolver_is_not_invoked_when_a_custom_opener_replaces_urlopen(monkeypatch) -> None:
+    def _boom(host: str, timeout: float) -> None:
+        raise AssertionError("real DNS resolution must not run when a fake opener bypasses urlopen")
+
+    monkeypatch.setattr(http_client, "_default_resolve_host", _boom)
+    opener = _ScriptedOpener([_FakeResponse(body=b"ok")])
+    sleep, _delays = _recording_sleep()
+
+    result = http_client.request(DEFAULT_URL, timeout=1.0, max_bytes=1024, opener=opener, sleep=sleep)
+
+    assert result.content == b"ok"
 
 
 def test_429_then_503_then_success_retries_and_returns_body() -> None:

@@ -4,8 +4,11 @@ import email.message
 import email.utils
 import gzip
 import io
+import socket
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zlib
 from dataclasses import dataclass
@@ -29,10 +32,22 @@ DEFAULT_BACKOFF_CAP_SECONDS = 4.0
 DEFAULT_RETRY_AFTER_CAP_SECONDS = 30.0
 DEFAULT_LABEL = "HTTP response"
 
+# Bounded DNS preflight (see _dns_preflight): resolution runs with its own
+# deadline, well short of the overall request timeout, before any socket is
+# opened. Successful resolutions are cached briefly so a run that makes many
+# requests to the same host only pays the resolution cost once.
+DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS = 3.0
+DEFAULT_DNS_CACHE_TTL_SECONDS = 60.0
+_DNS_CACHE_MAX_ENTRIES = 256
+
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 Sleeper = Callable[[float], None]
 Opener = Callable[..., Any]
+Resolver = Callable[[str, float], None]
+
+# host -> monotonic expiry timestamp for cached successful resolutions.
+_dns_cache: dict[str, float] = {}
 
 
 @dataclass(frozen=True)
@@ -217,6 +232,84 @@ def _retry_delay(
     return _backoff_delay(attempt, backoff_base, backoff_cap)
 
 
+def _dns_cache_is_fresh(host: str, *, now: float) -> bool:
+    expiry = _dns_cache.get(host)
+    return expiry is not None and expiry > now
+
+
+def _dns_cache_store(host: str, *, now: float, ttl: float) -> None:
+    if host not in _dns_cache and len(_dns_cache) >= _DNS_CACHE_MAX_ENTRIES:
+        _dns_cache.pop(next(iter(_dns_cache)))
+    _dns_cache[host] = now + ttl
+
+
+def _uses_proxy(url: str) -> bool:
+    """True when urllib would route this URL through a configured proxy.
+
+    A proxied request has its name resolved by the proxy, not by us, so the
+    DNS preflight is skipped. Detection mirrors urllib's own logic
+    (urllib.request.getproxies / proxy_bypass); any failure here is treated
+    as "not proxied" so the preflight still runs.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        host = parsed.hostname
+        if not host:
+            return False
+        proxies = urllib.request.getproxies()
+        scheme = parsed.scheme or "http"
+        proxy_url = proxies.get(scheme) or proxies.get("http")
+        if not proxy_url:
+            return False
+        return not urllib.request.proxy_bypass(host)
+    except Exception:
+        return False
+
+
+def _default_resolve_host(host: str, timeout: float) -> None:
+    """Resolve host with a hard deadline, raising on failure or timeout.
+
+    Runs socket.getaddrinfo on a daemon thread and waits up to timeout
+    seconds for it to finish. A thread that never returns (a black-holed or
+    filtered resolver) is simply abandoned -- it cannot block interpreter
+    exit because it is a daemon thread, and nothing here ever joins it.
+    """
+    done = threading.Event()
+    outcome: dict[str, BaseException] = {}
+
+    def _run() -> None:
+        try:
+            socket.getaddrinfo(host, None)
+        except Exception as exc:
+            outcome["error"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=_run, daemon=True).start()
+    if not done.wait(timeout):
+        raise TimeoutError(f"did not complete within {timeout:.1f}s (preflight deadline)")
+    error = outcome.get("error")
+    if error is not None:
+        raise error
+
+
+def _dns_preflight(url: str, *, resolver: Resolver, timeout: float) -> None:
+    if _uses_proxy(url):
+        return
+    host = urllib.parse.urlsplit(url).hostname
+    if not host:
+        return
+    now = time.monotonic()
+    if _dns_cache_is_fresh(host, now=now):
+        return
+    dns_timeout = min(DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS, timeout)
+    try:
+        resolver(host, dns_timeout)
+    except Exception as exc:
+        raise PolicyFetchError(f"DNS resolution for '{host}' failed: {exc}") from exc
+    _dns_cache_store(host, now=now, ttl=DEFAULT_DNS_CACHE_TTL_SECONDS)
+
+
 def _finalize(
     response: Any,
     *,
@@ -256,11 +349,18 @@ def request(
     retry_after_cap: float = DEFAULT_RETRY_AFTER_CAP_SECONDS,
     sleep: Sleeper = time.sleep,
     opener: Opener | None = None,
+    resolver: Resolver | None = None,
 ) -> HttpResponse:
     merged_headers = default_headers(headers)
     if etag:
         merged_headers.setdefault("If-None-Match", etag)
     open_url = opener or urllib.request.urlopen
+    # A custom opener fully replaces urlopen, so no real socket or DNS
+    # lookup is ever involved -- skip the preflight unless a resolver was
+    # explicitly supplied alongside it (as the tests for this module do).
+    resolve_host = resolver if resolver is not None else (None if opener is not None else _default_resolve_host)
+    if resolve_host is not None:
+        _dns_preflight(url, resolver=resolve_host, timeout=timeout)
     total_attempts = max(1, int(attempts))
     last_exc: Exception | None = None
 
@@ -321,6 +421,8 @@ __all__ = [
     "DEFAULT_ACCEPT_LANGUAGE",
     "DEFAULT_BACKOFF_BASE_SECONDS",
     "DEFAULT_BACKOFF_CAP_SECONDS",
+    "DEFAULT_DNS_CACHE_TTL_SECONDS",
+    "DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS",
     "DEFAULT_LABEL",
     "DEFAULT_RETRY_AFTER_CAP_SECONDS",
     "DEFAULT_RETRY_ATTEMPTS",
