@@ -106,12 +106,12 @@ Canonical repository and feed:
   compliance floor selected by baseline rules. Latest-observed evidence alone
   must not promote the required baseline, and when Release Health catches up all
   three build fields can legitimately be the same.
-- Atom is discovery for Support article hrefs, not a `/help/<KB>` resolver.
-  Atom-linked Support article facts must be validated against Atom URL, KB,
+- The servicing table-of-contents JSON is the discovery source for support article
+  URLs. Discovered article facts must be validated against the record's URL, KB,
   build, and parseable applicability before use in summaries or Support-derived
-  security labels. Direct or fixture-provided Atom links must be revalidated
-  before becoming release-history `kb_url`, manifest, dashboard, or copied JSON
-  evidence. MSRC CVRF joins require exact KB-token matches.
+  security labels. Direct or fixture-provided links must be revalidated before
+  becoming release-history `kb_url`, manifest, dashboard, or copied JSON evidence.
+  MSRC CVRF joins require exact KB-token matches.
 - Source Diagnostic IDs may be deterministic hash-form or Atom-form. When one
   Atom entry produces multiple events, sibling events must keep unique IDs while
   retaining Atom metadata for triage.

@@ -61,41 +61,43 @@ device-compliance verdicts. Notices are informational, warnings are
 non-blocking source drift or enrichment problems, and errors are
 publish-blocking generator/source failures.
 
-Microsoft Release Health HTML, the public Atom/Update History feed,
-Atom-linked public Microsoft Support articles, and unauthenticated public MSRC
-CVRF data can be temporarily out of step. `latest_build` is the value from the
-Release Health Current Versions table; `latest_observed_build` can move ahead
-when the generator finds a newer non-preview broad-target build through an Atom
-entry with a safe `support.microsoft.com` article href. That observed value is
-informational until the signed baseline rules select it as
-`required_baseline_build`. When Release Health catches up and baseline rules
-select the same build, `latest_build`, `latest_observed_build`, and
-`required_baseline_build` can all be the same value without indicating drift.
+Microsoft Release Health HTML, the public Microsoft servicing table-of-contents
+JSON, the servicing support articles it links to, and unauthenticated public
+MSRC CVRF data can be temporarily out of step. `latest_build` is the value from
+the Release Health Current Versions table; `latest_observed_build` can move
+ahead when the generator finds a newer non-preview broad-target build through a
+servicing table-of-contents entry with a safe `support.microsoft.com` article
+href. That observed value is informational until the signed baseline rules
+select it as `required_baseline_build`. When Release Health catches up and
+baseline rules select the same build, `latest_build`, `latest_observed_build`,
+and `required_baseline_build` can all be the same value without indicating
+drift.
 
-Atom is discovery, not a KB resolver. The generator selects only safe Atom
-`alternate` links to `https://support.microsoft.com` article paths. It ignores
-`self` links, feed/API/search/download/static paths, non-support hosts,
+The servicing table-of-contents JSON is discovery, not a KB resolver. The
+generator selects only safe links to `https://support.microsoft.com` article
+paths. It ignores feed/API/search/download/static paths, non-support hosts,
 userinfo, unsafe ports, traversal patterns, and overlong URLs; otherwise safe
 evidence URLs accept no port or explicit `:443` and are canonicalized without
-tracking query strings or fragments. If an Atom KB row lacks a
+tracking query strings or fragments. If a servicing entry's KB row lacks a
 usable Support article href, the generator records
 `atom_support_article_href_missing` evidence instead of fetching `/help/<KB>`.
 Legacy `/help/<digits>` paths remain valid only when they came directly from
-Atom. Direct or fixture-provided Atom links are revalidated before becoming
-release-history `kb_url`, manifest metadata, dashboard links, or copied
-diagnostic JSON. Release History enrichment prefers Atom entries matching both
-KB and row build, then build-only evidence, and skips ambiguous KB-only
-fallbacks. MSRC CVRF and validated explicit Support article wording provide
-higher-confidence security classification; Atom titles are kept as
-low-confidence update buckets only. Source Diagnostics and enrichment can
-explain observed builds and KB classification, but they do not override signed
-policy verdicts or required baseline semantics.
+the servicing table-of-contents entry. Direct or fixture-provided links are
+revalidated before becoming release-history `kb_url`, manifest metadata,
+dashboard links, or copied diagnostic JSON. Release History enrichment prefers
+servicing entries matching both KB and row build, then build-only evidence, and
+skips ambiguous KB-only fallbacks. MSRC CVRF and validated explicit Support
+article wording provide higher-confidence security classification; servicing
+entry titles are kept as low-confidence update buckets only. Source
+Diagnostics and enrichment can explain observed builds and KB classification,
+but they do not override signed policy verdicts or required baseline
+semantics.
 `source_drift_unresolved_after_24h` is reserved for warning/error drift that
 remains unresolved after the newest source timestamp, not for notice-only source
 lag.
 
-Support article enrichment is trusted only after the fetched article matches the
-Atom record's selected support URL, KB, expected build, and parseable
+Support article enrichment is trusted only after the fetched article matches
+the servicing record's selected support URL, KB, expected build, and parseable
 applicability. The bounded `Applies to` extractor handles compact paragraphs,
 heading/list blocks, and heading/paragraph blocks, stops at following sections,
 and records `applies_to_releases` such as `["24H2", "25H2"]` when release
@@ -111,7 +113,7 @@ evidence. Exact-KB remediation evidence still marks the KB as security even
 when optional CVE, severity, or product fields are absent. Public dashboard
 rows and copied visible JSON expose the security classification and evidence
 source, not CVE lists or counts. If a partial article is compatible but
-incomplete, rows carry a compact degraded reason and stay grounded in Atom
+incomplete, rows carry a compact degraded reason and stay grounded in servicing
 KB/build/release facts.
 
 Small info icons beside dashboard section labels are static links to the related
@@ -130,18 +132,19 @@ renders a blue/white informational notice above the `Policy Feed Currency` and
 `Source Diagnostics` panels. It appears only when the broad target's
 `required_baseline_build` came from a real non-preview, non-OOB Release Health
 B-release row and now matches `latest_observed_build`. The notice uses
-deterministic local summary text from Release Health, Atom, validated Support
-article facts, and exact MSRC KB evidence; it does not use an LLM, cloud API,
-browser token, or external JavaScript. Security wording is evidence-aware: the
-summary credits MSRC only for exact MSRC CVRF evidence, attributes validated
-Support article evidence to Microsoft Support, and stays neutral when security
-evidence is unavailable or unknown. When Microsoft's Update History Atom feed
-lags Patch Tuesday and carries no entry for the baseline KB, the active notice
-no longer waits for that entry to classify security: it derives the MSRC month
+deterministic local summary text from Release Health, the servicing
+table-of-contents JSON, validated Support article facts, and exact MSRC KB
+evidence; it does not use an LLM, cloud API, browser token, or external
+JavaScript. Security wording is evidence-aware: the summary credits MSRC only
+for exact MSRC CVRF evidence, attributes validated Support article evidence to
+Microsoft Support, and stays neutral when security evidence is unavailable or
+unknown. When the servicing table-of-contents JSON lags Patch Tuesday and
+carries no entry for the baseline KB, the active notice no longer waits for
+that entry to classify security: it derives the MSRC month
 from the Release Health baseline date (for example `2026-06-09` to `2026-Jun`),
 fetches MSRC CVRF for the baseline month, and joins the baseline KB exactly, so
-the classification is credited to MSRC even without an Atom link. No Support
-article is fetched or synthesized in that case, so
+the classification is credited to MSRC even without a servicing-linked support
+article. No Support article is fetched or synthesized in that case, so
 `support_article_validation_status` stays `unavailable`. The neutral sentence
 now appears only when MSRC is also unavailable or its fetch fails, and that
 failure is surfaced as an ordinary `msrc_cvrf_enrichment_unavailable` warning
@@ -223,7 +226,7 @@ as static HTML so missing ticket links are visible without client-side API calls
 ## Verify
 
 ```powershell
-python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --atom-feed tests/fixtures/windows11-atom.xml --output-dir site --write-index --write-robots --write-sitemap --write-manifest
+python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --servicing-toc tests/fixtures/windows11-servicing-toc.json --output-dir site --write-index --write-robots --write-sitemap --write-manifest
 pytest -q tests/test_pages_landing.py tests/test_policy_generator.py tests/test_wiki_markdown_links.py tests/test_source_diagnostics_issue_metadata.py tests/test_policy_source_cli.py
 python -m win11_release_guard --check-public-pages
 ```
