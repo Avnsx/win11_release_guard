@@ -392,6 +392,149 @@ def test_retry_after_header_is_honoured() -> None:
     assert delays == [17.0]
 
 
+def test_503_with_cf_mitigated_challenge_header_is_not_retried() -> None:
+    opener = _ScriptedOpener(
+        [_http_error(503, headers={"cf-mitigated": "challenge"}, body=b"<html>please wait</html>")]
+    )
+    sleep, delays = _recording_sleep()
+
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        http_client.request(
+            DEFAULT_URL,
+            timeout=1.0,
+            max_bytes=1024,
+            attempts=3,
+            opener=opener,
+            sleep=sleep,
+        )
+
+    assert excinfo.value.code == 503
+    assert len(opener.calls) == 1
+    assert delays == []
+
+
+def test_503_with_challenge_body_marker_is_not_retried() -> None:
+    body = b"<html><head><title>Just a moment...</title></head><body>_cf_chl_opt</body></html>"
+    opener = _ScriptedOpener([_http_error(503, body=body)])
+    sleep, delays = _recording_sleep()
+
+    with pytest.raises(urllib.error.HTTPError):
+        http_client.request(
+            DEFAULT_URL,
+            timeout=1.0,
+            max_bytes=1024,
+            attempts=3,
+            opener=opener,
+            sleep=sleep,
+        )
+
+    assert len(opener.calls) == 1
+    assert delays == []
+
+
+def test_503_with_known_challenge_server_header_is_not_retried() -> None:
+    opener = _ScriptedOpener([_http_error(503, headers={"Server": "ddos-guard"}, body=b"blocked")])
+    sleep, delays = _recording_sleep()
+
+    with pytest.raises(urllib.error.HTTPError):
+        http_client.request(
+            DEFAULT_URL,
+            timeout=1.0,
+            max_bytes=1024,
+            attempts=3,
+            opener=opener,
+            sleep=sleep,
+        )
+
+    assert len(opener.calls) == 1
+    assert delays == []
+
+
+def test_plain_503_without_challenge_markers_still_retries() -> None:
+    opener = _ScriptedOpener(
+        [_http_error(503, body=b"Service Unavailable, please retry later."), _FakeResponse(body=b"ok")]
+    )
+    sleep, delays = _recording_sleep()
+
+    result = http_client.request(
+        DEFAULT_URL,
+        timeout=1.0,
+        max_bytes=1024,
+        attempts=2,
+        opener=opener,
+        sleep=sleep,
+    )
+
+    assert result.content == b"ok"
+    assert len(delays) == 1
+
+
+def test_challenge_detected_with_raise_for_status_false_returns_full_body() -> None:
+    body = b"<html>just a moment</html>"
+    opener = _ScriptedOpener([_http_error(503, body=body)])
+    sleep, delays = _recording_sleep()
+
+    result = http_client.request(
+        DEFAULT_URL,
+        timeout=1.0,
+        max_bytes=1024,
+        attempts=3,
+        raise_for_status=False,
+        opener=opener,
+        sleep=sleep,
+    )
+
+    assert result.status_code == 503
+    assert result.content == body
+    assert delays == []
+
+
+def test_challenge_probe_reads_only_a_bounded_prefix_of_the_body() -> None:
+    class _TrackingBody(io.BytesIO):
+        def __init__(self, data: bytes) -> None:
+            super().__init__(data)
+            self.read_sizes: list[int | None] = []
+
+        def read(self, size: int = -1) -> bytes:
+            self.read_sizes.append(size)
+            return super().read(size)
+
+    tracking_body = _TrackingBody(b"x" * 5000)
+    exc = urllib.error.HTTPError(DEFAULT_URL, 503, "status", _headers(), tracking_body)
+    opener = _ScriptedOpener([exc, _FakeResponse(body=b"ok")])
+    sleep, _delays = _recording_sleep()
+
+    http_client.request(DEFAULT_URL, timeout=1.0, max_bytes=1024, attempts=2, opener=opener, sleep=sleep)
+
+    assert tracking_body.read_sizes
+    assert all(size is not None and size <= 4096 for size in tracking_body.read_sizes)
+
+
+def test_retry_after_is_not_compounded_with_backoff_for_the_same_attempt() -> None:
+    opener = _ScriptedOpener(
+        [
+            _http_error(503, headers={"Retry-After": "2"}),
+            _FakeResponse(body=b"ok"),
+        ]
+    )
+    sleep, delays = _recording_sleep()
+
+    http_client.request(
+        DEFAULT_URL,
+        timeout=1.0,
+        max_bytes=1024,
+        attempts=2,
+        backoff_base=10.0,
+        backoff_cap=40.0,
+        opener=opener,
+        sleep=sleep,
+    )
+
+    # Only the (capped) Retry-After wait fires -- never Retry-After plus the
+    # exponential backoff that would otherwise apply to this same attempt.
+    assert delays == [2.0]
+
+
 def test_304_reports_unchanged_without_body() -> None:
     opener = _ScriptedOpener([_http_error(304)])
     sleep, _delays = _recording_sleep()

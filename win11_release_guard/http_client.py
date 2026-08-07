@@ -52,6 +52,20 @@ _CERT_VERIFICATION_MESSAGE = (
 
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
+# Interactive-challenge detection (see _is_challenge_response): a retryable
+# status backed by one of these markers is an interstitial that will not
+# change before the retry budget is spent, so it is treated the same as a
+# non-retryable status instead. Kept deliberately narrow -- a false positive
+# turns a recoverable throttle into an immediate failure.
+DEFAULT_CHALLENGE_BODY_PEEK_BYTES = 2048
+_CHALLENGE_SERVER_TOKENS = ("ddos-guard",)
+_CHALLENGE_BODY_MARKERS = (
+    b"_cf_chl_opt",
+    b"window._cf_chl",
+    b"challenges.cloudflare.com",
+    b"just a moment",
+)
+
 Sleeper = Callable[[float], None]
 Opener = Callable[..., Any]
 Resolver = Callable[[str, float], None]
@@ -141,14 +155,16 @@ def _too_large_message(label: str, max_bytes: int) -> str:
     return f"{label} is too large: exceeds safety cap of {max_bytes} bytes"
 
 
-def _read_bounded(response: Any, *, max_bytes: int, label: str) -> bytes:
+def _read_bounded(response: Any, *, max_bytes: int, label: str, prefix: bytes = b"") -> bytes:
     headers = getattr(response, "headers", None)
     content_length = _content_length(headers)
     if content_length is not None and content_length > max_bytes:
         raise PolicyFetchError(_too_large_message(label, max_bytes))
-    data = response.read(max_bytes + 1)
-    if isinstance(data, str):
-        data = data.encode("utf-8")
+    remaining = max_bytes + 1 - len(prefix)
+    more = response.read(remaining) if remaining > 0 else b""
+    if isinstance(more, str):
+        more = more.encode("utf-8")
+    data = prefix + more
     if len(data) > max_bytes:
         raise PolicyFetchError(_too_large_message(label, max_bytes))
     return data
@@ -240,6 +256,35 @@ def _retry_delay(
     if retry_after is not None:
         return min(retry_after, retry_after_cap)
     return _backoff_delay(attempt, backoff_base, backoff_cap)
+
+
+def _read_challenge_probe(exc: urllib.error.HTTPError, *, cap: int) -> bytes:
+    reader = getattr(exc, "read", None)
+    if not callable(reader):
+        return b""
+    try:
+        data = reader(cap)
+    except Exception:
+        return b""
+    if isinstance(data, str):
+        data = data.encode("utf-8", errors="replace")
+    return data or b""
+
+
+def _is_challenge_response(headers: Any, body_prefix: bytes) -> bool:
+    cf_mitigated = _header(headers, "cf-mitigated")
+    if cf_mitigated is not None and cf_mitigated.strip().lower() == "challenge":
+        return True
+    server = _header(headers, "Server")
+    if server is not None:
+        lowered_server = server.strip().lower()
+        if any(token in lowered_server for token in _CHALLENGE_SERVER_TOKENS):
+            return True
+    if body_prefix:
+        lowered_body = body_prefix.lower()
+        if any(marker in lowered_body for marker in _CHALLENGE_BODY_MARKERS):
+            return True
+    return False
 
 
 def _dns_cache_is_fresh(host: str, *, now: float) -> bool:
@@ -344,6 +389,7 @@ def _finalize(
     max_bytes: int,
     label: str,
     final_url_validator: Callable[[str], str | None] | None,
+    body_prefix: bytes = b"",
 ) -> HttpResponse:
     final_url = response.geturl() if hasattr(response, "geturl") else url
     if final_url_validator is not None:
@@ -353,7 +399,7 @@ def _finalize(
     raw_headers = getattr(response, "headers", None)
     content_encoding = _header(raw_headers, "Content-Encoding")
     headers = _headers_dict(raw_headers)
-    raw = _read_bounded(response, max_bytes=max_bytes, label=label)
+    raw = _read_bounded(response, max_bytes=max_bytes, label=label, prefix=body_prefix)
     content = _decompress(raw, content_encoding, max_bytes=max_bytes, label=label)
     return HttpResponse(url=final_url or url, status_code=status_code, headers=headers, content=content)
 
@@ -405,13 +451,26 @@ def request(
                         content=b"",
                         not_modified=True,
                     )
-                if exc.code in _RETRYABLE_STATUS_CODES and attempt < total_attempts:
+                body_prefix = b""
+                should_retry = exc.code in _RETRYABLE_STATUS_CODES and attempt < total_attempts
+                if should_retry:
+                    body_prefix = _read_challenge_probe(exc, cap=DEFAULT_CHALLENGE_BODY_PEEK_BYTES)
+                    if _is_challenge_response(exc.headers, body_prefix):
+                        should_retry = False
+                if should_retry:
                     sleep(_retry_delay(exc, attempt, backoff_base, backoff_cap, retry_after_cap))
                     last_exc = exc
                     continue
                 if raise_for_status:
                     raise
-                return _finalize(exc, url=url, max_bytes=max_bytes, label=label, final_url_validator=None)
+                return _finalize(
+                    exc,
+                    url=url,
+                    max_bytes=max_bytes,
+                    label=label,
+                    final_url_validator=None,
+                    body_prefix=body_prefix,
+                )
             finally:
                 closer = getattr(exc, "close", None)
                 if callable(closer):
@@ -450,6 +509,7 @@ __all__ = [
     "DEFAULT_ACCEPT_LANGUAGE",
     "DEFAULT_BACKOFF_BASE_SECONDS",
     "DEFAULT_BACKOFF_CAP_SECONDS",
+    "DEFAULT_CHALLENGE_BODY_PEEK_BYTES",
     "DEFAULT_DNS_CACHE_TTL_SECONDS",
     "DEFAULT_DNS_RESOLVE_TIMEOUT_SECONDS",
     "DEFAULT_LABEL",
