@@ -26,6 +26,15 @@ def test_temporary_generated_and_package_artifacts_are_gitignored() -> None:
     assert "*handover*.md" in patterns
 
 
+def test_tmp_staging_artifacts_are_gitignored() -> None:
+    # A hard-killed run can leave a `<name>.staging.tmp` beside its destination, including the
+    # repository root when `--output` targets it, so the bare `*.tmp` pattern is load-bearing.
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    patterns = {line.strip() for line in gitignore if line.strip() and not line.startswith("#")}
+
+    assert "*.tmp" in patterns
+
+
 def test_local_hand_off_notes_are_not_tracked_when_git_metadata_exists() -> None:
     if not (ROOT / ".git").exists():
         return

@@ -174,6 +174,129 @@ def test_purge_state_with_stateless_flag_still_purges_the_configured_location(tm
     assert not Path(scope.path).exists()
 
 
+def test_atomic_write_with_inplace_fallback_paths(tmp_path, monkeypatch):
+    # 1. happy path: the swap succeeds, event is "written"
+    dest = tmp_path / "out.bin"
+    event = cli._atomic_write_with_inplace_fallback(dest, b"hello")
+    assert event.outcome == "written"
+    assert dest.read_bytes() == b"hello"
+
+    # 2. swap refused -> single in-place fallback still writes the bytes, event "written"
+    def _boom(source: str, destination: str) -> None:
+        raise OSError(32, "The process cannot access the file because it is being used")
+
+    monkeypatch.setattr(state_store, "_replace", _boom)
+    dest2 = tmp_path / "out2.bin"
+    event2 = cli._atomic_write_with_inplace_fallback(dest2, b"world")
+    assert event2.outcome == "written"
+    assert dest2.read_bytes() == b"world"
+
+    # 3. both the swap and the in-place write fail (missing parent) -> "failed", never raises
+    missing = tmp_path / "no-such-dir" / "out3.bin"
+    event3 = cli._atomic_write_with_inplace_fallback(missing, b"nope")
+    assert event3.outcome == "failed"
+    assert event3.detail is not None
+    assert not missing.exists()
+
+
+def test_output_writes_through_helper_and_raises_only_on_total_failure(tmp_path, monkeypatch, capsys):
+    from win11_release_guard.evaluator import evaluate_windows_update_state
+    from win11_release_guard.models import LocalWindowsState, ReleasePolicy, ReleasePolicyEntry
+
+    def _policy() -> ReleasePolicy:
+        return ReleasePolicy(
+            broad_target_existing_devices=ReleasePolicyEntry(
+                version="25H2",
+                build_family=26200,
+                latest_build="26200.8457",
+                baseline_build="26200.8457",
+                servicing_option="General Availability Channel",
+            ),
+            supported_build_families={26200: "25H2"},
+            metadata={"signature_status": "valid"},
+        )
+
+    local = LocalWindowsState(
+        product_name="Windows 11 Pro",
+        edition_id="Professional",
+        display_version="25H2",
+        release_id="2009",
+        current_build=26200,
+        ubr=8457,
+        full_build="26200.8457",
+        installation_type="Client",
+        inferred_release="25H2",
+    )
+    monkeypatch.setattr(
+        cli,
+        "check_current_system",
+        lambda config: evaluate_windows_update_state(local, _policy(), quality_policy=config.quality_policy),
+    )
+
+    # success: routed through the helper, byte-identical to today's write_text(..., newline="\n")
+    output = tmp_path / "release-check.json"
+    code = cli.main(["--json", "--output", str(output)])
+    assert code == 0
+    raw = output.read_bytes()
+    assert b"\r" not in raw
+    assert raw.endswith(b"\n")
+    json.loads(raw.decode("utf-8"))
+    capsys.readouterr()
+
+    # total failure (missing parent dir): exit 2, no traceback, new routed message
+    missing = tmp_path / "absent" / "release-check.json"
+    code_fail = cli.main(["--json", "--output", str(missing)])
+    error_text = capsys.readouterr().err
+    assert code_fail == cli.EXIT_UNKNOWN_OR_POLICY_ERROR
+    assert not missing.exists()
+    # the routed message is what proves the write went through the shared helper rather than a
+    # bare path.write_text; a raw OSError repr here would mean the helper was never reached.
+    assert f"Could not write JSON output to {missing}: " in json.loads(error_text)["error"]
+    assert "Traceback" not in error_text
+
+
+def test_show_state_output_three_row_table(tmp_path, capsys):
+    policy_url = POLICY_URL
+    policy_bytes = b'{"schema_version": 1, "generated_at_utc": "2026-05-01T00:00:00Z"}'
+    signature_bytes = b'{"sig": "x"}'
+
+    # Row 2 first: nothing stored -> not written, not created, exit 0
+    empty_out = tmp_path / "empty.json"
+    code_none = cli.main(
+        ["--show-state", "--policy-url", policy_url, "--state-dir", str(tmp_path), "--output", str(empty_out)]
+    )
+    none_payload = json.loads(capsys.readouterr().out)
+    assert code_none == 0
+    assert not empty_out.exists()
+    assert none_payload["layout"] == "container"
+
+    # Row 1: seed a container, --show-state --output writes the decoded policy bytes, exit 0
+    config = ReleaseCheckerConfig(policy_url=policy_url, state_dir=str(tmp_path))
+    scope = state_store.resolve_state_scope(config)
+    assert state_store.write_state(scope, policy_bytes, signature_bytes).outcome == "written"
+
+    out = tmp_path / "policy.json"
+    code_ok = cli.main(
+        ["--show-state", "--policy-url", policy_url, "--state-dir", str(tmp_path), "--output", str(out)]
+    )
+    ok_payload = json.loads(capsys.readouterr().out)
+    assert code_ok == 0
+    assert out.read_bytes() == policy_bytes
+    assert "detail" not in ok_payload
+
+    # Row 3: bytes present but the write fails both ways (missing parent) -> payload printed, top-level
+    # "detail", exit 2, never a traceback
+    missing = tmp_path / "no-dir" / "policy.json"
+    code_fail = cli.main(
+        ["--show-state", "--policy-url", policy_url, "--state-dir", str(tmp_path), "--output", str(missing)]
+    )
+    fail_payload = json.loads(capsys.readouterr().out)
+    assert code_fail == cli.EXIT_UNKNOWN_OR_POLICY_ERROR
+    assert fail_payload["layout"] == "container"
+    assert fail_payload["detail"]
+    assert not missing.exists()
+
+
 def test_diagnose_and_show_state_never_mutate_state_or_check_the_source(monkeypatch, tmp_path, capsys):
     # Observation-based non-invocation spies (they only record), so nothing can pass vacuously
     # through a swallowed exception; they bite only because __main__ and state_store reach these

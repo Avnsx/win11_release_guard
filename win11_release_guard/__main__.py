@@ -531,6 +531,17 @@ def _print_json(
     )
 
 
+def _atomic_write_with_inplace_fallback(path: Path, data: bytes) -> state_store.StateEvent:
+    event = state_store.write_bytes_atomically(path, data)
+    if event.outcome != "failed":
+        return event
+    try:
+        path.write_bytes(data)                              # today's --output behaviour, one time, no retry loop
+        return state_store.StateEvent("write", "written", str(path), None)
+    except (OSError, ValueError) as exc:
+        return state_store.StateEvent("write", "failed", str(path), state_store._reason(exc))
+
+
 def _write_json_output(
     path: Path,
     result: EvaluationResult,
@@ -547,7 +558,10 @@ def _write_json_output(
         include_raw_wua_history=include_raw_wua_history,
         include_raw_local_diagnostics=include_raw_local_diagnostics,
     )
-    path.write_text(json_text + "\n", encoding="utf-8", newline="\n")
+    data = (json_text + "\n").encode("utf-8")
+    event = _atomic_write_with_inplace_fallback(path, data)
+    if event.outcome == "failed":
+        raise WindowsReleaseCheckerError(f"Could not write JSON output to {path}: {event.detail}")
 
 
 def _source_degradation_warning(result: EvaluationResult) -> str | None:
@@ -2000,9 +2014,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.show_state:
         try:
-            payload = _show_state_payload(_config_from_args(args))
+            config = _config_from_args(args)
+            payload = _show_state_payload(config)
+            exit_code = 0
+            if args.output is not None:
+                data = state_store.read_state_bytes(config)
+                if data is not None:
+                    event = _atomic_write_with_inplace_fallback(args.output, data)
+                    if event.outcome == "failed":
+                        payload["detail"] = event.detail
+                        exit_code = EXIT_UNKNOWN_OR_POLICY_ERROR
             print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True))
-            return 0
+            return exit_code
         except WindowsReleaseCheckerError as exc:
             _print_error(str(exc), json_output=True)
             if args.debug:

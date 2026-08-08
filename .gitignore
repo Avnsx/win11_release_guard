@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .cache/
 .tmp/
+*.tmp
 /site/
 /generated_site/
 /build/
