@@ -27,6 +27,8 @@ from win11_release_guard.policy_schema import is_source_diagnostic_id
 from win11_release_guard.wu_offer_probe import WindowsUpdateOffer, fetch_offers
 
 
+COOKIE_CACHE_PATH = Path(".tmp") / "windows-update-cookie.json"
+
 SOURCE_DIAGNOSTIC_ISSUE_URL_RE = re.compile(
     r"^https://github\.com/Avnsx/win11_release_guard/issues/([1-9][0-9]*)$"
 )
@@ -92,7 +94,8 @@ def _windows_update_probe(args: argparse.Namespace) -> WindowsUpdateProbe | None
         return None
 
     def probe() -> tuple[WindowsUpdateOffer, ...]:
-        return fetch_offers(timeout=args.timeout)
+        COOKIE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        return fetch_offers(cookie_cache_path=COOKIE_CACHE_PATH, timeout=args.timeout)
 
     return probe
 

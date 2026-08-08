@@ -125,6 +125,16 @@ SYNC_UPDATES_RESPONSE = (
     "</SyncUpdatesResult></SyncUpdatesResponse></s:Body></s:Envelope>"
 )
 
+GET_COOKIE_RESPONSE = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body>'
+    '<GetCookieResponse xmlns="http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService">'
+    "<GetCookieResult>"
+    "<Expiration>2026-11-03T12:00:00Z</Expiration>"
+    "<EncryptedData>ZW5jcnlwdGVk</EncryptedData>"
+    "</GetCookieResult></GetCookieResponse></s:Body></s:Envelope>"
+)
+
 
 def test_cached_cookie_is_reused_until_its_expiration_passes(tmp_path) -> None:
     cache_path = tmp_path / "windows-update-cookie.json"
@@ -169,3 +179,84 @@ def test_cli_windows_update_probe_flag_is_optional_and_off_by_default() -> None:
     assert parser.parse_args(["--windows-update-probe"]).windows_update_probe is True
     assert generate_policy_cli._windows_update_probe(parser.parse_args([])) is None
     assert callable(generate_policy_cli._windows_update_probe(parser.parse_args(["--windows-update-probe"])))
+
+
+def test_default_cookie_cache_path_constant_is_removed() -> None:
+    import win11_release_guard.wu_offer_probe as wu
+
+    assert not hasattr(wu, "DEFAULT_COOKIE_CACHE_PATH")
+    assert "DEFAULT_COOKIE_CACHE_PATH" not in wu.__all__
+
+
+def test_fetch_offers_without_a_cache_path_neither_reads_nor_writes_a_cookie(tmp_path, monkeypatch) -> None:
+    work = tmp_path / "work"  # the autouse conftest already seeds tmp_path with "localappdata"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    bodies: list[str] = []
+
+    def fake_post(body: str, timeout: float) -> str:
+        bodies.append(body)
+        return SYNC_UPDATES_RESPONSE if "<SyncUpdates " in body else GET_COOKIE_RESPONSE
+
+    offers = fetch_offers(
+        post=fake_post,
+        os_version="10.0.26200.8000",
+        now=datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert [("<GetCookie " in bodies[0]), ("<SyncUpdates " in bodies[1])] == [True, True]
+    assert offers[0].build == "26200.8875"
+    assert not (work / ".tmp").exists()
+    assert list(work.iterdir()) == []
+
+
+def test_store_cached_cookie_writes_lf_and_never_creates_parent_dirs(tmp_path) -> None:
+    here = tmp_path / "windows-update-cookie.json"
+    store_cached_cookie(here, WindowsUpdateCookie(expiration="2026-11-03T12:00:00Z", encrypted_data="ZW5jcnlwdGVk"))
+
+    raw = here.read_bytes()
+    assert b"\r\n" not in raw
+    assert raw.endswith(b"\n")
+    assert load_cached_cookie(here, now=datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)) == WindowsUpdateCookie(
+        expiration="2026-11-03T12:00:00Z", encrypted_data="ZW5jcnlwdGVk"
+    )
+
+    missing = tmp_path / "missing" / "cookie.json"
+    store_cached_cookie(missing, WindowsUpdateCookie(expiration="2026-11-03T12:00:00Z", encrypted_data="ZW5jcnlwdGVk"))
+    assert not (tmp_path / "missing").exists()
+
+
+def test_generator_probe_passes_the_explicit_cookie_cache_path(monkeypatch) -> None:
+    from pathlib import Path as _Path
+
+    assert generate_policy_cli.COOKIE_CACHE_PATH == _Path(".tmp") / "windows-update-cookie.json"
+
+    captured: dict[str, object] = {}
+
+    def fake_fetch_offers(**kwargs):
+        captured.update(kwargs)
+        return ()
+
+    made: list[_Path] = []
+
+    def spy_mkdir(self, *args, **kwargs):  # record only; never touch the real filesystem
+        made.append(self)
+
+    monkeypatch.setattr(generate_policy_cli, "fetch_offers", fake_fetch_offers)
+    monkeypatch.setattr(_Path, "mkdir", spy_mkdir)
+
+    parser = generate_policy_cli._build_parser()
+    probe = generate_policy_cli._windows_update_probe(parser.parse_args(["--windows-update-probe"]))
+    assert probe() == ()
+    assert captured["cookie_cache_path"] == _Path(".tmp") / "windows-update-cookie.json"
+    assert _Path(".tmp") in made
+
+
+def test_wu_offer_probe_module_has_no_cwd_write_primitives() -> None:
+    from pathlib import Path as _Path
+
+    src = (_Path(__file__).resolve().parents[1] / "win11_release_guard" / "wu_offer_probe.py").read_text(encoding="utf-8")
+    assert ".mkdir(" not in src
+    assert "os.getcwd" not in src
+    assert "Path.cwd" not in src
+    assert "tempfile" not in src

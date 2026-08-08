@@ -13,6 +13,7 @@ from xml.etree import ElementTree
 from .exceptions import PolicyFetchError
 from .freshness import parse_iso_utc_datetime
 from . import http_client
+from .state_store import write_bytes_atomically
 
 
 WINDOWS_UPDATE_CLIENT_URL = "https://fe3.delivery.mp.microsoft.com/ClientWebService/client.asmx"
@@ -50,7 +51,6 @@ _SUPPORT_URL_RE = re.compile(r"^https://support\.microsoft\.com/[^\s\"'<>]*$")
 
 DEFAULT_MAX_SYNC_UPDATES_BYTES = 24 * 1024 * 1024
 DEFAULT_WINDOWS_UPDATE_PROBE_TIMEOUT_SECONDS = 20.0
-DEFAULT_COOKIE_CACHE_PATH = Path(".tmp") / "windows-update-cookie.json"
 DEFAULT_PROBE_OS_VERSION = "10.0.26200.8000"
 COOKIE_SAFETY_MARGIN_SECONDS = 3600
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
@@ -123,12 +123,8 @@ def load_cached_cookie(path: str | Path, *, now: datetime) -> WindowsUpdateCooki
 
 
 def store_cached_cookie(path: str | Path, cookie: WindowsUpdateCookie) -> None:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps({"expiration": cookie.expiration, "encrypted_data": cookie.encrypted_data}, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps({"expiration": cookie.expiration, "encrypted_data": cookie.encrypted_data}, indent=2) + "\n"
+    write_bytes_atomically(Path(path), payload.encode("utf-8"))
 
 
 def _security_header(*, created: str, expires: str) -> str:
@@ -344,7 +340,7 @@ def _timestamp(moment: datetime) -> str:
 def fetch_offers(
     *,
     post: SoapPost | None = None,
-    cookie_cache_path: str | Path = DEFAULT_COOKIE_CACHE_PATH,
+    cookie_cache_path: str | Path | None = None,
     os_version: str = DEFAULT_PROBE_OS_VERSION,
     now: datetime | None = None,
     timeout: float = DEFAULT_WINDOWS_UPDATE_PROBE_TIMEOUT_SECONDS,
@@ -353,14 +349,15 @@ def fetch_offers(
     moment = now or datetime.now(timezone.utc)
     created = _timestamp(moment)
     expires = _timestamp(moment + timedelta(minutes=5))
-    cookie = load_cached_cookie(cookie_cache_path, now=moment)
+    cookie = load_cached_cookie(cookie_cache_path, now=moment) if cookie_cache_path is not None else None
     if cookie is None:
         cookie = parse_get_cookie(
             send(build_get_cookie_envelope(created=created, expires=expires, message_id=str(uuid.uuid4())), timeout)
         )
         if cookie is None:
             raise PolicyFetchError("Windows Update GetCookie response carried no cookie.")
-        store_cached_cookie(cookie_cache_path, cookie)
+        if cookie_cache_path is not None:
+            store_cached_cookie(cookie_cache_path, cookie)
     return parse_sync_updates(
         send(
             build_sync_updates_envelope(
@@ -379,7 +376,6 @@ def fetch_offers(
 __all__ = [
     "CALLER_ATTRIBUTES",
     "CLIENT_WEB_SERVICE_NS",
-    "DEFAULT_COOKIE_CACHE_PATH",
     "DEFAULT_MAX_SYNC_UPDATES_BYTES",
     "DEFAULT_PROBE_OS_VERSION",
     "DEFAULT_WINDOWS_UPDATE_PROBE_TIMEOUT_SECONDS",
