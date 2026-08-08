@@ -1,4 +1,5 @@
-"""Purge suite for ``state_store``: ``_state_entries`` and ``purge_state``.
+"""Purge and inspection suite for ``state_store``: ``_state_entries``, ``purge_state``,
+``describe_state`` and ``read_state_bytes``.
 
 ``_state_entries`` is the sole ``(role, path)`` producer and the only ``PurePath -> Path``
 enumeration site, so every consumer (``purge_state`` here, ``describe_state`` and the CLI
@@ -23,6 +24,7 @@ case is a ``skipif(nt)`` test against the conftest's redirected ``LOCALAPPDATA``
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -135,3 +137,83 @@ def test_purge_state_reports_failed_when_unlink_raises(tmp_path, monkeypatch):
     state_event = next(e for e in events if e.path == str(scope.path))
     assert state_event.outcome == "failed"
     assert "permission denied" in (state_event.detail or "")
+
+
+def test_describe_state_reports_usable_container(tmp_path):
+    config = ReleaseCheckerConfig(state_dir=str(tmp_path))
+    scope = state_store.resolve_state_scope(config)
+    Path(scope.path).write_bytes(state_store.encode_state(_POLICY, b"detached-sig"))
+    payload = state_store.describe_state(config)
+    assert payload["layout"] == "container"
+    assert payload["source"] == "state_dir"
+    assert payload["stateless"] is False
+    assert payload["state_format_version"] == state_store.STATE_FORMAT_VERSION
+    entry = next(e for e in payload["entries"] if e["role"] == "state")
+    assert entry["exists"] is True
+    assert entry["status"] == "usable"
+    assert entry["policy_bytes"] == len(_POLICY)
+    assert entry["policy_sha256"] == hashlib.sha256(_POLICY).hexdigest()
+    assert entry["signature_present"] is True
+    assert entry["policy_generated_at_utc"] == "2026-08-06T02:00:00+00:00"
+    assert entry["size_bytes"] is not None
+    assert entry["modified_utc"] is not None
+
+
+def test_describe_state_stateless_flag_but_real_location(tmp_path):
+    config = ReleaseCheckerConfig(state_dir=str(tmp_path), stateless=True)
+    payload = state_store.describe_state(config)
+    assert payload["layout"] == "container"
+    assert payload["source"] == "state_dir"
+    assert payload["stateless"] is True
+
+
+def test_describe_state_cold_machine_reports_absent(tmp_path):
+    config = ReleaseCheckerConfig(state_dir=str(tmp_path))
+    payload = state_store.describe_state(config)
+    entry = next(e for e in payload["entries"] if e["role"] == "state")
+    assert entry["exists"] is False
+    assert entry["status"] == "absent"
+    assert entry["policy_bytes"] is None
+    assert entry["policy_sha256"] is None
+    assert entry["signature_present"] is None
+
+
+def test_describe_state_status_null_for_non_state_roles(tmp_path):
+    cache_file = tmp_path / "policy.json"
+    cache_file.write_bytes(b'{"generated_at_utc": "2026-08-06T02:00:00+00:00"}')
+    (tmp_path / "policy.json.sig").write_bytes(b"sig")
+    config = ReleaseCheckerConfig(cache_file=str(cache_file))
+    payload = state_store.describe_state(config)
+    assert payload["layout"] == "legacy_pair"
+    assert all(entry["role"] != "state" for entry in payload["entries"])
+    assert all(entry["status"] is None for entry in payload["entries"])
+    cache_entry = next(e for e in payload["entries"] if e["role"] == "cache_file")
+    assert cache_entry["exists"] is True
+
+
+def test_read_state_bytes_returns_stored_policy(tmp_path):
+    config = ReleaseCheckerConfig(state_dir=str(tmp_path))
+    scope = state_store.resolve_state_scope(config)
+    Path(scope.path).write_bytes(state_store.encode_state(_POLICY, b"sig"))
+    assert state_store.read_state_bytes(config) == _POLICY
+
+
+def test_read_state_bytes_none_when_absent(tmp_path):
+    config = ReleaseCheckerConfig(state_dir=str(tmp_path))
+    assert state_store.read_state_bytes(config) is None
+
+
+def test_read_state_bytes_ignores_stateless(tmp_path):
+    seed_config = ReleaseCheckerConfig(state_dir=str(tmp_path))
+    scope = state_store.resolve_state_scope(seed_config)
+    Path(scope.path).write_bytes(state_store.encode_state(b'{"ok": true}', None))
+    stateless_config = ReleaseCheckerConfig(state_dir=str(tmp_path), stateless=True)
+    assert state_store.read_state_bytes(stateless_config) == b'{"ok": true}'
+
+
+def test_state_store_exports_present():
+    import win11_release_guard as pkg
+
+    for name in ("purge_state", "describe_state", "read_state_bytes", "StateEvent", "STATE_FORMAT_VERSION"):
+        assert name in pkg.__all__
+        assert hasattr(pkg, name)

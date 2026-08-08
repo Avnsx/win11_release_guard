@@ -35,6 +35,7 @@ import struct
 import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -43,7 +44,7 @@ from .config import (
     ReleaseCheckerConfig,
     resolve_policy_url,
 )
-from .json_utils import DEFAULT_MAX_SIGNATURE_BYTES
+from .json_utils import DEFAULT_MAX_SIGNATURE_BYTES, strict_json_object
 
 STATE_NAMESPACE: bytes = b"w11rg-state"  # digest input only; NEVER written to disk
 STATE_FORMAT_VERSION: int = 1
@@ -617,3 +618,63 @@ def purge_state(config: ReleaseCheckerConfig) -> tuple[StateEvent, ...]:
         except (OSError, ValueError) as exc:
             events.append(StateEvent("purge", "failed", target, _reason(exc)))
     return tuple(events)
+
+
+def describe_state(config: ReleaseCheckerConfig) -> dict[str, Any]:
+    """The --show-state payload (§12.1). Read-only. NEVER raises. layout/source describe the
+    inspected location (forced stateless=False); 'stateless' is config.stateless verbatim. Every
+    per-path os.stat is guarded; status is StateRead.status for role == 'state' only, else null."""
+    inspected = replace(config, stateless=False)
+    scope = resolve_state_scope(inspected)
+    state_read = read_state(scope)
+    entries: list[dict[str, Any]] = []
+    for role, path in _state_entries(config):
+        entry: dict[str, Any] = {
+            "path": str(path),
+            "role": role,
+            "exists": False,
+            "status": None,
+            "size_bytes": None,
+            "modified_utc": None,
+            "policy_generated_at_utc": None,
+            "policy_bytes": None,
+            "policy_sha256": None,
+            "signature_present": None,
+            "detail": None,
+        }
+        try:
+            st = os.stat(str(path))
+            entry["exists"] = True
+            entry["size_bytes"] = st.st_size
+            entry["modified_utc"] = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+        except (OSError, ValueError):
+            pass
+        if role == "state":
+            entry["status"] = state_read.status
+            entry["detail"] = state_read.detail
+            if state_read.status == "usable":
+                policy_bytes = state_read.policy_bytes or b""
+                signature_bytes = state_read.signature_bytes
+                entry["policy_bytes"] = len(policy_bytes)
+                entry["policy_sha256"] = hashlib.sha256(policy_bytes).hexdigest()
+                entry["signature_present"] = bool(signature_bytes)
+                try:
+                    document = strict_json_object(policy_bytes)
+                    generated = document.get("generated_at_utc")
+                    entry["policy_generated_at_utc"] = generated if isinstance(generated, str) else None
+                except (OSError, ValueError):
+                    entry["policy_generated_at_utc"] = None
+        entries.append(entry)
+    return {
+        "layout": scope.layout,
+        "source": scope.source,
+        "stateless": config.stateless,
+        "state_format_version": STATE_FORMAT_VERSION,
+        "entries": entries,
+    }
+
+
+def read_state_bytes(config: ReleaseCheckerConfig) -> bytes | None:
+    """I/O, read-only. NEVER raises. The exact stored policy bytes, or None."""
+    read = read_state(resolve_state_scope(replace(config, stateless=False)))
+    return read.policy_bytes if read.status == "usable" else None
