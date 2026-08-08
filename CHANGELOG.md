@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## v0.5.0 - 2026-08-08
+
+### Summary
+
+Windows 11 Release Guard no longer leaves a permanent folder behind on the
+machines it runs on. Its policy cache is now a single compact file in the
+user's temp directory, written in one atomic step, so an interrupted run cannot
+leave a half-written file or an empty folder behind, and new switches let an
+administrator keep that state in a directory of their choosing, show it, purge
+it, or turn it off entirely. Compliance results are unchanged: cached state is
+only a speed optimisation and never affects the signed verdict or the exit
+code.
+
 ### Changed
 
 * The client runtime now keeps its default policy cache as one compact,

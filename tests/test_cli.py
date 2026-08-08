@@ -629,7 +629,7 @@ def test_cli_diagnose_config_reports_program_version(capsys):
     payload = json.loads(capsys.readouterr().out)
 
     assert code == 0
-    assert payload["package_version"] == package_version() == "0.4.0"
+    assert payload["package_version"] == package_version() == "0.5.0"
 
 
 def test_cli_diagnose_config_reports_strict_production(monkeypatch, capsys):

@@ -129,7 +129,7 @@ def test_program_version_identity_markers_are_current() -> None:
     )
     from win11_release_guard.wua_probe import CLIENT_APPLICATION_ID
 
-    expected_version = "0.4.0"
+    expected_version = "0.5.0"
     expected_identity = f"win11_release_guard/{expected_version}"
 
     assert __version__ == expected_version

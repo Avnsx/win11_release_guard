@@ -45,13 +45,13 @@ def test_source_modules_lists_state_store() -> None:
     assert "`state_store.py`" in text
 
 
-def test_changelog_unreleased_records_the_state_feature() -> None:
+def test_changelog_release_section_records_the_state_feature() -> None:
     text = _read("CHANGELOG.md")
-    unreleased = text.split("## [Unreleased]", 1)[1].split("## v0.4.0", 1)[0]
-    assert "No unreleased changes yet." not in unreleased
-    assert "--state-dir" in unreleased
-    assert "cache_write_failed" in unreleased
-    assert "read_state_bytes" in unreleased
+    released = text.split("## v0.5.0", 1)[1].split("## v0.4.0", 1)[0]
+    assert "No unreleased changes yet." not in released
+    assert "--state-dir" in released
+    assert "cache_write_failed" in released
+    assert "read_state_bytes" in released
 
 
 def test_state_docs_describe_the_format_honestly() -> None:
@@ -69,7 +69,7 @@ def test_docs_record_the_shipped_behaviour_changes() -> None:
     # Behaviour changes that shipped with the state feature but are easy to leave undocumented.
     configuration = _read("wiki/Configuration.md")
     troubleshooting = _read("wiki/Troubleshooting.md")
-    unreleased = _read("CHANGELOG.md").split("## [Unreleased]", 1)[1].split("## v0.4.0", 1)[0]
+    released = _read("CHANGELOG.md").split("## v0.5.0", 1)[1].split("## v0.4.0", 1)[0]
 
     # --stateless does not disable --purge-state or --show-state.
     assert "`--purge-state` and `--show-state` deliberately ignore it" in configuration
@@ -85,6 +85,6 @@ def test_docs_record_the_shipped_behaviour_changes() -> None:
     assert "Could not write JSON output to" in troubleshooting
     assert "exits `2`" in troubleshooting
     # The changelog records the same set.
-    assert "WIN11_RELEASE_GUARD_CACHE_FILE" in unreleased
-    assert "save_policy_cache" in unreleased
-    assert "cookie" in unreleased.lower()
+    assert "WIN11_RELEASE_GUARD_CACHE_FILE" in released
+    assert "save_policy_cache" in released
+    assert "cookie" in released.lower()
