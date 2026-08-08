@@ -96,8 +96,16 @@ value came from.
 `--cache-file` (and `WIN11_RELEASE_GUARD_CACHE_FILE`) selects the legacy JSON
 cache pair instead: the write primitive never creates directories, so a
 `--cache-file` under a missing parent directory is skipped with a
-`cache_write_failed` source problem rather than creating a tree. The legacy pair
-is written as bytes, so it uses LF line endings on every platform.
+`cache_write_failed` source problem rather than creating a tree. The pair holds
+the publisher's exact signed policy bytes beside the detached signature, as it
+always has, so its line endings are whatever the feed publishes and the tool
+imposes none of its own.
+
+`cache.py` keeps a separate `save_policy_cache` / `save_cached_policy` pair for
+embedders that the client runtime never calls. Those helpers now serialise their
+JSON and hand the bytes to the same write primitive, so the file they write uses
+LF line endings on every platform instead of the platform's own convention, and
+they return without raising when the destination cannot be written.
 
 ## Deprecated / Avoid
 

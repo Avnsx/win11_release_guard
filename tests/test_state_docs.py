@@ -9,6 +9,16 @@ def _read(rel: str) -> str:
     return (ROOT / rel).read_text(encoding="utf-8")
 
 
+def _squash(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _block_with(text: str, needle: str, separator: str) -> str:
+    blocks = [block for block in text.split(separator) if needle in _squash(block)]
+    assert len(blocks) == 1, f"expected exactly one block containing {needle!r}, found {len(blocks)}"
+    return _squash(blocks[0])
+
+
 def test_configuration_documents_the_state_knobs_and_record_layout() -> None:
     text = _read("wiki/Configuration.md")
     assert "`--state-dir DIR`" in text
@@ -88,3 +98,20 @@ def test_docs_record_the_shipped_behaviour_changes() -> None:
     assert "WIN11_RELEASE_GUARD_CACHE_FILE" in released
     assert "save_policy_cache" in released
     assert "cookie" in released.lower()
+
+
+def test_line_ending_change_is_attributed_to_the_helper_that_actually_changed() -> None:
+    # cache.save_policy_cache moved from text mode to the byte write primitive, so the file it
+    # writes moved from the platform convention to LF. The --cache-file legacy pair did not move:
+    # it stores the publisher's exact policy bytes and already did so before this feature. Every
+    # surface that mentions the line-ending change must therefore name the helper, not the flag.
+    paragraph = _block_with(_read("wiki/Configuration.md"), "LF line endings on every platform", "\n\n")
+    assert "save_policy_cache" in paragraph
+    assert "--cache-file" not in paragraph
+
+    row = _block_with(_read("wiki/Troubleshooting.md"), "LF instead of the previous CRLF", "\n")
+    assert "save_policy_cache" in row
+
+    released = _read("CHANGELOG.md").split("## v0.5.0", 1)[1].split("## v0.4.0", 1)[0]
+    bullet = _block_with(released, "LF instead of CRLF", "\n* ")
+    assert "save_policy_cache" in bullet

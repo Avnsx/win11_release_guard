@@ -31,13 +31,16 @@ code.
   keeping a single in-place fallback for a report file another process holds
   open; its failure message names the path and the underlying reason, and the
   exit code stays `2`.
-* The optional Windows Update cookie cache and the legacy JSON policy cache are
-  written through the atomic write primitive, so on Windows both files are now
-  LF instead of CRLF.
+* The optional Windows Update cookie cache and the embedder-only
+  `cache.save_policy_cache` helper serialise their JSON and write the bytes
+  through the atomic write primitive, so on Windows both files are now LF
+  instead of CRLF. A `--cache-file` legacy pair is not affected: it holds the
+  publisher's exact policy and signature bytes, as it already did.
 * `cache.save_policy_cache` and `wu_offer_probe.store_cached_cookie` no longer
-  raise when the destination cannot be written; they return without writing, so
-  a `--cache-file` under a missing parent directory quietly caches nothing
-  instead of creating a directory tree.
+  raise when the destination cannot be written; they return without writing.
+* A `--cache-file` under a missing parent directory now records one
+  `cache_write_failed` source problem and caches nothing instead of creating a
+  directory tree.
 
 ### Added
 
