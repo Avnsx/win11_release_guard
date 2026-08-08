@@ -212,12 +212,22 @@ def _is_live_remote_json_source(source: PolicySourceResult) -> bool:
     )
 
 
-def _policy_is_fresh(policy: ReleasePolicy, cache_path: Path, *, max_age_hours: float) -> bool:
+def _policy_is_fresh_at(policy: ReleasePolicy, modified_epoch: float | None, *, max_age_hours: float) -> bool:
     if policy.generated_at_utc:
         age = _policy_age_hours(policy)
         return age is not None and age <= max_age_hours
-    modified = datetime.fromtimestamp(cache_path.stat().st_mtime, tz=timezone.utc)
+    if modified_epoch is None:
+        return False
+    modified = datetime.fromtimestamp(modified_epoch, tz=timezone.utc)
     return datetime.now(timezone.utc) - modified <= timedelta(hours=max_age_hours)
+
+
+def _policy_is_fresh(policy: ReleasePolicy, cache_path: Path, *, max_age_hours: float) -> bool:
+    return _policy_is_fresh_at(
+        policy,
+        None if policy.generated_at_utc else cache_path.stat().st_mtime,
+        max_age_hours=max_age_hours,
+    )
 
 
 def _cache_path(config: ReleaseCheckerConfig) -> Path:
