@@ -27,6 +27,7 @@ be tested by round-trip. Never assert on compressed bytes or on file size.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import stat
@@ -489,3 +490,59 @@ def resolve_state_scope(config: ReleaseCheckerConfig) -> StateScope:
         state_dir=config.state_dir,
         stateless=config.stateless,
     )
+
+
+def legacy_state_paths(os_name: str, env: Mapping[str, str]) -> tuple[PurePath, ...]:
+    """PURE, no I/O. (policy, signature) as PureWindowsPath when os_name == 'nt' and LOCALAPPDATA
+    is set and non-empty; () otherwise."""
+    if os_name != "nt":
+        return ()
+    localappdata = env.get("LOCALAPPDATA", "")
+    if not localappdata:
+        return ()
+    base = PureWindowsPath(localappdata) / "win11_release_guard"
+    return (
+        base / "windows-release-policy.json",
+        base / "windows-release-policy.json.sig",
+    )
+
+
+def _legacy_dir_is_retirable(directory: str, env: Mapping[str, str]) -> bool:
+    """PURE, no I/O. Built on PureWindowsPath unconditionally on both CI legs; path-equality,
+    never string-equality."""
+    d = PureWindowsPath(directory)
+    return d.name == "win11_release_guard" and d.parent == PureWindowsPath(
+        env.get("LOCALAPPDATA", "") or "\\\\"
+    )
+
+
+def retire_legacy_state(cache_file: str | None, state_dir: str | None) -> tuple[StateEvent, ...]:
+    """Touches disk. NEVER raises. Runs only on the default temp path: returns () immediately when
+    an explicit location is configured (cache_file is not None OR state_dir is not None, any value).
+    Otherwise unlinks the two known legacy files, then os.rmdir's their parent — the design's ONLY
+    os.rmdir (R-1) — only when _legacy_dir_is_retirable AND os.listdir is then empty. Every OSError
+    is swallowed."""
+    if cache_file is not None or state_dir is not None:
+        return ()
+    env = os.environ
+    paths = legacy_state_paths(os.name, env)
+    if not paths:
+        return ()
+    events: list[StateEvent] = []
+    parent: PurePath | None = None
+    for path in paths:
+        parent = path.parent
+        target = str(path)
+        try:
+            _unlink(target)
+            events.append(StateEvent("retire", "removed", target, None))
+        except FileNotFoundError:
+            events.append(StateEvent("retire", "absent", target, None))
+        except (OSError, ValueError) as exc:
+            events.append(StateEvent("retire", "failed", target, _reason(exc)))
+    if parent is not None and _legacy_dir_is_retirable(str(parent), env):
+        with contextlib.suppress(OSError, ValueError):
+            if not os.listdir(str(parent)):
+                os.rmdir(str(parent))
+                events.append(StateEvent("retire", "removed", str(parent), None))
+    return tuple(events)

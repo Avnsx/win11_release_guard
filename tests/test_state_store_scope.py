@@ -14,6 +14,12 @@ The default-temp join is pinned here too. ``state_dir=`` and ``cache_file=`` bot
 ``temp_dir`` inside ``plan_state_scope``, so a suite that only ever passes those two never
 exercises ``_first_existing_dir(temp_dir_candidates(os.name, os.environ))`` — the one wiring
 that puts an ordinary deployment's record in the temp directory rather than nowhere.
+
+Legacy retirement lives here as well. ``legacy_state_paths`` and ``_legacy_dir_is_retirable``
+are pure and build on ``PureWindowsPath`` unconditionally, so the Windows layout and the
+path-equality (never string-equality) parent check are assertable from either CI leg; only
+the two ``retire_legacy_state`` tests that actually unlink files and remove the directory —
+the design's single ``os.rmdir`` (R-1) — are ``skipif(os.name != "nt")``.
 """
 
 from __future__ import annotations
@@ -136,3 +142,80 @@ def test_resolve_state_scope_default_temp_comes_from_the_seam(monkeypatch, tmp_p
     assert scope.source == "default_temp"
     assert scope.path is not None
     assert str(scope.path.parent) == str(chosen)
+
+
+def test_legacy_state_paths_windows():
+    env = {"LOCALAPPDATA": r"C:\Users\admin\AppData\Local"}
+    paths = state_store.legacy_state_paths("nt", env)
+    assert len(paths) == 2
+    assert paths[0].name == "windows-release-policy.json"
+    assert paths[1].name == "windows-release-policy.json.sig"
+    assert paths[0].parent.name == "win11_release_guard"
+    assert paths[1].parent.name == "win11_release_guard"
+
+
+def test_legacy_state_paths_empty_off_windows_or_no_localappdata():
+    assert state_store.legacy_state_paths("posix", {"LOCALAPPDATA": r"C:\x"}) == ()
+    assert state_store.legacy_state_paths("nt", {}) == ()
+    assert state_store.legacy_state_paths("nt", {"LOCALAPPDATA": ""}) == ()
+
+
+def test_legacy_dir_is_retirable_path_equality_not_string():
+    base = r"C:\Users\x\AppData\Local"
+    directory = base + r"\win11_release_guard"
+    assert state_store._legacy_dir_is_retirable(directory, {"LOCALAPPDATA": base}) is True
+    assert state_store._legacy_dir_is_retirable(directory, {"LOCALAPPDATA": base + "\\"}) is True
+    assert state_store._legacy_dir_is_retirable(
+        directory, {"LOCALAPPDATA": "C:/Users/x/AppData/Local"}
+    ) is True
+    assert state_store._legacy_dir_is_retirable(base + r"\other", {"LOCALAPPDATA": base}) is False
+    assert state_store._legacy_dir_is_retirable(
+        r"C:\Temp\win11_release_guard", {"LOCALAPPDATA": base}
+    ) is False
+
+
+def test_retire_legacy_state_noop_under_explicit_location():
+    assert state_store.retire_legacy_state("C:/x/policy.json", None) == ()
+    assert state_store.retire_legacy_state(None, "C:/statedir") == ()
+    assert state_store.retire_legacy_state("C:/x/policy.json", "C:/statedir") == ()
+
+
+def test_retire_legacy_state_noop_off_windows(monkeypatch):
+    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\x\AppData\Local")
+    assert state_store.retire_legacy_state(None, None) == ()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="legacy retirement touches %LOCALAPPDATA% on Windows")
+def test_retire_legacy_state_removes_files_and_empty_dir(tmp_path, monkeypatch):
+    localappdata = tmp_path / "localappdata"
+    legacy_dir = localappdata / "win11_release_guard"
+    legacy_dir.mkdir(parents=True)
+    policy = legacy_dir / "windows-release-policy.json"
+    signature = legacy_dir / "windows-release-policy.json.sig"
+    policy.write_bytes(b"{}")
+    signature.write_bytes(b"sig")
+    monkeypatch.setenv("LOCALAPPDATA", str(localappdata))
+    events = state_store.retire_legacy_state(None, None)
+    assert {event.action for event in events} == {"retire"}
+    assert "removed" in {event.outcome for event in events}
+    assert not policy.exists()
+    assert not signature.exists()
+    assert not legacy_dir.exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="legacy retirement touches %LOCALAPPDATA% on Windows")
+def test_retire_legacy_state_keeps_dir_with_sibling(tmp_path, monkeypatch):
+    localappdata = tmp_path / "localappdata"
+    legacy_dir = localappdata / "win11_release_guard"
+    legacy_dir.mkdir(parents=True)
+    policy = legacy_dir / "windows-release-policy.json"
+    signature = legacy_dir / "windows-release-policy.json.sig"
+    policy.write_bytes(b"{}")
+    signature.write_bytes(b"sig")
+    (legacy_dir / "tmpdeadbeef00000000.tmp").write_bytes(b"sibling container")
+    monkeypatch.setenv("LOCALAPPDATA", str(localappdata))
+    state_store.retire_legacy_state(None, None)
+    assert not policy.exists()
+    assert not signature.exists()
+    assert legacy_dir.exists()
