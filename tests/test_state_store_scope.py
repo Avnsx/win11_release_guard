@@ -17,14 +17,19 @@ that puts an ordinary deployment's record in the temp directory rather than nowh
 
 Legacy retirement lives here as well. ``legacy_state_paths`` and ``_legacy_dir_is_retirable``
 are pure and build on ``PureWindowsPath`` unconditionally, so the Windows layout and the
-path-equality (never string-equality) parent check are assertable from either CI leg; only
-the two ``retire_legacy_state`` tests that actually unlink files and remove the directory —
-the design's single ``os.rmdir`` (R-1) — are ``skipif(os.name != "nt")``.
+path-equality (never string-equality) parent check are assertable from either CI leg.
+``retire_legacy_state`` reads ``os.name`` itself, so its own branches would otherwise be dead
+code on the Linux leg: the explicit-location gate returns ``()`` for the wrong reason there,
+and the unlink loop is never entered at all. The portable seam-driven tests below force
+``os.name`` to ``"nt"`` and drive every one of those branches through the ``_unlink`` seam —
+they are the contract. The two ``skipif(os.name != "nt")`` tests at the end are the Windows
+extra: they alone reach real files and the design's single ``os.rmdir`` (R-1).
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import PureWindowsPath
 
 import pytest
 
@@ -184,6 +189,97 @@ def test_retire_legacy_state_noop_off_windows(monkeypatch):
     monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\x\AppData\Local")
     assert state_store.retire_legacy_state(None, None) == ()
+
+
+def _force_legacy_windows(monkeypatch, tmp_path):
+    """Put ``retire_legacy_state`` on its Windows branch on BOTH CI legs and hand back the two
+    target strings it must pass to ``_unlink``.
+
+    ``os.name`` is the only gate on ``legacy_state_paths``, and every file touch below it goes
+    through the ``_unlink`` seam, so no real ``%LOCALAPPDATA%`` and no real file is needed. The
+    directory is deliberately never created: the trailing ``os.listdir`` then raises and is
+    suppressed identically on both legs, so the event tuple is exactly one entry per legacy file
+    and the ``os.rmdir`` branch stays where it belongs — in the two nt-only tests.
+    """
+    localappdata = tmp_path / "absent-localappdata"
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setenv("LOCALAPPDATA", str(localappdata))
+    base = PureWindowsPath(str(localappdata)) / "win11_release_guard"
+    return [
+        str(base / "windows-release-policy.json"),
+        str(base / "windows-release-policy.json.sig"),
+    ]
+
+
+def test_retire_legacy_state_explicit_location_never_touches_the_seam(monkeypatch, tmp_path):
+    """The ``cache_file``/``state_dir`` gate, asserted by OBSERVATION on both legs.
+    ``test_retire_legacy_state_noop_under_explicit_location`` above is vacuous on the Linux leg
+    — ``legacy_state_paths`` already returns ``()`` there, so deleting the gate keeps it green.
+    Forcing ``os.name`` makes the seam reachable, and an empty ``_unlink`` log is the proof.
+    An empty string is still an explicitly configured location: the gate is ``is not None``.
+    """
+    _force_legacy_windows(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(state_store, "_unlink", calls.append)
+    assert state_store.retire_legacy_state("C:/x/policy.json", None) == ()
+    assert state_store.retire_legacy_state(None, "C:/statedir") == ()
+    assert state_store.retire_legacy_state("C:/x/policy.json", "C:/statedir") == ()
+    assert state_store.retire_legacy_state("", "") == ()
+    assert calls == []
+
+
+def test_retire_legacy_state_unlinks_both_legacy_targets_through_the_seam(monkeypatch, tmp_path):
+    """Both legacy targets reach ``_unlink``, in order, and a successful unlink maps to
+    ``removed``. Two events, so the suppressed ``os.listdir`` added no directory event."""
+    expected = _force_legacy_windows(monkeypatch, tmp_path)
+    seen = []
+    monkeypatch.setattr(state_store, "_unlink", seen.append)
+    events = state_store.retire_legacy_state(None, None)
+    assert seen == expected
+    assert [(event.action, event.outcome, event.path, event.detail) for event in events] == [
+        ("retire", "removed", expected[0], None),
+        ("retire", "removed", expected[1], None),
+    ]
+
+
+def test_retire_legacy_state_maps_missing_file_to_absent(monkeypatch, tmp_path):
+    """A file that is already gone is ``absent``, not ``failed`` — and the mapping is per path,
+    so a missing policy does not stop the signature beside it from being retired."""
+    expected = _force_legacy_windows(monkeypatch, tmp_path)
+
+    def missing_first(path):
+        if path == expected[0]:
+            raise FileNotFoundError(2, "no such file")
+
+    monkeypatch.setattr(state_store, "_unlink", missing_first)
+    events = state_store.retire_legacy_state(None, None)
+    assert [(event.outcome, event.path) for event in events] == [
+        ("absent", expected[0]),
+        ("removed", expected[1]),
+    ]
+    assert all(event.detail is None for event in events)
+
+
+def test_retire_legacy_state_maps_seam_failure_to_failed(monkeypatch, tmp_path):
+    """A seam failure never escapes: OSError and ValueError both land as ``failed`` carrying
+    ``_reason``'s ``"<type>: <message>"``. errno 5 (EIO) is deliberate — Python auto-maps
+    13/2/17/21 onto PermissionError/FileNotFoundError/FileExistsError/IsADirectoryError, which
+    would change the asserted type name, and errno 2 would be swallowed by the ``absent`` arm.
+    """
+    expected = _force_legacy_windows(monkeypatch, tmp_path)
+    raisers = ((OSError(5, "io"), "OSError"), (ValueError("bad path"), "ValueError"))
+    for error, type_name in raisers:
+
+        def boom(path, error=error):
+            raise error
+
+        monkeypatch.setattr(state_store, "_unlink", boom)
+        events = state_store.retire_legacy_state(None, None)
+        assert [(event.action, event.outcome, event.path) for event in events] == [
+            ("retire", "failed", expected[0]),
+            ("retire", "failed", expected[1]),
+        ]
+        assert all(event.detail.startswith(f"{type_name}: ") for event in events)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="legacy retirement touches %LOCALAPPDATA% on Windows")
