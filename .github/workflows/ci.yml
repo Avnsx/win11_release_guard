@@ -53,7 +53,7 @@ jobs:
         run: >
           python tools/generate_policy.py
           --release-health-html tests/fixtures/windows11-release-health.html
-          --atom-feed tests/fixtures/windows11-atom.xml
+          --servicing-toc tests/fixtures/windows11-servicing-toc.json
           --output-dir site
           --write-index
           --write-robots

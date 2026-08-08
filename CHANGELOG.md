@@ -4,6 +4,107 @@
 
 No unreleased changes yet.
 
+## v0.5.0 - 2026-08-08
+
+### Summary
+
+Windows 11 Release Guard no longer leaves a permanent folder behind on the
+machines it runs on. Its policy cache is now a single compact file in the
+operating system's temp directory, written in one atomic step, so an
+interrupted run cannot
+leave a half-written file or an empty folder behind, and new switches let an
+administrator keep that state in a directory of their choosing, show it, purge
+it, or turn it off entirely. Compliance results are unchanged: cached state is
+only a speed optimisation and never affects the signed verdict or the exit
+code.
+
+### Changed
+
+* The client runtime now keeps its default policy cache as one compact,
+  atomically written record in the operating-system temp directory instead of a
+  permanent JSON file under `%LOCALAPPDATA%\win11_release_guard\`. On-disk state
+  is an optimisation only: it never changes the signed compliance verdict or the
+  exit code.
+* `--diagnose-config` now reports `cache_file` as the effective runtime state
+  location, or a configured `--cache-file`, instead of the legacy default cache
+  path. It is `null` when the run is stateless.
+* `--output` now writes atomically through a staging file and `os.replace`,
+  keeping a single in-place fallback for a report file another process holds
+  open; its failure message names the path and the underlying reason, and the
+  exit code stays `2`.
+* The optional Windows Update cookie cache and the embedder-only
+  `cache.save_policy_cache` helper serialise their JSON and write the bytes
+  through the atomic write primitive, so on Windows both files are now LF
+  instead of CRLF. A `--cache-file` legacy pair is not affected: it holds the
+  publisher's exact policy and signature bytes, as it already did.
+* `cache.save_policy_cache` and `wu_offer_probe.store_cached_cookie` no longer
+  raise when the destination cannot be written; they return without writing.
+* A `--cache-file` under a missing parent directory now records one
+  `cache_write_failed` source problem and caches nothing instead of creating a
+  directory tree.
+
+### Added
+
+* Operator and embedder state controls: the `--state-dir`, `--stateless`,
+  `--purge-state`, and `--show-state` flags; the matching
+  `WIN11_RELEASE_GUARD_STATE_DIR` and `WIN11_RELEASE_GUARD_STATELESS`
+  environment variables; the `WIN11_RELEASE_GUARD_CACHE_FILE` environment
+  variable, which now supplies the runtime `--cache-file` default; and the
+  `purge_state`, `describe_state`, and `read_state_bytes` embedder API.
+
+### Fixed
+
+* A verified remote policy is no longer discarded from memory when its cache
+  write fails; the run proceeds on the verified policy and records one
+  `cache_write_failed` source problem.
+* An unusable state record now self-heals instead of failing every run, and an
+  interrupted write no longer leaves a permanent empty cache directory behind.
+
+## v0.4.0 - 2026-08-07
+
+### Summary
+
+Windows 11 Release Guard now reads update history from Microsoft's Windows 11
+servicing index and the servicing support articles it references, covering
+every serviced Windows 11 lane in a single small request. Support-article
+validation and MSRC security classification work again, with security
+evidence now naming the affected Microsoft products directly instead of
+opaque identifiers. Local system checks are faster because Windows details
+are read natively instead of launching PowerShell, and administrators can
+optionally enable a Windows Update offer probe for additional corroborating
+evidence without affecting the signed verdict.
+
+### Changed
+
+* Release history, preview and out-of-band detection, and support article
+  discovery are now derived from Microsoft's Windows 11 servicing index
+  instead of the retired Update History feed.
+* Support article validation resolves current Microsoft article URLs again,
+  so stale or dead support links are caught before publishing.
+* MSRC CVRF security enrichment reports the affected Microsoft product names
+  alongside exact-KB security evidence, instead of opaque numeric product
+  identifiers.
+* Outbound requests to Microsoft sources now share one HTTP client with
+  consistent headers, transparent response decompression, bounded response
+  reads, retry with backoff, and conditional requests, improving resilience
+  to transient network and server issues.
+* Local Windows build/edition details are now read natively on Windows
+  instead of starting a PowerShell process, removing a slow step from the
+  common local-check path.
+* A servicing index entry that carries a build but no KB article is now
+  reported as an informational diagnostic instead of being skipped.
+
+### Added
+
+* Optional, off-by-default Windows Update offer probe that can add
+  corroborating current-offer evidence at notice severity. It never affects
+  the signed compliance verdict.
+
+### Removed
+
+* Removed the retired Windows Update History Atom feed source path; policy
+  generation no longer depends on it or carries its dead source metadata.
+
 ## v0.3.6 - 2026-07-18
 
 ### Summary

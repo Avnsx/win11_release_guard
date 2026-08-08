@@ -148,7 +148,7 @@ def _validate_source_diagnostics(data: Mapping[str, Any]) -> None:
         return
     if not isinstance(value, Mapping):
         raise PolicyParseError("source_diagnostics must be an object.")
-    for key in ("release_health_html", "atom_feed"):
+    for key in ("release_health_html", "atom_feed", "servicing_toc"):
         source = value.get(key)
         if source is None:
             continue

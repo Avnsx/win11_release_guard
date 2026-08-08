@@ -572,6 +572,9 @@ def test_powershell_timeout_is_returned_as_probe_error(monkeypatch):
     monkeypatch.setattr(local_state, "_read_dism_current_edition", lambda **kwargs: None)
     monkeypatch.setattr(local_state, "_read_product_info", lambda major, minor: 0x30)
     monkeypatch.setattr(local_state, "_read_kernel_file_version", lambda: None)
+    # Force the native OS-info read to be unusable so the WMI probe falls
+    # back to spawning powershell.exe, which is what this test exercises.
+    monkeypatch.setattr(local_state, "_read_native_operating_system", lambda: None)
 
     def fake_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd="powershell.exe", timeout=8)
@@ -583,6 +586,242 @@ def test_powershell_timeout_is_returned_as_probe_error(monkeypatch):
     assert state.available is True
     assert any("WMI/CIM read failed" in error and "timed out" in error for error in state.errors)
     assert "timed out" in state.raw["wmi_error"]
+
+
+# --- native (non-PowerShell) OS-info read ---------------------------------
+
+
+def test_os_architecture_from_processor_architecture_maps_known_codes():
+    assert local_state._os_architecture_from_processor_architecture(9) == "64-bit"
+    assert local_state._os_architecture_from_processor_architecture(12) == "ARM 64-bit Processor"
+    assert local_state._os_architecture_from_processor_architecture(0) == "32-bit"
+    assert local_state._os_architecture_from_processor_architecture(9999) is None
+    assert local_state._os_architecture_from_processor_architecture(None) is None
+
+
+def test_native_os_info_is_complete_requires_every_key_populated():
+    complete = {
+        "Caption": "Microsoft Windows 11 Pro",
+        "Version": "10.0.26200",
+        "BuildNumber": "26200",
+        "OperatingSystemSKU": 48,
+        "OSArchitecture": "64-bit",
+    }
+    assert local_state._native_os_info_is_complete(complete) is True
+    assert local_state._native_os_info_is_complete(None) is False
+    assert local_state._native_os_info_is_complete({}) is False
+    for missing_key in local_state.NATIVE_OS_INFO_KEYS:
+        incomplete = dict(complete)
+        incomplete[missing_key] = None
+        assert local_state._native_os_info_is_complete(incomplete) is False
+
+    # Caption is deliberately not part of NATIVE_OS_INFO_KEYS: the native read
+    # has no faithful source for it, so a missing/None Caption must not force
+    # the (otherwise complete) result to be treated as unusable.
+    caption_missing = dict(complete)
+    caption_missing["Caption"] = None
+    assert local_state._native_os_info_is_complete(caption_missing) is True
+
+
+def test_read_native_operating_system_returns_expected_shape(monkeypatch):
+    monkeypatch.setattr(local_state.os, "name", "nt")
+    monkeypatch.setattr(
+        local_state,
+        "_read_registry_current_version",
+        lambda: {
+            "CurrentBuildNumber": "26200",
+            "CurrentBuild": "26200",
+            "UBR": 8457,
+            "DisplayVersion": "25H2",
+            "EditionID": "Professional",
+            "InstallationType": "Client",
+            "ProductName": "Windows 11 Pro",
+        },
+    )
+    monkeypatch.setattr(
+        local_state,
+        "_read_rtl_get_version",
+        lambda: {"major": 10, "minor": 0, "build": 26200, "version": "10.0.26200"},
+    )
+    monkeypatch.setattr(local_state, "_read_product_info", lambda major, minor: 48)
+    monkeypatch.setattr(local_state, "_read_native_architecture", lambda: "64-bit")
+
+    data = local_state._read_native_operating_system()
+
+    # Caption is always None: the registry ProductName it would otherwise be
+    # synthesized from can go stale after an in-place upgrade (still reading
+    # "Windows 10" on an updated Windows 11 host), which previously produced
+    # a bogus Caption that misfired the LOCAL_CAPTION_STALE conflict check on
+    # every native read. A missing Caption does not affect completeness.
+    assert data == {
+        "Caption": None,
+        "Version": "10.0.26200",
+        "BuildNumber": "26200",
+        "OperatingSystemSKU": 48,
+        "OSArchitecture": "64-bit",
+    }
+    assert local_state._native_os_info_is_complete(data) is True
+
+
+def test_read_native_operating_system_leaves_sku_none_when_getproductinfo_fails(monkeypatch):
+    monkeypatch.setattr(local_state.os, "name", "nt")
+    monkeypatch.setattr(
+        local_state,
+        "_read_registry_current_version",
+        lambda: {"ProductName": "Windows 11 Pro"},
+    )
+    monkeypatch.setattr(
+        local_state,
+        "_read_rtl_get_version",
+        lambda: {"major": 10, "minor": 0, "build": 26200, "version": "10.0.26200"},
+    )
+
+    def fail_product_info(major, minor):
+        raise OSError("GetProductInfo failed with Win32 error 1.")
+
+    monkeypatch.setattr(local_state, "_read_product_info", fail_product_info)
+    monkeypatch.setattr(local_state, "_read_native_architecture", lambda: "64-bit")
+
+    data = local_state._read_native_operating_system()
+
+    # No fabricated SKU value: the key stays None rather than guessing, which
+    # makes the dict "incomplete" and steers the caller to the PowerShell
+    # fallback instead of shipping a wrong SKU.
+    assert data["OperatingSystemSKU"] is None
+    assert local_state._native_os_info_is_complete(data) is False
+
+
+def test_read_native_operating_system_returns_none_on_non_windows(monkeypatch):
+    monkeypatch.setattr(local_state.os, "name", "posix")
+
+    assert local_state._read_native_operating_system() is None
+
+
+def test_read_wmi_operating_system_uses_native_result_without_spawning_powershell(monkeypatch):
+    native_result = {
+        "Caption": "Microsoft Windows 11 Pro",
+        "Version": "10.0.26200",
+        "BuildNumber": "26200",
+        "OperatingSystemSKU": 48,
+        "OSArchitecture": "64-bit",
+    }
+    monkeypatch.setattr(local_state, "_read_native_operating_system", lambda: native_result)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("PowerShell fallback should not run when the native read succeeds.")
+
+    monkeypatch.setattr(local_state.subprocess, "run", fail_if_called)
+
+    assert local_state._read_wmi_operating_system() == native_result
+
+
+def test_read_wmi_operating_system_falls_back_when_native_raises(monkeypatch):
+    def fail_native():
+        raise OSError("registry unavailable")
+
+    monkeypatch.setattr(local_state, "_read_native_operating_system", fail_native)
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout='{"Caption":"Microsoft Windows 11 Pro","Version":"10.0.26200",'
+            '"BuildNumber":"26200","OperatingSystemSKU":48,"OSArchitecture":"64-bit"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(local_state.subprocess, "run", fake_run)
+
+    result = local_state._read_wmi_operating_system()
+
+    assert result == {
+        "Caption": "Microsoft Windows 11 Pro",
+        "Version": "10.0.26200",
+        "BuildNumber": "26200",
+        "OperatingSystemSKU": 48,
+        "OSArchitecture": "64-bit",
+    }
+
+
+def test_read_wmi_operating_system_falls_back_when_native_incomplete(monkeypatch):
+    # A native read that comes back partially populated (e.g. architecture
+    # lookup failed) must not be shipped as-is; it should be treated the same
+    # as a hard failure and fall back to the PowerShell probe.
+    monkeypatch.setattr(
+        local_state,
+        "_read_native_operating_system",
+        lambda: {
+            "Caption": "Microsoft Windows 11 Pro",
+            "Version": "10.0.26200",
+            "BuildNumber": "26200",
+            "OperatingSystemSKU": 48,
+            "OSArchitecture": None,
+        },
+    )
+    called = {}
+
+    def fake_run(*args, **kwargs):
+        called["ran"] = True
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout='{"Caption":"Microsoft Windows 11 Pro","Version":"10.0.26200",'
+            '"BuildNumber":"26200","OperatingSystemSKU":48,"OSArchitecture":"64-bit"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(local_state.subprocess, "run", fake_run)
+
+    result = local_state._read_wmi_operating_system()
+
+    assert called.get("ran") is True
+    assert result["OSArchitecture"] == "64-bit"
+
+
+def test_native_and_powershell_wmi_shapes_are_indistinguishable_downstream(monkeypatch):
+    """Whichever probe supplied `wmi`, get_local_windows_state must not be able to tell."""
+
+    def build_state_with_wmi(wmi_dict):
+        monkeypatch.setattr(local_state.os, "name", "nt")
+        monkeypatch.setattr(
+            local_state,
+            "_read_registry_current_version",
+            lambda: {
+                "CurrentBuildNumber": "26200",
+                "CurrentBuild": "26200",
+                "UBR": 8457,
+                "DisplayVersion": "25H2",
+                "EditionID": "Professional",
+                "InstallationType": "Client",
+                "ProductName": "Windows 11 Pro",
+            },
+        )
+        monkeypatch.setattr(
+            local_state,
+            "_read_rtl_get_version",
+            lambda: {"major": 10, "minor": 0, "build": 26200, "version": "10.0.26200"},
+        )
+        monkeypatch.setattr(local_state, "_read_wmi_operating_system", lambda **kwargs: wmi_dict)
+        monkeypatch.setattr(local_state, "_read_dism_current_edition", lambda **kwargs: None)
+        monkeypatch.setattr(local_state, "_read_product_info", lambda major, minor: 48)
+        monkeypatch.setattr(local_state, "_read_kernel_file_version", lambda: "10.0.26200.8457")
+        return local_state.get_local_windows_state()
+
+    shared_fields = {
+        "Caption": "Microsoft Windows 11 Pro",
+        "Version": "10.0.26200",
+        "BuildNumber": "26200",
+        "OperatingSystemSKU": 48,
+        "OSArchitecture": "64-bit",
+    }
+
+    native_state = build_state_with_wmi(dict(shared_fields))
+    powershell_state = build_state_with_wmi(dict(shared_fields))
+
+    assert native_state.to_dict() == powershell_state.to_dict()
+    assert native_state.caption == "Microsoft Windows 11 Pro"
+    assert native_state.architecture == "64-bit"
+    assert native_state.operating_system_sku == 48
 
 
 def test_read_file_tail_bounds_huge_panther_file(tmp_path):

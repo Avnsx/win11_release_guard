@@ -17,6 +17,10 @@ Use this when integrating Windows 11 Release Guard into scripts, RMM tools, dash
 | Include raw local Panther/setup log tails | `python -m win11_release_guard --json-pretty --include-raw-local-diagnostics` |
 | Diagnose config | `python -m win11_release_guard --diagnose-config` |
 | Check source only | `python -m win11_release_guard --check-policy-source` |
+| Keep state in a fixed directory | `python -m win11_release_guard --state-dir C:\ProgramData\win11_release_guard` |
+| Run with no on-disk state | `python -m win11_release_guard --stateless` |
+| Remove stored state | `python -m win11_release_guard --purge-state` |
+| Show stored state | `python -m win11_release_guard --show-state` |
 
 ## Exit Codes
 
@@ -37,6 +41,8 @@ Use this when integrating Windows 11 Release Guard into scripts, RMM tools, dash
 | Output | Use JSON or JSON-pretty. |
 | Production gate | Use `--strict-production`. |
 | Cache | Accept as degraded evidence, not production green in strict mode. |
+| State location | Set `--state-dir` or `WIN11_RELEASE_GUARD_STATE_DIR` for a fixed, auditable path; the default is the operating-system temp directory. |
+| Stateless runners | Use `--stateless` or `WIN11_RELEASE_GUARD_STATELESS=1` for read-only agents that must write nothing. |
 
 ## JSON Fields To Watch
 

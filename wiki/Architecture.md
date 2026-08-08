@@ -34,31 +34,32 @@ troubleshooting evidence only. They may explain parser drift, source freshness,
 or ticket status, but they do not override signed policy trust or runtime
 compliance verdicts.
 
-Generation may use public Microsoft Release Health HTML, public Microsoft
-Update History Atom feed data, Atom-linked public Microsoft Support articles,
-and unauthenticated public MSRC CVRF data for source diagnostics and
-informational enrichment. Those sources can explain observed builds, KB
-classification, and source lag, but they do not replace the signed policy
-verdict or required baseline semantics.
+Generation may use public Microsoft Release Health HTML, the public Microsoft
+servicing table-of-contents JSON, servicing support articles it links to, and
+unauthenticated public MSRC CVRF data for source diagnostics and informational
+enrichment. Those sources can explain observed builds, KB classification, and
+source lag, but they do not replace the signed policy verdict or required
+baseline semantics.
 
 `latest_build` is the value from the Release Health Current Versions table.
 `latest_observed_build` can be newer when the generator proves a newer official
-build from supported public evidence such as an Atom-linked Support article.
-That observation remains informational until the signed baseline rules select a
-`required_baseline_build`. When Release Health has caught up and baseline rules
-select that same build, all three fields can legitimately report the same
-build.
+build from supported public evidence such as a servicing table-of-contents
+entry's linked Support article. That observation remains informational until
+the signed baseline rules select a `required_baseline_build`. When Release
+Health has caught up and baseline rules select that same build, all three
+fields can legitimately report the same build.
 
-Atom discovers Support article hrefs; it is not a `/help/<KB>` fallback
-resolver. Direct or fixture-provided Atom links are revalidated before they
-become release-history URLs, manifest metadata, dashboard links, or copied
-diagnostic JSON. Release History enrichment prefers Atom entries matching both
-KB and row build, then build-only evidence, and skips ambiguous KB-only
-fallbacks. Atom-linked Support article facts are trusted only after URL, KB,
-build, and parseable applicability validation against the Atom record; explicit
-`applies_to_releases` exclusions are untrusted for that event. MSRC CVRF
-enrichment requires exact KB-token matching, and unavailable or malformed CVRF
-data remains unknown instead of proving that a KB is non-security.
+The servicing table-of-contents JSON discovers Support article hrefs; it is
+not a `/help/<KB>` fallback resolver. Direct or fixture-provided links are
+revalidated before they become release-history URLs, manifest metadata,
+dashboard links, or copied diagnostic JSON. Release History enrichment prefers
+servicing entries matching both KB and row build, then build-only evidence,
+and skips ambiguous KB-only fallbacks. Linked Support article facts are
+trusted only after URL, KB, build, and parseable applicability validation
+against the servicing record; explicit `applies_to_releases` exclusions are
+untrusted for that event. MSRC CVRF enrichment requires exact KB-token
+matching, and unavailable or malformed CVRF data remains unknown instead of
+proving that a KB is non-security.
 
 The dashboard-only baseline-update notice appears only when baseline rules
 select a real Release Health B-release row that matches latest observed
@@ -74,7 +75,7 @@ does not affect verdicts, issue sync, runtime clients, or `/api/v1`.
 | Keep generator parsing centralized. | Duplicate upstream parsing in clients. |
 | Preserve raw admin diagnostics behind explicit opt-ins when default JSON compacts bulky Panther/setup log tails; keep Panther collection fixed-path, tail-bounded, and guarded by a generous total cap. | Hide surprising local values. |
 | Keep Source Diagnostics and GitHub Issues as diagnostic context. | Treat issue labels or dashboard diagnostics as compliance authority. |
-| Keep Atom/support/MSRC enrichment informational unless baseline rules select it. | Treat a newer latest-observed build as the required baseline by itself. |
+| Keep servicing/support/MSRC enrichment informational unless baseline rules select it. | Treat a newer latest-observed build as the required baseline by itself. |
 | Add public API fields compatibly. | Break `/api/v1` paths or remove existing contract fields. |
 
 ## Verify

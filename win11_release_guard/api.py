@@ -24,6 +24,8 @@ from .policy_diagnostics import apply_silent_feature_update_diagnostics
 from .remote_policy import fetch_policy_bytes
 from .signing import TrustedPolicy, load_trusted_policy
 from .wua_probe import query_wua_secondary
+from . import state_store
+from .state_store import StateEvent, StateScope
 
 
 @dataclass(frozen=True)
@@ -212,12 +214,30 @@ def _is_live_remote_json_source(source: PolicySourceResult) -> bool:
     )
 
 
-def _policy_is_fresh(policy: ReleasePolicy, cache_path: Path, *, max_age_hours: float) -> bool:
+def _policy_is_fresh_at(policy: ReleasePolicy, modified_epoch: float | None, *, max_age_hours: float) -> bool:
     if policy.generated_at_utc:
         age = _policy_age_hours(policy)
         return age is not None and age <= max_age_hours
-    modified = datetime.fromtimestamp(cache_path.stat().st_mtime, tz=timezone.utc)
+    if modified_epoch is None:
+        return False
+    try:
+        modified = datetime.fromtimestamp(modified_epoch, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        # read_state fills modified_epoch straight from st.st_mtime, so a container file
+        # carrying a timestamp outside the platform time_t range reaches this conversion.
+        # CPython raises OverflowError there -- an ArithmeticError, NOT a ValueError -- and
+        # it would surface as a corrupt_cache the record never earned. An unusable
+        # timestamp is simply no age available, which is the branch just above.
+        return False
     return datetime.now(timezone.utc) - modified <= timedelta(hours=max_age_hours)
+
+
+def _policy_is_fresh(policy: ReleasePolicy, cache_path: Path, *, max_age_hours: float) -> bool:
+    return _policy_is_fresh_at(
+        policy,
+        None if policy.generated_at_utc else cache_path.stat().st_mtime,
+        max_age_hours=max_age_hours,
+    )
 
 
 def _cache_path(config: ReleaseCheckerConfig) -> Path:
@@ -334,17 +354,66 @@ def _fetch_signature_bytes(policy_url: str, config: ReleaseCheckerConfig) -> byt
         return None
 
 
-def _save_trusted_cache(trusted: TrustedPolicy, cache_path: Path) -> None:
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_bytes(trusted.policy_bytes)
-    if trusted.signature_bytes is not None:
-        _signature_path(cache_path).write_bytes(trusted.signature_bytes)
+_STATE_WRITE_SKIP_PHRASES = {
+    "no_temp_dir": "no resolvable temp directory",
+    "state_dir_not_absolute": "--state-dir is not an absolute path",
+    "path_not_nameable": "the configured path has no file name",
+}
+
+
+def _cache_write_failed_message(event: StateEvent) -> str:
+    """Operator-facing text for one cache_write_failed problem.
+
+    Two grammatical shapes, because the two failure families carry different data. A real
+    write failure names a location, so it reads "... at <path> (<detail>)". A "none" layout
+    has no path at all (write_state short-circuits with path=None, §6.4) and can only name a
+    CONDITION; substituting the condition into the location slot produced sentences like
+    "could not be written at --state-dir is not an absolute path", so the pathless branch
+    renders the phrase as a reason after a colon instead.
+    """
+    if event.path is not None:
+        clause = f" at {event.path}"
+    else:
+        clause = f": {_STATE_WRITE_SKIP_PHRASES.get(event.detail, event.detail)}"
+    return (
+        f"Policy cache could not be written{clause} ({event.detail}); "
+        "this run is unaffected and the next run will re-fetch."
+    )
+
+
+def _persist_policy(
+    trusted: TrustedPolicy,
+    scope: StateScope,
+    config: ReleaseCheckerConfig,
+    source_problems: list[SourceProblem],
+) -> None:
+    """Store the verified policy as an optimisation only. NEVER raises, never changes
+    the verdict and never changes the exit code: every failure becomes at most one
+    cache_write_failed problem (A-1)."""
+    try:
+        if scope.source == "stateless":
+            return
+        event = state_store.write_state(scope, trusted.policy_bytes, trusted.signature_bytes)
+        if scope.layout == "container" and event.outcome == "written":
+            state_store.retire_legacy_state(config.cache_file, config.state_dir)
+        if event.outcome == "failed" or (event.outcome == "skipped" and event.detail != "stateless"):
+            source_problems.append(
+                _source_problem(
+                    "cache_write_failed",
+                    _cache_write_failed_message(event),
+                    source_url=event.path,
+                    retryable=True,
+                )
+            )
+    except Exception:
+        pass
 
 
 def _load_remote_policy(
     config: ReleaseCheckerConfig,
     *,
     policy_url: str,
+    scope: StateScope,
     warnings: list[str],
     errors: list[str],
     source_problems: list[SourceProblem],
@@ -378,6 +447,11 @@ def _load_remote_policy(
         source_kind=source_kind,
         config=config,
     )
+    # A-2: persist BEFORE the accept snapshot. _accept_trusted_policy freezes
+    # source_problems with tuple(dict.fromkeys(...)), so a later append is dropped,
+    # and a write failure must never discard a verified fetch already in memory.
+    if source_kind == "remote_json":
+        _persist_policy(trusted, scope, config, source_problems)
     accepted = _accept_trusted_policy(
         trusted,
         source_kind=source_kind,
@@ -392,8 +466,6 @@ def _load_remote_policy(
         errors=errors,
         source_problems=source_problems,
     )
-    if source_kind == "remote_json":
-        _save_trusted_cache(trusted, _cache_path(config))
     return accepted
 
 
@@ -448,6 +520,102 @@ def _load_cache_policy(
     )
 
 
+def _load_container_cache(
+    scope: StateScope,
+    config: ReleaseCheckerConfig,
+    *,
+    warnings: list[str],
+    errors: list[str],
+    source_problems: list[SourceProblem],
+) -> PolicySourceResult | None:
+    """The container cache tier. A record that does not yield a signature-verified
+    policy is removed so the next run re-fetches instead of re-failing forever."""
+    read = state_store.read_state(scope)
+    if read.status in ("absent", "foreign"):
+        return None
+    if read.status == "unusable":
+        _discard_bad_container(scope, source_problems, "was unusable and removed")
+        return None
+    try:
+        trusted = load_trusted_policy(
+            read.policy_bytes,
+            signature_bytes=read.signature_bytes,
+            public_key=config.trusted_policy_public_key,
+            require_signature=not config.allow_unsigned_policy,
+            allow_unsigned=config.allow_unsigned_policy,
+            content_type="application/json",
+            source_url=str(scope.path),
+        )
+    except Exception:
+        _discard_bad_container(scope, source_problems, "failed verification and was removed")
+        return None
+    if _policy_is_fresh_at(trusted.policy, read.modified_epoch, max_age_hours=config.cache_max_age_hours):
+        return _accept_trusted_policy(
+            trusted,
+            source_kind="fresh_cache",
+            source_url=str(scope.path),
+            source_status=SourceStatus.USING_FRESH_CACHE,
+            is_source_check_complete=False,
+            warnings=warnings + ["Remote policy unavailable; using fresh cached policy."],
+            errors=errors,
+            source_problems=source_problems,
+        )
+    if _policy_is_fresh_at(trusted.policy, read.modified_epoch, max_age_hours=config.stale_cache_max_age_hours):
+        source_problems.append(
+            _source_problem(
+                "stale_cache",
+                f"Cached policy at {scope.path} is older than {config.cache_max_age_hours:g} hours.",
+                source_url=str(scope.path),
+                retryable=False,
+            )
+        )
+        return _accept_trusted_policy(
+            trusted,
+            source_kind="stale_cache",
+            source_url=str(scope.path),
+            source_status=SourceStatus.USING_STALE_CACHE,
+            is_source_check_complete=False,
+            warnings=warnings + ["Remote policy unavailable; using stale cached policy. Source check is incomplete."],
+            errors=errors,
+            source_problems=source_problems,
+        )
+    source_problems.append(
+        _source_problem(
+            "stale_cache",
+            f"Cached policy at {scope.path} is older than {config.stale_cache_max_age_hours:g} hours.",
+            source_url=str(scope.path),
+            retryable=False,
+        )
+    )
+    return None
+
+
+def _discard_bad_container(
+    scope: StateScope,
+    source_problems: list[SourceProblem],
+    why: str,
+) -> None:
+    event = state_store.discard_state(scope)
+    if event.outcome in ("removed", "absent"):
+        source_problems.append(
+            _source_problem(
+                "corrupt_cache",
+                f"Cached policy record at {scope.path} {why}.",
+                source_url=str(scope.path),
+                retryable=True,
+            )
+        )
+    else:  # "failed" | "skipped" -- something holds the file; KIND is cache_write_failed (§6.3)
+        source_problems.append(
+            _source_problem(
+                "cache_write_failed",
+                f"Cached policy record at {scope.path} could not be removed ({event.detail}); this run is unaffected.",
+                source_url=str(scope.path),
+                retryable=True,
+            )
+        )
+
+
 def _load_runtime_policy(config: ReleaseCheckerConfig) -> PolicySourceResult:
     warnings: list[str] = []
     errors: list[str] = []
@@ -455,10 +623,12 @@ def _load_runtime_policy(config: ReleaseCheckerConfig) -> PolicySourceResult:
     policy_url = resolve_policy_url(config.policy_url)
 
     if policy_url:
+        scope = state_store.resolve_state_scope(config)
         try:
             remote = _load_remote_policy(
                 config,
                 policy_url=policy_url,
+                scope=scope,
                 warnings=warnings,
                 errors=errors,
                 source_problems=source_problems,
@@ -479,52 +649,72 @@ def _load_runtime_policy(config: ReleaseCheckerConfig) -> PolicySourceResult:
         warnings.append("No remote policy URL configured; using bundled last-known-good policy.")
 
     if policy_url:
-        cache_path = _cache_path(config)
-        try:
-            fresh_cache = _load_cache_policy(
-                cache_path,
-                config,
-                max_age_hours=config.cache_max_age_hours,
-                source_kind="fresh_cache",
-                source_status=SourceStatus.USING_FRESH_CACHE,
-                warning="Remote policy unavailable; using fresh cached policy.",
-                warnings=warnings,
-                errors=errors,
-                source_problems=source_problems,
-            )
-            if fresh_cache is not None:
-                return fresh_cache
-        except WindowsReleaseCheckerError as exc:
-            source_problems.append(
-                _source_problem("corrupt_cache", f"Fresh cache failed: {exc}", source_url=str(cache_path), exc=exc, retryable=False)
-            )
-        except Exception as exc:
-            source_problems.append(
-                _source_problem("corrupt_cache", f"Fresh cache failed: {exc}", source_url=str(cache_path), exc=exc, retryable=False)
-            )
+        if scope.layout == "legacy_pair":
+            cache_path = _cache_path(config)
+            try:
+                fresh_cache = _load_cache_policy(
+                    cache_path,
+                    config,
+                    max_age_hours=config.cache_max_age_hours,
+                    source_kind="fresh_cache",
+                    source_status=SourceStatus.USING_FRESH_CACHE,
+                    warning="Remote policy unavailable; using fresh cached policy.",
+                    warnings=warnings,
+                    errors=errors,
+                    source_problems=source_problems,
+                )
+                if fresh_cache is not None:
+                    return fresh_cache
+            except WindowsReleaseCheckerError as exc:
+                source_problems.append(
+                    _source_problem("corrupt_cache", f"Fresh cache failed: {exc}", source_url=str(cache_path), exc=exc, retryable=False)
+                )
+            except Exception as exc:
+                source_problems.append(
+                    _source_problem("corrupt_cache", f"Fresh cache failed: {exc}", source_url=str(cache_path), exc=exc, retryable=False)
+                )
 
-        try:
-            stale_cache = _load_cache_policy(
-                cache_path,
-                config,
-                max_age_hours=config.stale_cache_max_age_hours,
-                source_kind="stale_cache",
-                source_status=SourceStatus.USING_STALE_CACHE,
-                warning="Remote policy unavailable; using stale cached policy. Source check is incomplete.",
-                warnings=warnings,
-                errors=errors,
-                source_problems=source_problems,
-            )
-            if stale_cache is not None:
-                return stale_cache
-        except WindowsReleaseCheckerError as exc:
-            source_problems.append(
-                _source_problem("corrupt_cache", f"Stale cache failed: {exc}", source_url=str(cache_path), exc=exc, retryable=False)
-            )
-        except Exception as exc:
-            source_problems.append(
-                _source_problem("corrupt_cache", f"Stale cache failed: {exc}", source_url=str(cache_path), exc=exc, retryable=False)
-            )
+            try:
+                stale_cache = _load_cache_policy(
+                    cache_path,
+                    config,
+                    max_age_hours=config.stale_cache_max_age_hours,
+                    source_kind="stale_cache",
+                    source_status=SourceStatus.USING_STALE_CACHE,
+                    warning="Remote policy unavailable; using stale cached policy. Source check is incomplete.",
+                    warnings=warnings,
+                    errors=errors,
+                    source_problems=source_problems,
+                )
+                if stale_cache is not None:
+                    return stale_cache
+            except WindowsReleaseCheckerError as exc:
+                source_problems.append(
+                    _source_problem("corrupt_cache", f"Stale cache failed: {exc}", source_url=str(cache_path), exc=exc, retryable=False)
+                )
+            except Exception as exc:
+                source_problems.append(
+                    _source_problem("corrupt_cache", f"Stale cache failed: {exc}", source_url=str(cache_path), exc=exc, retryable=False)
+                )
+        elif scope.layout == "container":
+            try:
+                container = _load_container_cache(
+                    scope,
+                    config,
+                    warnings=warnings,
+                    errors=errors,
+                    source_problems=source_problems,
+                )
+                if container is not None:
+                    return container
+            except WindowsReleaseCheckerError as exc:
+                source_problems.append(
+                    _source_problem("corrupt_cache", f"Container cache failed: {exc}", source_url=str(scope.path), exc=exc, retryable=True)
+                )
+            except Exception as exc:
+                source_problems.append(
+                    _source_problem("corrupt_cache", f"Container cache failed: {exc}", source_url=str(scope.path), exc=exc, retryable=True)
+                )
 
     if config.use_bundled_policy_fallback:
         try:

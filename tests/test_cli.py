@@ -384,14 +384,14 @@ def test_cli_pretty_prints_source_drift_warnings(monkeypatch, capsys):
     result = replace(
         result,
         warnings=(
-            "Source freshness warning: Atom feed has newer build/KB entries not present in Release Health.",
+            "Source freshness warning: Servicing index has newer build/KB entries not present in Release Health.",
         ),
     )
 
     output = _run_pretty_with_result(monkeypatch, result, capsys, "--no-wua")
 
     assert "Source drift warnings:" in output
-    assert "Atom feed has newer build/KB entries" in output
+    assert "Servicing index has newer build/KB entries" in output
 
 
 def test_cli_pretty_build_origin_formatter_maps_all_known_classifications():
@@ -629,7 +629,7 @@ def test_cli_diagnose_config_reports_program_version(capsys):
     payload = json.loads(capsys.readouterr().out)
 
     assert code == 0
-    assert payload["package_version"] == package_version() == "0.3.6"
+    assert payload["package_version"] == package_version() == "0.5.0"
 
 
 def test_cli_diagnose_config_reports_strict_production(monkeypatch, capsys):

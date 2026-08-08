@@ -21,15 +21,15 @@ ALLOWED_NORMALIZED_PYPI_BADGE_ENDPOINTS = (
     "https://img.shields.io/pypi/dm/win11-release-guard",
 )
 REQUIRED_PUBLIC_ENRICHMENT_SOURCE_STATEMENT = (
-    "The production generator may use public Microsoft Release Health HTML, public Microsoft Update History Atom data, "
-    "Atom-linked public Microsoft Support articles, and unauthenticated public MSRC CVRF data for source diagnostics "
-    "and informational enrichment; it does not use Microsoft "
+    "The production generator may use public Microsoft Release Health HTML, the public Microsoft servicing "
+    "table-of-contents JSON, public Microsoft servicing support articles, and unauthenticated public MSRC CVRF "
+    "data for source diagnostics and informational enrichment; it does not use Microsoft "
     "Graph or token-authenticated Microsoft APIs."
 )
 REQUIRED_AGENTS_PUBLIC_ENRICHMENT_STATEMENT = (
-    "The production generator may use public Microsoft Release Health HTML, public Microsoft Update History Atom feed data, "
-    "Atom-linked public Microsoft Support articles, and unauthenticated public MSRC CVRF data for source diagnostics "
-    "and informational enrichment."
+    "The production generator may use public Microsoft Release Health HTML, the public Microsoft servicing "
+    "table-of-contents JSON, public Microsoft servicing support articles, and unauthenticated public MSRC CVRF "
+    "data for source diagnostics and informational enrichment."
 )
 ALLOWED_ACTIVE_AUTH_BOUNDARIES = (
     REQUIRED_PUBLIC_ENRICHMENT_SOURCE_STATEMENT,
@@ -142,6 +142,8 @@ REQUIRED_ARCHIVE_ENTRIES = {
     "docs/tagged-release-lane.md",
     "docs/policy-signing.md",
     "docs/security-automation.md",
+    "docs/releases/v0.5.0.md",
+    "docs/releases/v0.4.0.md",
     "docs/releases/v0.3.6.md",
     "docs/releases/v0.3.5.md",
     "docs/releases/v0.3.4.md",
@@ -149,6 +151,8 @@ REQUIRED_ARCHIVE_ENTRIES = {
     "docs/releases/v0.3.2.md",
     "docs/releases/v0.3.1.md",
     "wiki/Home.md",
+    "wiki/Release-v0.5.0.md",
+    "wiki/Release-v0.4.0.md",
     "wiki/Release-v0.3.6.md",
     "wiki/Release-v0.3.5.md",
     "wiki/Release-v0.3.4.md",

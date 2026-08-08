@@ -17,6 +17,8 @@ Use this when changing policy source loading, signature verification, manifest c
 | API signature | `/api/v1/policy.sig` | Stable signature alias. |
 | API manifest | `/api/v1/manifest.json` | Stable manifest alias. |
 
+All paths are served from `https://avnsx.github.io/win11_release_guard`.
+
 ## Trust Rules
 
 The Pages feed is public so clients can fetch it without credentials, but public
@@ -33,11 +35,11 @@ API alias drift visible to clients and checks.
 
 | Rule | Detail |
 | --- | --- |
-| Public data is not automatically trusted. | Runtime verifies the detached signature before accepting policy bytes. |
+| Public data is not automatically trusted. | Runtime verifies the detached signature before accepting policy bytes. No GitHub token, private repository access, or paid signing certificate is required. |
 | Key lookup uses `key_id`. | Committed public keys live in `win11_release_guard/data/trusted_policy_keys.json`. |
-| Private signing key is never committed. | GitHub Actions secret stores the production private key. |
-| Retiring keys stay bounded. | `verify_not_after_utc` prevents fresh signatures from retired/retiring keys after their window. |
-| `/api/v1` stays compatible. | Add fields compatibly; do not remove paths during the compatibility window. |
+| Private signing key is never committed. | GitHub Actions secret `WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64` stores the production private key. |
+| Retiring keys stay bounded. | `verify_not_after_utc` prevents fresh signatures from retired/retiring keys after at least 24 months of verification overlap. |
+| `/api/v1` stays compatible. | Add fields compatibly; existing paths stay backward compatible for at least 24 months. |
 
 ## JSON Hardening
 
@@ -65,13 +67,14 @@ The dashboard shows two build numbers that are easy to mix up: `latest_build`
 and `latest_observed_build`. `latest_build` is the value Microsoft Release
 Health currently publishes in the slow-moving Current Versions table.
 `latest_observed_build` is the newest official Microsoft-observed build found
-by the generator across supported public source evidence, including Atom-linked
-Support articles. It is useful context when a device is ahead of the normal
-fleet baseline, but it does not decide compliance by itself.
+by the generator across supported public source evidence, including Support
+articles linked from the servicing table-of-contents JSON. It is useful
+context when a device is ahead of the normal fleet baseline, but it does not
+decide compliance by itself.
 
 `required_baseline_build` is the minimum signed build this policy currently
 requires for existing Windows 11 fleet devices. Devices below that build need a
-quality update. A newer Atom/support observed build can appear as
+quality update. A newer servicing/support observed build can appear as
 `latest_observed_build` without becoming the required baseline for the fleet.
 When Release Health Current Versions has caught up and the baseline rules select
 that same build, `latest_build`, `latest_observed_build`, and
@@ -79,27 +82,27 @@ that same build, `latest_build`, `latest_observed_build`, and
 When the selected `required_baseline_build` comes from a real non-preview,
 non-OOB Release Health B-release row and matches `latest_observed_build`, the
 dashboard may show a 14-day informational baseline-update notice. That notice
-is generated from local Release Health, Atom, validated Support, and exact MSRC
-facts; expired or inactive notice metadata does not fetch optional Support/MSRC
-enrichment solely for stale historical notice data. It does not change the
-signed policy verdict, baseline selection, runtime client behavior, issue sync,
-or public `/api/v1` contract.
+is generated from local Release Health, the servicing table-of-contents JSON,
+validated Support, and exact MSRC facts; expired or inactive notice metadata
+does not fetch optional Support/MSRC enrichment solely for stale historical
+notice data. It does not change the signed policy verdict, baseline selection,
+runtime client behavior, issue sync, or public `/api/v1` contract.
 
-Atom-linked evidence stays bounded by source-trust rules. Safe Support article
-URLs are canonicalized before use, direct Atom links are revalidated before
+Servicing-linked evidence stays bounded by source-trust rules. Safe Support
+article URLs are canonicalized before use, direct links are revalidated before
 they become public metadata or dashboard/export links, and Release History
-enrichment prefers Atom entries matching both KB and row build. Support article
-URL, KB, build, and parseable release/applicability must match before article
-facts can affect summaries or Support-derived security labels. MSRC security
-classification requires exact KB remediation evidence and remains unknown when
-CVRF data is malformed or unavailable.
+enrichment prefers servicing entries matching both KB and row build. Support
+article URL, KB, build, and parseable release/applicability must match before
+article facts can affect summaries or Support-derived security labels. MSRC
+security classification requires exact KB remediation evidence and remains
+unknown when CVRF data is malformed or unavailable.
 
 | Field / term | Meaning |
 | --- | --- |
 | `latest_build` | Microsoft Release Health Current Versions table value. |
 | `baseline_build` | Required broad-fleet quality baseline. |
 | `required_baseline_build` | Explicit required baseline used by current readers. |
-| `latest_observed_build` | Newest official Microsoft-observed build from supported public evidence, including Atom-linked Support articles. |
+| `latest_observed_build` | Newest official Microsoft-observed build from supported public evidence, including Support articles linked from the servicing table-of-contents JSON. |
 | B-release | Default required quality baseline. |
 | D-preview | Can explain a newer local build without becoming the default required baseline. |
 

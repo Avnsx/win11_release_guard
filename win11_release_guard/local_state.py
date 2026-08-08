@@ -402,7 +402,139 @@ def _read_product_info(major_version: int = 10, minor_version: int = 0) -> int |
     return int(product_type.value)
 
 
-def _read_wmi_operating_system(
+# Maps SYSTEM_INFO.wProcessorArchitecture (as populated by GetNativeSystemInfo)
+# to the same strings Win32_OperatingSystem.OSArchitecture reports over WMI/CIM.
+_PROCESSOR_ARCHITECTURE_INTEL = 0
+_PROCESSOR_ARCHITECTURE_ARM = 5
+_PROCESSOR_ARCHITECTURE_IA64 = 6
+_PROCESSOR_ARCHITECTURE_AMD64 = 9
+_PROCESSOR_ARCHITECTURE_ARM64 = 12
+
+_PROCESSOR_ARCHITECTURE_TO_OS_ARCHITECTURE: Mapping[int, str] = {
+    _PROCESSOR_ARCHITECTURE_INTEL: "32-bit",
+    _PROCESSOR_ARCHITECTURE_AMD64: "64-bit",
+    _PROCESSOR_ARCHITECTURE_ARM64: "ARM 64-bit Processor",
+    _PROCESSOR_ARCHITECTURE_ARM: "ARM 32-bit Processor",
+    _PROCESSOR_ARCHITECTURE_IA64: "IA64-based",
+}
+
+# The dict keys _read_wmi_operating_system (native or PowerShell) must
+# populate for downstream code to treat the result as usable. "Caption" is
+# deliberately excluded: the native read has no faithful source for it (see
+# _read_native_operating_system), so requiring it here would force every
+# native read to be judged incomplete and fall back to spawning powershell.exe
+# on every run.
+NATIVE_OS_INFO_KEYS = ("Version", "BuildNumber", "OperatingSystemSKU", "OSArchitecture")
+
+
+# Only wProcessorArchitecture is used below; the rest of the fields exist so
+# the struct layout (and therefore field offsets/alignment) matches the real
+# Win32 SYSTEM_INFO that GetNativeSystemInfo writes into.
+class _SystemInfo(ctypes.Structure):
+    _fields_ = [
+        ("wProcessorArchitecture", wintypes.WORD),
+        ("wReserved", wintypes.WORD),
+        ("dwPageSize", wintypes.DWORD),
+        ("lpMinimumApplicationAddress", wintypes.LPVOID),
+        ("lpMaximumApplicationAddress", wintypes.LPVOID),
+        ("dwActiveProcessorMask", wintypes.WPARAM),
+        ("dwNumberOfProcessors", wintypes.DWORD),
+        ("dwProcessorType", wintypes.DWORD),
+        ("dwAllocationGranularity", wintypes.DWORD),
+        ("wProcessorLevel", wintypes.WORD),
+        ("wProcessorRevision", wintypes.WORD),
+    ]
+
+
+def _os_architecture_from_processor_architecture(code: int | None) -> str | None:
+    if code is None:
+        return None
+    return _PROCESSOR_ARCHITECTURE_TO_OS_ARCHITECTURE.get(int(code))
+
+
+def _read_native_architecture() -> str | None:
+    """Return the OSArchitecture string GetNativeSystemInfo implies, or None.
+
+    None covers both an API failure and a processor architecture this module
+    has no faithful WMI-style string for; either way the caller treats it as
+    "could not confirm" rather than guessing.
+    """
+    try:
+        info = _SystemInfo()
+        ctypes.windll.kernel32.GetNativeSystemInfo(ctypes.byref(info))
+    except (AttributeError, OSError, ValueError):
+        return None
+    return _os_architecture_from_processor_architecture(info.wProcessorArchitecture)
+
+
+def _native_os_info_is_complete(data: Mapping[str, Any] | None) -> bool:
+    """True when every field callers of _read_wmi_operating_system rely on is present.
+
+    Anything less (a missing signal, a None field) means the native read could
+    not faithfully reproduce what the PowerShell/CIM probe would have
+    returned, so the caller falls back to it instead of shipping a partial or
+    guessed value.
+    """
+    if not isinstance(data, Mapping):
+        return False
+    return all(data.get(key) is not None for key in NATIVE_OS_INFO_KEYS)
+
+
+def _read_native_operating_system() -> dict[str, Any] | None:
+    """Read OS identity fields natively (registry + ctypes), no process spawn.
+
+    Returns the same dict shape as :func:`_read_wmi_operating_system_via_powershell`
+    (``Caption``, ``Version``, ``BuildNumber``, ``OperatingSystemSKU``,
+    ``OSArchitecture``), sourced from:
+
+    * ``RtlGetVersion`` (via ntdll, immune to the GetVersionEx compatibility
+      shim that misreports version on some hosts) for the accurate OS
+      version/build.
+    * ``GetNativeSystemInfo`` for processor architecture.
+    * ``GetProductInfo`` for the SKU code. Per Microsoft's own
+      Win32_OperatingSystem documentation, OperatingSystemSKU "values are the
+      same as the PRODUCT_* constants ... used with the GetProductInfo
+      function", so this is a direct, faithful passthrough rather than a
+      guess.
+
+    ``Caption`` is always ``None``: the registry's ``ProductName`` is known to
+    go stale after some in-place upgrades (e.g. it can still read a "Windows
+    10" name on an updated Windows 11 host), unlike Win32_OperatingSystem's
+    CIM-computed ``Caption``. Synthesizing a ``Caption`` from it would ship a
+    display-only value that looks authoritative but can contradict the
+    build-derived release and misfire display-only conflict checks. Callers
+    that need a caption get it from the PowerShell/CIM fallback instead.
+
+    Returns ``None`` on non-Windows, or lets a read failure raise so the
+    caller can fall back to the PowerShell probe. A dict missing any expected
+    key's value is still returned as-is; :func:`_native_os_info_is_complete`
+    is what decides whether it is usable.
+    """
+    if os.name != "nt":
+        return None
+
+    rtl = _read_rtl_get_version()
+
+    build_number = rtl.get("build")
+
+    product_info_code: int | None = None
+    try:
+        product_info_code = _read_product_info(
+            int(rtl.get("major") or 10), int(rtl.get("minor") or 0)
+        )
+    except Exception:
+        product_info_code = None
+
+    return {
+        "Caption": None,
+        "Version": _optional_str(rtl.get("version")),
+        "BuildNumber": str(build_number) if build_number is not None else None,
+        "OperatingSystemSKU": product_info_code,
+        "OSArchitecture": _read_native_architecture(),
+    }
+
+
+def _read_wmi_operating_system_via_powershell(
     timeout_seconds: float = DEFAULT_POWERSHELL_TIMEOUT_SECONDS,
 ) -> dict[str, Any] | None:
     command = (
@@ -440,6 +572,26 @@ def _read_wmi_operating_system(
     if isinstance(data, list):
         data = data[0] if data else None
     return data if isinstance(data, dict) else None
+
+
+def _read_wmi_operating_system(
+    timeout_seconds: float = DEFAULT_POWERSHELL_TIMEOUT_SECONDS,
+) -> dict[str, Any] | None:
+    """Return Caption/Version/BuildNumber/OperatingSystemSKU/OSArchitecture.
+
+    Tries the native registry+ctypes read first (near-instant, no process
+    spawn); falls back to spawning ``powershell.exe`` to run
+    ``Get-CimInstance Win32_OperatingSystem`` only if the native read raises,
+    or comes back incomplete, so behaviour never regresses on an unusual
+    machine. The native path is an optimisation, not a replacement.
+    """
+    try:
+        native = _read_native_operating_system()
+    except Exception:
+        native = None
+    if _native_os_info_is_complete(native):
+        return native
+    return _read_wmi_operating_system_via_powershell(timeout_seconds=timeout_seconds)
 
 
 def _edition_scope_from_text(value: str | None) -> EditionScope:

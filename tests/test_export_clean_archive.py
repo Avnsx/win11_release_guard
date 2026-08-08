@@ -43,12 +43,16 @@ def test_export_clean_archive_contains_only_clean_source_entries(tmp_path: Path)
     assert "tools/export_clean_archive.py" in names
     assert "docs/security-automation.md" in names
     assert "wiki/Home.md" in names
+    assert "docs/releases/v0.5.0.md" in names
+    assert "docs/releases/v0.4.0.md" in names
     assert "docs/releases/v0.3.6.md" in names
     assert "docs/releases/v0.3.5.md" in names
     assert "docs/releases/v0.3.4.md" in names
     assert "docs/releases/v0.3.3.md" in names
     assert "docs/releases/v0.3.2.md" in names
     assert "docs/releases/v0.3.1.md" in names
+    assert "wiki/Release-v0.5.0.md" in names
+    assert "wiki/Release-v0.4.0.md" in names
     assert "wiki/Release-v0.3.6.md" in names
     assert "wiki/Release-v0.3.5.md" in names
     assert "wiki/Release-v0.3.4.md" in names
@@ -278,7 +282,7 @@ def test_skip_test_run_skips_pytest_but_still_validates_contents(tmp_path: Path,
 
 
 def test_required_archive_entries_preserve_historical_release_docs() -> None:
-    for version in ("v0.3.1", "v0.3.2", "v0.3.3", "v0.3.4", "v0.3.5", "v0.3.6"):
+    for version in ("v0.3.1", "v0.3.2", "v0.3.3", "v0.3.4", "v0.3.5", "v0.3.6", "v0.4.0", "v0.5.0"):
         entry = f"docs/releases/{version}.md"
         assert entry in export_clean_archive.REQUIRED_ARCHIVE_ENTRIES
         assert (export_clean_archive.REPO_ROOT / entry).is_file()

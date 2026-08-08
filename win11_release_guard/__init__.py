@@ -26,6 +26,13 @@ from .models import (
 )
 from .remote_policy import fetch_release_policy, load_policy_bytes, load_policy_text
 from .signing import load_trusted_policy, verify_policy_signature
+from .state_store import (
+    STATE_FORMAT_VERSION,
+    StateEvent,
+    describe_state,
+    purge_state,
+    read_state_bytes,
+)
 from .version import package_version
 
 __version__ = package_version()
@@ -61,4 +68,9 @@ __all__ = [
     "ServicingChannel",
     "SourceProblem",
     "SourceStatus",
+    "STATE_FORMAT_VERSION",
+    "StateEvent",
+    "describe_state",
+    "purge_state",
+    "read_state_bytes",
 ]

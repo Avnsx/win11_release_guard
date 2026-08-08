@@ -1,0 +1,45 @@
+{
+  "items": [
+    {
+      "toc_title": "Windows 11, version 25H2",
+      "children": [
+        {
+          "href": "2026/07/july-28-2026-kb5101684-preview",
+          "toc_title": "July 28, 2026\u2014KB5101684 (OS Builds 26200.8973 and 26100.8973) Preview"
+        },
+        {
+          "href": "2026/07/kb5121767-out-of-band",
+          "toc_title": "July 18, 2026\u2014KB5121767 (OS Build 26200.8894) Out-of-band"
+        },
+        {
+          "href": "2026/07/july-14-2026-kb5101650-os-builds-26200-8875-and-26100-8875",
+          "toc_title": "July 14, 2026\u2014KB5101650 (OS Builds 26200.8875 and 26100.8875)"
+        },
+        {
+          "href": "2026/05/may-12-2026-kb5089549-os-builds-26200-8457-and-26100-8457",
+          "toc_title": "May 12, 2026\u2014KB5089549 (OS Builds 26200.8457 and 26100.8457)"
+        },
+        {
+          "href": "2026/04/april-30-2026-kb5083631-os-builds-26200-8328-and-26100-8328-preview",
+          "toc_title": "April 30, 2026\u2014KB5083631 (OS Builds 26200.8328 and 26100.8328) Preview"
+        }
+      ]
+    },
+    {
+      "toc_title": "Windows 11, version 24H2",
+      "children": [
+        {
+          "href": "2026/07/july-14-2026-kb5101650-os-builds-26200-8875-and-26100-8875",
+          "toc_title": "July 14, 2026\u2014KB5101650 (OS Builds 26200.8875 and 26100.8875)"
+        },
+        {
+          "href": "2026/05/may-12-2026-kb5089549-os-builds-26200-8457-and-26100-8457",
+          "toc_title": "May 12, 2026\u2014KB5089549 (OS Builds 26200.8457 and 26100.8457)"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "count_of_node_with_href": 7
+  }
+}

@@ -383,7 +383,12 @@ def test_no_remote_policy_url_configured_uses_bundled_without_source_problem(mon
     monkeypatch.delenv("WIN11_RELEASE_GUARD_POLICY_URL", raising=False)
     monkeypatch.setattr(config_module, "DEFAULT_POLICY_URL", None)
 
+    fetch_calls: list[tuple] = []
+
     def fail_if_called(*args, **kwargs):
+        # Record the call before raising so invocation is provable by direct
+        # observation, not solely by an exception that might get swallowed.
+        fetch_calls.append(args)
         raise AssertionError("remote fetch should not be attempted without a policy URL")
 
     monkeypatch.setattr(api, "fetch_policy_bytes", fail_if_called)
@@ -395,6 +400,7 @@ def test_no_remote_policy_url_configured_uses_bundled_without_source_problem(mon
         )
     )
 
+    assert fetch_calls == []
     assert result.status is EvaluationStatus.COMPLIANT
     assert result.source_status is SourceStatus.USING_BUNDLED_POLICY
     assert result.is_source_check_complete is False

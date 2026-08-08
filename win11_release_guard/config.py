@@ -24,6 +24,9 @@ DEFAULT_PUBLISHED_POLICY_URLS = {
 POLICY_URL_ENV_VAR = "WIN11_RELEASE_GUARD_POLICY_URL"
 STRICT_PRODUCTION_ENV_VAR = "WIN11_RELEASE_GUARD_STRICT_PRODUCTION"
 MAX_POLICY_BYTES_ENV_VAR = "WIN11_RELEASE_GUARD_MAX_POLICY_BYTES"
+STATE_DIR_ENV_VAR = "WIN11_RELEASE_GUARD_STATE_DIR"
+STATELESS_ENV_VAR = "WIN11_RELEASE_GUARD_STATELESS"
+CACHE_FILE_ENV_VAR = "WIN11_RELEASE_GUARD_CACHE_FILE"
 
 DEFAULT_USER_AGENT = runtime_user_agent()
 DEFAULT_CACHE_FILE_NAME = "windows-release-policy.json"
@@ -72,6 +75,8 @@ class ReleaseCheckerConfig:
     allow_runtime_release_health_html: bool = False
     allow_unsigned_policy: bool = False
     trusted_policy_public_key: str | None = None
+    state_dir: str | None = None
+    stateless: bool = False
     use_bundled_policy_fallback: bool = True
     source_check_required_for_green: bool = False
     strict_production: bool = field(default_factory=lambda: strict_production_from_env())
@@ -83,6 +88,8 @@ class ReleaseCheckerConfig:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "policy_url", normalize_policy_url(self.policy_url))
+        object.__setattr__(self, "state_dir", normalize_state_dir(self.state_dir))
+        object.__setattr__(self, "stateless", bool(self.stateless))
         object.__setattr__(self, "strict_production", bool(self.strict_production))
         object.__setattr__(self, "max_policy_bytes", _normalize_positive_int(self.max_policy_bytes, DEFAULT_MAX_POLICY_BYTES))
         if self.strict_production:
@@ -97,6 +104,11 @@ class ReleaseCheckerConfig:
 
 
 def normalize_policy_url(value: str | None) -> str | None:
+    normalized = str(value).strip() if value is not None else None
+    return normalized or None
+
+
+def normalize_state_dir(value: str | None) -> str | None:
     normalized = str(value).strip() if value is not None else None
     return normalized or None
 
@@ -120,6 +132,19 @@ def _normalize_positive_int(value: int | str | None, default: int) -> int:
 
 def max_policy_bytes_from_env() -> int:
     return max_bytes_from_env(MAX_POLICY_BYTES_ENV_VAR, DEFAULT_MAX_POLICY_BYTES)
+
+
+def state_dir_from_env() -> str | None:
+    return normalize_state_dir(os.environ.get(STATE_DIR_ENV_VAR))
+
+
+def stateless_from_env() -> bool:
+    value = str(os.environ.get(STATELESS_ENV_VAR) or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def cache_file_from_env() -> str | None:
+    return normalize_state_dir(os.environ.get(CACHE_FILE_ENV_VAR))
 
 
 def resolve_policy_url(configured_policy_url: str | None) -> str | None:
@@ -177,4 +202,11 @@ __all__ = [
     "policy_url_source",
     "resolve_policy_url",
     "strict_production_from_env",
+    "CACHE_FILE_ENV_VAR",
+    "STATE_DIR_ENV_VAR",
+    "STATELESS_ENV_VAR",
+    "cache_file_from_env",
+    "normalize_state_dir",
+    "state_dir_from_env",
+    "stateless_from_env",
 ]

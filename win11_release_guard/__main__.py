@@ -7,8 +7,6 @@ import json
 import platform
 import sys
 import traceback
-import urllib.error
-import urllib.request
 from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
@@ -26,7 +24,7 @@ from .bundled_policy import (
     BUNDLED_POLICY_SIGNATURE_FILE,
     load_bundled_policy,
 )
-from .cache import default_cache_path
+from . import state_store
 from .config import (
     DEFAULT_CACHE_MAX_AGE_HOURS,
     DEFAULT_EVENT_LOG_MAX_EVENTS,
@@ -37,21 +35,28 @@ from .config import (
     DEFAULT_PUBLISHED_POLICY_URLS,
     DEFAULT_QUALITY_POLICY,
     DEFAULT_STALE_CACHE_MAX_AGE_HOURS,
-    DEFAULT_USER_AGENT,
     DEFAULT_WUA_MAX_HISTORY,
     DEFAULT_WUA_MAX_RELEVANT_UPDATES,
     DEFAULT_WUA_TIMEOUT_SECONDS,
+    CACHE_FILE_ENV_VAR,
     MAX_POLICY_BYTES_ENV_VAR,
     POLICY_URL_ENV_VAR,
     ReleaseCheckerConfig,
+    STATE_DIR_ENV_VAR,
+    STATELESS_ENV_VAR,
     STRICT_PRODUCTION_ENV_VAR,
+    cache_file_from_env,
     max_policy_bytes_from_env,
     normalize_policy_url,
+    normalize_state_dir,
     policy_url_from_env,
+    state_dir_from_env,
+    stateless_from_env,
     strict_production_from_env,
 )
 from .exceptions import PolicyFetchError, PolicyParseError, PolicyTrustError, WindowsReleaseCheckerError
 from .freshness import epoch_seconds_from_iso
+from . import http_client
 from .json_utils import (
     DEFAULT_MAX_MANIFEST_BYTES,
     DEFAULT_MAX_POLICY_BYTES,
@@ -147,6 +152,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Allow --check-policy-source to pass when a remote policy manifest cannot be fetched.",
     )
     parser.add_argument("--cache-file", type=Path, default=None, help="Optional policy cache path.")
+    parser.add_argument(
+        "--state-dir",
+        type=Path,
+        default=None,
+        help="Store the on-disk state record in this directory instead of the OS temp directory.",
+    )
+    parser.add_argument(
+        "--stateless",
+        action="store_true",
+        help="Read and write no on-disk state for this run.",
+    )
+    parser.add_argument(
+        "--purge-state",
+        action="store_true",
+        help="Remove every on-disk state artifact this configuration may have written and report it.",
+    )
+    parser.add_argument(
+        "--show-state",
+        action="store_true",
+        help="Print the decoded on-disk state for this configuration without running probes.",
+    )
     parser.add_argument(
         "--cache-max-age-hours",
         type=float,
@@ -505,6 +531,17 @@ def _print_json(
     )
 
 
+def _atomic_write_with_inplace_fallback(path: Path, data: bytes) -> state_store.StateEvent:
+    event = state_store.write_bytes_atomically(path, data)
+    if event.outcome != "failed":
+        return event
+    try:
+        path.write_bytes(data)                              # today's --output behaviour, one time, no retry loop
+        return state_store.StateEvent("write", "written", str(path), None)
+    except (OSError, ValueError) as exc:
+        return state_store.StateEvent("write", "failed", str(path), state_store._reason(exc))
+
+
 def _write_json_output(
     path: Path,
     result: EvaluationResult,
@@ -521,7 +558,10 @@ def _write_json_output(
         include_raw_wua_history=include_raw_wua_history,
         include_raw_local_diagnostics=include_raw_local_diagnostics,
     )
-    path.write_text(json_text + "\n", encoding="utf-8", newline="\n")
+    data = (json_text + "\n").encode("utf-8")
+    event = _atomic_write_with_inplace_fallback(path, data)
+    if event.outcome == "failed":
+        raise WindowsReleaseCheckerError(f"Could not write JSON output to {path}: {event.detail}")
 
 
 def _source_degradation_warning(result: EvaluationResult) -> str | None:
@@ -674,7 +714,9 @@ def _config_from_args(args: argparse.Namespace) -> ReleaseCheckerConfig:
     strict_production = bool(args.strict_production or strict_production_from_env())
     return ReleaseCheckerConfig(
         policy_url=policy_url,
-        cache_file=str(args.cache_file) if args.cache_file is not None else None,
+        cache_file=_cache_file_from_args(args)[0],
+        state_dir=_state_dir_from_args(args)[0],
+        stateless=_stateless_from_args(args)[0],
         cache_max_age_hours=args.cache_max_age_hours,
         stale_cache_max_age_hours=args.stale_cache_max_age_hours,
         quality_policy=args.quality_policy,
@@ -720,6 +762,34 @@ def _policy_url_from_args(args: argparse.Namespace) -> tuple[str | None, str]:
     default_policy_url = normalize_policy_url(DEFAULT_POLICY_URL)
     if default_policy_url:
         return default_policy_url, "default"
+    return None, "none"
+
+
+def _state_dir_from_args(args: argparse.Namespace) -> tuple[str | None, str]:
+    cli_state_dir = normalize_state_dir(getattr(args, "state_dir", None))
+    if cli_state_dir:
+        return cli_state_dir, "cli"
+    env_state_dir = state_dir_from_env()
+    if env_state_dir:
+        return env_state_dir, "env"
+    return None, "none"
+
+
+def _stateless_from_args(args: argparse.Namespace) -> tuple[bool, str]:
+    if getattr(args, "stateless", False):
+        return True, "cli"
+    if stateless_from_env():
+        return True, "env"
+    return False, "default"
+
+
+def _cache_file_from_args(args: argparse.Namespace) -> tuple[str | None, str]:
+    cli_cache_file = getattr(args, "cache_file", None)
+    if cli_cache_file is not None:
+        return str(cli_cache_file), "cli"
+    env_cache_file = cache_file_from_env()
+    if env_cache_file:
+        return env_cache_file, "env"
     return None, "none"
 
 
@@ -813,7 +883,17 @@ def _source_check_payload(config: ReleaseCheckerConfig) -> dict[str, object]:
 
 def _diagnose_config_payload(args: argparse.Namespace) -> dict[str, object]:
     policy_url, source = _policy_url_from_args(args)
+    _state_dir_value, state_dir_source = _state_dir_from_args(args)
+    _stateless_value, stateless_source = _stateless_from_args(args)
+    _cache_file_value, cache_file_source = _cache_file_from_args(args)
     config = _config_from_args(args)
+    scope = state_store.resolve_state_scope(config)
+    if config.cache_file:
+        effective_cache_file: str | None = str(config.cache_file)
+    elif scope.path is not None:
+        effective_cache_file = str(scope.path)
+    else:
+        effective_cache_file = None
     payload = {
         "package_version": _package_version(),
         "effective_policy_url": policy_url,
@@ -822,7 +902,18 @@ def _diagnose_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "policy_url_env_var": POLICY_URL_ENV_VAR,
         "strict_production_env_var": STRICT_PRODUCTION_ENV_VAR,
         "max_policy_bytes_env_var": MAX_POLICY_BYTES_ENV_VAR,
-        "cache_file": str(Path(config.cache_file)) if config.cache_file else str(default_cache_path()),
+        "cache_file": effective_cache_file,
+        "state_layout": scope.layout,
+        "state_path": str(scope.path) if scope.path is not None else None,
+        "state_dir": config.state_dir,
+        "state_dir_source": state_dir_source,
+        "state_dir_env_var": STATE_DIR_ENV_VAR,
+        "stateless": config.stateless,
+        "stateless_source": stateless_source,
+        "stateless_env_var": STATELESS_ENV_VAR,
+        "cache_file_source": cache_file_source,
+        "cache_file_env_var": CACHE_FILE_ENV_VAR,
+        "state_format_version": state_store.STATE_FORMAT_VERSION,
         "trusted_public_key_fingerprint": _trusted_public_key_fingerprint(config.trusted_policy_public_key),
         "wua_default_enabled": ReleaseCheckerConfig().enable_wua_probe,
         "wua_effective_enabled": config.enable_wua_probe,
@@ -843,6 +934,15 @@ def _diagnose_config_payload(args: argparse.Namespace) -> dict[str, object]:
     if args.check_source:
         payload["source_check"] = _source_check_payload(config)
     return payload
+
+
+def _purge_state_payload(config: ReleaseCheckerConfig) -> dict[str, object]:
+    events = state_store.purge_state(config)
+    return {"events": [event.to_dict() for event in events]}
+
+
+def _show_state_payload(config: ReleaseCheckerConfig) -> dict[str, object]:
+    return state_store.describe_state(config)
 
 
 def _self_test_payload() -> tuple[dict[str, object], bool]:
@@ -908,79 +1008,30 @@ def _payload_too_large_message(label: str, max_bytes: int) -> str:
     return f"{label} is too large: exceeds safety cap of {max_bytes} bytes"
 
 
-def _content_length_from_headers(headers: Mapping[str, object] | None) -> int | None:
-    if headers is None:
-        return None
-    value = None
-    if hasattr(headers, "get"):
-        value = headers.get("content-length") or headers.get("Content-Length")
-    if value is None and hasattr(headers, "items"):
-        for key, candidate in headers.items():
-            if str(key).lower() == "content-length":
-                value = candidate
-                break
-    if value is None:
-        return None
-    try:
-        parsed = int(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed >= 0 else None
-
-
-def _read_public_response_content(response, *, max_bytes: int, label: str) -> bytes:
-    content_length = _content_length_from_headers(response.headers)
-    if content_length is not None and content_length > max_bytes:
-        raise PolicyFetchError(_payload_too_large_message(label, max_bytes))
-    data = response.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise PolicyFetchError(_payload_too_large_message(label, max_bytes))
-    return data
-
-
 def _fetch_public_url(
     url: str,
     *,
     timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     max_bytes: int = DEFAULT_MAX_POLICY_BYTES,
 ) -> PublicFetchResult:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": DEFAULT_USER_AGENT,
-            "Accept": "*/*",
-        },
-    )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            headers = {str(key): str(value) for key, value in response.headers.items()}
-            content_type = response.headers.get("Content-Type")
-            return PublicFetchResult(
-                url=url,
-                status_code=int(getattr(response, "status", 200)),
-                content=_read_public_response_content(
-                    response,
-                    max_bytes=max_bytes,
-                    label="Public Pages response",
-                ),
-                content_type=content_type,
-                headers=headers,
-            )
-    except urllib.error.HTTPError as exc:
-        headers = {str(key): str(value) for key, value in exc.headers.items()} if exc.headers else {}
-        return PublicFetchResult(
-            url=url,
-            status_code=int(exc.code),
-            content=_read_public_response_content(
-                exc,
-                max_bytes=max_bytes,
-                label="Public Pages error response",
-            ),
-            content_type=headers.get("Content-Type"),
-            headers=headers,
+        result = http_client.request(
+            url,
+            headers={"Accept": "*/*"},
+            timeout=timeout,
+            max_bytes=max_bytes,
+            label="Public Pages response",
+            raise_for_status=False,
         )
     except Exception as exc:
         raise PolicyFetchError(f"Failed to fetch public Pages URL {url}: {exc}") from exc
+    return PublicFetchResult(
+        url=url,
+        status_code=result.status_code,
+        content=result.content,
+        content_type=http_client.get_header(result.headers, "Content-Type"),
+        headers=result.headers,
+    )
 
 
 def _call_fetch_public_url(url: str, *, timeout: float, max_bytes: int) -> PublicFetchResult:
@@ -1843,6 +1894,15 @@ def _print_policy_source_payload(payload: dict[str, object]) -> None:
                 f"newest_atom_updated={atom_feed.get('newest_atom_updated') or 'unknown'}, "
                 f"newest_atom_published={atom_feed.get('newest_atom_published') or 'unknown'}"
             )
+        servicing_toc = source_diagnostics.get("servicing_toc")
+        if isinstance(servicing_toc, dict):
+            emit(
+                "- servicing_toc: "
+                f"fetched_at={servicing_toc.get('fetched_at_utc') or 'unknown'}, "
+                f"bytes={servicing_toc.get('bytes') if servicing_toc.get('bytes') is not None else 'unknown'}, "
+                f"newest_servicing_build={servicing_toc.get('newest_servicing_build') or 'unknown'}, "
+                f"entries={servicing_toc.get('entry_count') if servicing_toc.get('entry_count') is not None else 'unknown'}"
+            )
     published_urls = payload.get("published_urls") or {}
     if isinstance(published_urls, dict) and published_urls:
         emit("Published URLs:")
@@ -1931,6 +1991,51 @@ def main(argv: Sequence[str] | None = None) -> int:
         # codeql[py/clear-text-logging-sensitive-data]
         print(json.dumps(diagnose_payload, indent=2, sort_keys=True, ensure_ascii=True))
         return 0
+
+    if args.purge_state:
+        try:
+            payload = _purge_state_payload(_config_from_args(args))
+            print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True))
+            failed = any(
+                isinstance(event, dict) and event.get("outcome") == "failed"
+                for event in payload["events"]
+            )
+            return EXIT_UNKNOWN_OR_POLICY_ERROR if failed else 0
+        except WindowsReleaseCheckerError as exc:
+            _print_error(str(exc), json_output=True)
+            if args.debug:
+                traceback.print_exc()
+            return EXIT_UNKNOWN_OR_POLICY_ERROR
+        except Exception as exc:
+            _print_error(str(exc), json_output=True)
+            if args.debug:
+                traceback.print_exc()
+            return EXIT_UNKNOWN_OR_POLICY_ERROR
+
+    if args.show_state:
+        try:
+            config = _config_from_args(args)
+            payload = _show_state_payload(config)
+            exit_code = 0
+            if args.output is not None:
+                data = state_store.read_state_bytes(config)
+                if data is not None:
+                    event = _atomic_write_with_inplace_fallback(args.output, data)
+                    if event.outcome == "failed":
+                        payload["detail"] = event.detail
+                        exit_code = EXIT_UNKNOWN_OR_POLICY_ERROR
+            print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True))
+            return exit_code
+        except WindowsReleaseCheckerError as exc:
+            _print_error(str(exc), json_output=True)
+            if args.debug:
+                traceback.print_exc()
+            return EXIT_UNKNOWN_OR_POLICY_ERROR
+        except Exception as exc:
+            _print_error(str(exc), json_output=True)
+            if args.debug:
+                traceback.print_exc()
+            return EXIT_UNKNOWN_OR_POLICY_ERROR
 
     json_output = bool(args.json or args.json_pretty or args.output is not None)
 

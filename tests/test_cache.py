@@ -9,6 +9,7 @@ from win11_release_guard.cache import (
     is_policy_cache_fresh,
     load_cached_policy,
     save_cached_policy,
+    save_policy_cache,
 )
 from win11_release_guard.config import (
     DEFAULT_POLICY_URL,
@@ -73,6 +74,28 @@ def test_load_cached_policy_returns_none_when_stale(tmp_path):
 
     assert loaded is None
     assert stale_allowed is not None
+
+
+def test_save_policy_cache_writes_atomically_without_leftover_staging(tmp_path):
+    cache_file = tmp_path / "windows-release-policy.json"
+
+    save_policy_cache(cache_file, _policy())
+
+    raw = cache_file.read_bytes()
+    assert b"\r\n" not in raw
+    assert raw.endswith(b"\n")
+    loaded = load_cached_policy(cache_file, allow_stale=True)
+    assert loaded.current_versions[0].version == "25H2"
+    assert list(tmp_path.glob("*.staging.tmp")) == []
+
+
+def test_save_policy_cache_does_not_create_parent_directories(tmp_path):
+    target = tmp_path / "missing" / "windows-release-policy.json"
+
+    save_policy_cache(target, _policy())
+
+    assert not (tmp_path / "missing").exists()
+    assert not target.exists()
 
 
 def test_default_cache_path_for_windows_uses_localappdata_without_windowspath(tmp_path):

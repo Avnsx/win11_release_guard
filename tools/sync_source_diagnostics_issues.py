@@ -395,14 +395,14 @@ def _diagnostic_issue_tip(diagnostic: DiagnosticIssue) -> tuple[str, str]:
     if kind == "atom_newer_than_release_history":
         if affects_required_baseline:
             return (
-                "Atom feed data can surface a new broad-target, non-preview build before "
+                "Servicing index data can surface a new broad-target, non-preview build before "
                 "Release Health release history catches up. Verify the KB/build against "
                 "Microsoft source tables and keep WUA as read-only local context; do not "
                 "promote a required baseline from display labels alone.",
                 _wiki_url("Source-Diagnostics", "common-issues"),
             )
         return (
-            "Atom feed drift outside the required baseline is usually preview, out-of-band, "
+            "Servicing index drift outside the required baseline is usually preview, out-of-band, "
             "or non-target context. Keep the row visible for source awareness, but only "
             "treat it as release-policy work after confirming it affects the broad fleet target.",
             _wiki_url("Source-Diagnostics", "common-issues"),
@@ -414,11 +414,19 @@ def _diagnostic_issue_tip(diagnostic: DiagnosticIssue) -> tuple[str, str]:
             "preserve the build-first policy model when future Windows releases add new rows.",
             _wiki_url("Source-Diagnostics", "common-issues"),
         )
-    if kind in {"atom_feed_missing", "atom_feed_parse_failed", "atom_feed_no_usable_entries", "atom_diagnostics_unavailable"}:
+    if kind in {
+        "atom_feed_missing",
+        "atom_feed_parse_failed",
+        "atom_feed_no_usable_entries",
+        "atom_diagnostics_unavailable",
+        "servicing_toc_missing",
+        "servicing_toc_parse_failed",
+        "servicing_toc_no_usable_entries",
+    }:
         return (
-            "Atom enrichment is unavailable or unusable for this run. Release Health remains "
-            "the primary policy source, but preview/OOB classification and drift context may "
-            "be incomplete until the public Atom source or parser path is healthy again.",
+            "Servicing index enrichment is unavailable or unusable for this run. Release Health "
+            "remains the primary policy source, but preview/OOB classification and drift context "
+            "may be incomplete until the public servicing index or parser path is healthy again.",
             _wiki_url("Source-Diagnostics", "diagnostic-sources"),
         )
     if kind == "source_drift_unresolved_after_24h":

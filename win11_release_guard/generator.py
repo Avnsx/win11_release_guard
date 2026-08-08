@@ -8,7 +8,7 @@ from .policy_generator import generate_policy
 
 
 def generate_policy_from_release_health_html(html: str) -> ReleasePolicy:
-    return generate_policy(release_health_html=html, atom_feed_xml=None)
+    return generate_policy(release_health_html=html)
 
 
 def generate_policy_json_from_release_health_html(html: str) -> str:

@@ -9,3 +9,4 @@
 .gitattributes text eol=lf
 .gitignore text eol=lf
 *.sig binary
+*.bin binary

@@ -44,7 +44,7 @@ KB5094126_SUPPORT_URL = (
 def _render_landing(tmp_path: Path) -> str:
     policy = generate_policy(
         release_health_html=(FIXTURES / "windows11-release-health.html").read_text(encoding="utf-8"),
-        atom_feed_xml=(FIXTURES / "windows11-atom.xml").read_text(encoding="utf-8"),
+        servicing_toc_json=(FIXTURES / "windows11-servicing-toc.json").read_text(encoding="utf-8"),
         generated_at_utc="2026-05-31T14:11:50+00:00",
         signature_status="valid",
     )
@@ -710,7 +710,7 @@ def test_pages_index_source_diagnostics_empty_state_is_compact() -> None:
     HTMLParser().feed(index)
 
     assert "No source issues reported" in index
-    assert "Release Health, Atom feed, parser, and freshness checks have no warning or error events." in index
+    assert "Release Health, servicing index, parser, and freshness checks have no warning or error events." in index
     assert "1</strong><span>Notices" in index
     assert "0</strong><span>Warnings" in index
     assert "0</strong><span>Errors" in index
@@ -1036,7 +1036,7 @@ def test_pages_index_latest_observed_label_uses_atom_support_metadata() -> None:
     assert '<h2><span>Latest observed</span>' in index
     assert (
         '<div class="metric">26200.8655</div><span class="label">'
-        "Microsoft Support article via Atom feed</span>"
+        "Microsoft Support article</span>"
     ) in index
     assert (
         '<div class="metric">26200.8655</div><span class="label">'

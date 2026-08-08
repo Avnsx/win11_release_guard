@@ -18,7 +18,7 @@ This repository is public software for Windows administrators. Future agents mus
 12. GitHub Pages output is public static non-secret data.
 13. Retiring or retired public policy keys must be bounded by `verify_not_after_utc`; runtime verification must not accept fresh signatures from retired keys.
 14. WUA is secondary evidence only and must never override the signed policy verdict.
-15. The production generator may use public Microsoft Release Health HTML, public Microsoft Update History Atom feed data, Atom-linked public Microsoft Support articles, and unauthenticated public MSRC CVRF data for source diagnostics and informational enrichment.
+15. The production generator may use public Microsoft Release Health HTML, the public Microsoft servicing table-of-contents JSON, public Microsoft servicing support articles, and unauthenticated public MSRC CVRF data for source diagnostics and informational enrichment.
 16. Authenticated Microsoft Graph, token-authenticated Microsoft APIs, and historical authenticated metadata research remain out of active production generator architecture; historical research may remain only in `docs/architecture-insight.md` when explicitly marked out of scope.
 17. `.git` is never included in clean archives.
 18. The source of truth is current code, tests, workflows, docs, and tools, not handover text.
@@ -26,6 +26,7 @@ This repository is public software for Windows administrators. Future agents mus
 20. Signing key rotations require at least 24 months of verification overlap unless a documented last-resort trust break is required.
 21. Future agents must not delete historical `CHANGELOG.md` version sections when adding newer versions. Newer changelog entries are added at the top. Older changelog entries remain available for generated Pages changelog, release history, SEO, and auditability.
 22. Future agents must not add or reintroduce license badges in `README.md`, `docs/*.md`, `wiki/*.md`, generated Markdown, or other repository Markdown surfaces. License metadata may remain in package configuration and prose where it is materially relevant, but Markdown badge rows must not display license badges.
+23. `README.md` stays compact: it is the entry point, not the manual. Sections that would sprawl must summarize briefly and link to the relevant `wiki/*.md` page instead of inlining depth. Where a test pins `README.md` prose verbatim, change the prose and its asserting test together; do not silently reword pinned text or weaken its assertion just to make compaction easier.
 
 Canonical repository and feed:
 
@@ -105,12 +106,12 @@ Canonical repository and feed:
   compliance floor selected by baseline rules. Latest-observed evidence alone
   must not promote the required baseline, and when Release Health catches up all
   three build fields can legitimately be the same.
-- Atom is discovery for Support article hrefs, not a `/help/<KB>` resolver.
-  Atom-linked Support article facts must be validated against Atom URL, KB,
+- The servicing table-of-contents JSON is the discovery source for support article
+  URLs. Discovered article facts must be validated against the record's URL, KB,
   build, and parseable applicability before use in summaries or Support-derived
-  security labels. Direct or fixture-provided Atom links must be revalidated
-  before becoming release-history `kb_url`, manifest, dashboard, or copied JSON
-  evidence. MSRC CVRF joins require exact KB-token matches.
+  security labels. Direct or fixture-provided links must be revalidated before
+  becoming release-history `kb_url`, manifest, dashboard, or copied JSON evidence.
+  MSRC CVRF joins require exact KB-token matches.
 - Source Diagnostic IDs may be deterministic hash-form or Atom-form. When one
   Atom entry produces multiple events, sibling events must keep unique IDs while
   retaining Atom metadata for triage.
@@ -160,7 +161,7 @@ After any deployment-affecting change, run:
 python -m compileall -q win11_release_guard tools
 pytest -q
 python tools/generate_signing_key.py --out-dir .tmp/signing-test --key-id test-policy-key --created-at-utc 2026-06-03T00:00:00+00:00
-python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --atom-feed tests/fixtures/windows11-atom.xml --output-dir site --write-index --write-robots --write-sitemap --write-manifest --signing-key-file .tmp/signing-test/private-key.b64
+python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --servicing-toc tests/fixtures/windows11-servicing-toc.json --output-dir site --write-index --write-robots --write-sitemap --write-manifest --signing-key-file .tmp/signing-test/private-key.b64
 python tools/scan_for_secret_material.py site win11_release_guard tests tools docs wiki README.md CHANGELOG.md AGENTS.md pyproject.toml .github
 python tools/export_clean_archive.py --output dist/win11_release_guard-source.zip
 python tools/export_clean_archive.py --validate dist/win11_release_guard-source.zip

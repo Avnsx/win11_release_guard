@@ -17,15 +17,20 @@ Related links: [maintainer guide](maintainer-guide.md) | [wiki architecture](../
 | `wua_probe.py` | Optional bounded read-only WUA probe. |
 | `audit_probes.py`, `diagnostic_tail.py`, `policy_diagnostics.py` | Read-only blocker diagnostics, bounded Panther/setup tail decoding, privacy markers, and collection-cap metadata. |
 | `remote_policy.py` | JSON loading plus generator-only Release Health parsing. |
-| `policy_generator.py` | Policy/dashboard/manifest/API generation, Release Health/Atom parsing, build-aware Atom matching, safe Atom Support link selection/canonicalization, bounded Support `Applies to` extraction, validated Support article enrichment, exact-token MSRC CVRF enrichment with capped context lists, unique Source Diagnostic IDs, dashboard-only baseline-update notice data/rendering with stale-page reflow, and first-party static Pages Wiki/changelog rendering. |
+| `policy_generator.py` | Policy/dashboard/manifest/API generation, Release Health parsing, servicing TOC matching, validated support article enrichment, exact-token MSRC CVRF enrichment with capped context lists, unique Source Diagnostic IDs, dashboard-only baseline-update notice data/rendering with stale-page reflow, and first-party static Pages Wiki/changelog rendering. |
+| `servicing_toc.py` | Servicing table-of-contents parsing into lane-aware update entries with KB, builds, classification, and date. |
+| `update_text.py` | Shared KB, build, preview, and out-of-band extraction for update titles. |
+| `wu_offer_probe.py` | Optional Windows Update offer probe envelopes, cookie cache, and response parsing. |
+| `http_client.py` | Shared outbound HTTP client with consistent headers, transparent gzip/deflate decompression, bounded reads, retry with backoff, and conditional (`ETag`/`If-None-Match`) requests. |
 | `signing.py`, `json_utils.py`, `policy_schema.py` | Trust, strict JSON, schema validation. |
 | `cache.py`, `bundled_policy.py`, `freshness.py`, `version.py` | Cache, bundled fallback, age calculations, identity. |
+| `state_store.py` | Non-permanent on-disk runtime state: temp-directory record derivation, the compact `zlib`+`sha256` record codec, the atomic write primitive, the self-healing read path, the magic-gated deletion rule, and the purge/describe/read embedder API. |
 
 ## Tool Scripts
 
 | Script | Responsibility |
 | --- | --- |
-| `generate_policy.py` | CLI wrapper for policy/dashboard generation from public Microsoft source data and unauthenticated enrichment sources. |
+| `generate_policy.py` | CLI wrapper for policy/dashboard generation from public Microsoft source data and unauthenticated enrichment sources, including the optional off-by-default Windows Update offer probe. |
 | `generate_signing_key.py` | Local key generation into ignored scratch space. |
 | `export_clean_archive.py` | Clean source archive creation and validation. |
 | `scan_for_secret_material.py` | Secret/private-key pattern scanner. |

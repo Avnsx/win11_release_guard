@@ -76,7 +76,7 @@ rows, and Notice events remain visible and filterable without ticket links.
 
 Rows may show a concise administrator-facing summary above the technical
 message. The technical message, source chip, tags, diagnostic ID, issue metadata,
-and copy-to-clipboard data remain available for triage. Atom-derived rows can
+and copy-to-clipboard data remain available for triage. Servicing-linked rows can
 carry fields such as `support_article_url`, `atom_entry_id`,
 `atom_support_article_id`, `kb_update_bucket`, `is_security`, and
 `security_evidence_source`.
@@ -88,21 +88,21 @@ belong only to GitHub Actions issue-sync workflows using the built-in
 
 `latest_build` on the signed policy remains the Microsoft Release Health Current
 Versions table value. The dashboard's `Latest observed` card can show a newer
-`latest_observed_build` from an Atom-linked Support article and labels that
-evidence source. This is informational context only; it does not change
-`required_baseline_build`. Once Release Health has caught up and baseline rules
-select the same build, all three build fields can legitimately show that same
-value.
+`latest_observed_build` from a Support article linked in the servicing
+table-of-contents JSON and labels that evidence source. This is informational
+context only; it does not change `required_baseline_build`. Once Release
+Health has caught up and baseline rules select the same build, all three build
+fields can legitimately show that same value.
 
-Atom is discovery for Support article hrefs, not a synthesized `/help/<KB>`
-resolver. The generator uses safe Atom `alternate` support article links,
-canonicalizes otherwise safe support URLs by stripping query strings and
-fragments, and revalidates direct or fixture-provided Atom links before they
-become release-history URLs, manifest metadata, dashboard links, or copied
-diagnostic JSON. Release History enrichment prefers Atom entries matching both
-KB and row build, then build-only evidence, and avoids ambiguous KB-only
-fallbacks. The generator validates fetched Support article URL, KB, build, and
-parseable applicability before trusting article facts, and keeps
+The servicing table-of-contents JSON is discovery for Support article hrefs,
+not a synthesized `/help/<KB>` resolver. The generator uses only safe support
+article links, canonicalizes otherwise safe support URLs by stripping query
+strings and fragments, and revalidates direct or fixture-provided links before
+they become release-history URLs, manifest metadata, dashboard links, or
+copied diagnostic JSON. Release History enrichment prefers servicing entries
+matching both KB and row build, then build-only evidence, and avoids ambiguous
+KB-only fallbacks. The generator validates fetched Support article URL, KB,
+build, and parseable applicability before trusting article facts, and keeps
 mismatch/degraded status visible in Source Diagnostics. Explicit
 `applies_to_releases` exclusions are untrusted for that event. MSRC CVRF joins
 require exact KB-token matches; substring matches and malformed/unavailable
@@ -115,8 +115,9 @@ notice above `Policy Feed Currency` and `Source Diagnostics`. It is
 informational only, lasts 14 days from the source-derived official baseline
 date, labels Release Health date-only precision when Microsoft provides only a
 date, keeps the expiry marker hidden from the UI, and uses deterministic local
-summary text from Release Health, Atom, validated Support facts, and exact MSRC
-evidence. Expired or inactive notice metadata does not fetch optional
+summary text from Release Health, the servicing table-of-contents JSON,
+validated Support facts, and exact MSRC evidence. Expired or inactive notice
+metadata does not fetch optional
 Support/MSRC enrichment solely for stale historical notice data. If a static
 page ages past the hidden expiry marker, inline local JavaScript hides the
 notice and removes the grid class so the operational panels reflow without a
@@ -139,7 +140,7 @@ GitHub Actions schedules are best-effort platform automation and do not guarante
 ## Verify
 
 ```powershell
-python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --atom-feed tests/fixtures/windows11-atom.xml --output-dir site --write-index --write-robots --write-sitemap --write-manifest
+python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --servicing-toc tests/fixtures/windows11-servicing-toc.json --output-dir site --write-index --write-robots --write-sitemap --write-manifest
 pytest -q tests/test_pages_landing.py tests/test_policy_generator.py tests/test_wiki_markdown_links.py tests/test_source_diagnostics_issue_metadata.py
 python -m win11_release_guard --check-public-pages
 ```

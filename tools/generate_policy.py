@@ -18,12 +18,16 @@ from win11_release_guard.config import (
 )
 from win11_release_guard.exceptions import WindowsReleaseCheckerError
 from win11_release_guard.policy_generator import (
-    DEFAULT_WINDOWS11_ATOM_FEED_URL,
+    DEFAULT_SERVICING_TOC_URL,
+    WindowsUpdateProbe,
     build_policy_from_sources,
     write_policy_outputs,
 )
 from win11_release_guard.policy_schema import is_source_diagnostic_id
+from win11_release_guard.wu_offer_probe import WindowsUpdateOffer, fetch_offers
 
+
+COOKIE_CACHE_PATH = Path(".tmp") / "windows-update-cookie.json"
 
 SOURCE_DIAGNOSTIC_ISSUE_URL_RE = re.compile(
     r"^https://github\.com/Avnsx/win11_release_guard/issues/([1-9][0-9]*)$"
@@ -33,12 +37,14 @@ SOURCE_DIAGNOSTIC_ISSUE_URL_RE = re.compile(
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python tools/generate_policy.py",
-        description="Generate site/windows-release-policy.json from Microsoft Release Health and Atom sources.",
+        description="Generate site/windows-release-policy.json from Microsoft Release Health and servicing index sources.",
     )
     parser.add_argument("--release-health-url", default=DEFAULT_RELEASE_HEALTH_URL)
-    parser.add_argument("--atom-feed-url", default=DEFAULT_WINDOWS11_ATOM_FEED_URL)
+    parser.add_argument("--servicing-toc-url", default=DEFAULT_SERVICING_TOC_URL)
     parser.add_argument("--release-health-html", type=Path, default=None, help="Local Release Health HTML fixture.")
-    parser.add_argument("--atom-feed", type=Path, default=None, help="Local Atom XML fixture.")
+    parser.add_argument(
+        "--servicing-toc", type=Path, default=None, help="Local servicing index JSON fixture."
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("site"))
     parser.add_argument("--timeout", type=float, default=DEFAULT_HTTP_TIMEOUT_SECONDS)
     parser.add_argument("--write-index", action="store_true", help="Write site/index.html summary.")
@@ -50,6 +56,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Merge static source-diagnostic issue metadata before rendering Pages artifacts.",
+    )
+    parser.add_argument(
+        "--windows-update-probe",
+        action="store_true",
+        help="Attach corroborating Windows Update offer evidence when the probe succeeds.",
     )
     parser.add_argument(
         "--signing-key-env",
@@ -76,6 +87,17 @@ def _signing_key(args: argparse.Namespace) -> str | None:
     if args.signing_key_env:
         return os.environ.get(args.signing_key_env)
     return None
+
+
+def _windows_update_probe(args: argparse.Namespace) -> WindowsUpdateProbe | None:
+    if not args.windows_update_probe:
+        return None
+
+    def probe() -> tuple[WindowsUpdateOffer, ...]:
+        COOKIE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        return fetch_offers(cookie_cache_path=COOKIE_CACHE_PATH, timeout=args.timeout)
+
+    return probe
 
 
 def _issue_status_mapping(value: Any) -> dict[str, Mapping[str, Any]]:
@@ -161,11 +183,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         signing_key = _signing_key(args)
         policy = build_policy_from_sources(
             release_health_url=args.release_health_url,
-            atom_feed_url=args.atom_feed_url,
+            servicing_toc_url=args.servicing_toc_url,
             release_health_html_path=args.release_health_html,
-            atom_feed_path=args.atom_feed,
+            servicing_toc_path=args.servicing_toc,
             timeout=args.timeout,
             signature_status="valid" if signing_key else "unsigned",
+            windows_update_probe=_windows_update_probe(args),
         )
         issue_status, issue_sync = _load_issue_status(args.source_diagnostic_issue_status_file)
         policy = _policy_with_issue_status(policy, issue_status, issue_sync)

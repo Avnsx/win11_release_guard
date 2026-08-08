@@ -578,8 +578,8 @@ def test_issue_body_adds_atom_enrichment_tip_for_feed_failures() -> None:
                 _event(
                     "wrg-source-diagnostic-v1:2222222222222222",
                     severity="warning",
-                    kind="atom_feed_parse_failed",
-                    message="Atom feed could not be parsed.",
+                    kind="servicing_toc_parse_failed",
+                    message="Servicing TOC could not be parsed.",
                 )
             ]
         )
@@ -587,7 +587,7 @@ def test_issue_body_adds_atom_enrichment_tip_for_feed_failures() -> None:
 
     body = sync_tool.issue_body(diagnostic)
 
-    assert "Atom enrichment is unavailable or unusable" in body
+    assert "Servicing index enrichment is unavailable or unusable" in body
     assert "Release Health remains the primary policy source" in body
     assert body.rstrip().endswith(
         "> See [follow-up documentation](https://avnsx.github.io/win11_release_guard/wiki/Source-Diagnostics/#diagnostic-sources)."
