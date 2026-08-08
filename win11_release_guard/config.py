@@ -24,6 +24,9 @@ DEFAULT_PUBLISHED_POLICY_URLS = {
 POLICY_URL_ENV_VAR = "WIN11_RELEASE_GUARD_POLICY_URL"
 STRICT_PRODUCTION_ENV_VAR = "WIN11_RELEASE_GUARD_STRICT_PRODUCTION"
 MAX_POLICY_BYTES_ENV_VAR = "WIN11_RELEASE_GUARD_MAX_POLICY_BYTES"
+STATE_DIR_ENV_VAR = "WIN11_RELEASE_GUARD_STATE_DIR"
+STATELESS_ENV_VAR = "WIN11_RELEASE_GUARD_STATELESS"
+CACHE_FILE_ENV_VAR = "WIN11_RELEASE_GUARD_CACHE_FILE"
 
 DEFAULT_USER_AGENT = runtime_user_agent()
 DEFAULT_CACHE_FILE_NAME = "windows-release-policy.json"
@@ -131,6 +134,19 @@ def max_policy_bytes_from_env() -> int:
     return max_bytes_from_env(MAX_POLICY_BYTES_ENV_VAR, DEFAULT_MAX_POLICY_BYTES)
 
 
+def state_dir_from_env() -> str | None:
+    return normalize_state_dir(os.environ.get(STATE_DIR_ENV_VAR))
+
+
+def stateless_from_env() -> bool:
+    value = str(os.environ.get(STATELESS_ENV_VAR) or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def cache_file_from_env() -> str | None:
+    return normalize_state_dir(os.environ.get(CACHE_FILE_ENV_VAR))
+
+
 def resolve_policy_url(configured_policy_url: str | None) -> str | None:
     return (
         normalize_policy_url(configured_policy_url)
@@ -186,4 +202,11 @@ __all__ = [
     "policy_url_source",
     "resolve_policy_url",
     "strict_production_from_env",
+    "CACHE_FILE_ENV_VAR",
+    "STATE_DIR_ENV_VAR",
+    "STATELESS_ENV_VAR",
+    "cache_file_from_env",
+    "normalize_state_dir",
+    "state_dir_from_env",
+    "stateless_from_env",
 ]
