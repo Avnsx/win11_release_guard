@@ -573,13 +573,21 @@ def _state_entries(config: ReleaseCheckerConfig) -> tuple[tuple[str, Path], ...]
 
 
 def purge_state(config: ReleaseCheckerConfig) -> tuple[StateEvent, ...]:
-    """One StateEvent per path this configuration may have written. Magic-gated for state/legacy,
-    no magic check for staging/cache_file/signature (§7.2). Closes the magic-check descriptor
-    before unlink. layout 'none' -> one skipped event. Never rmdirs (R-1). Never raises."""
+    """One StateEvent per path this configuration may have written. Magic-gated for the derived
+    'state' record only; no magic check for staging/cache_file/signature/legacy (§7.2). Closes the
+    magic-check descriptor before unlink. layout 'none' -> one skipped event. Never rmdirs (R-1).
+    Never raises.
+
+    Role 'legacy' is not gated because the gate could never pass: those two paths hold the plain
+    JSON cache.save_policy_cache wrote plus its raw detached signature, so neither ever carries
+    STATE_MAGIC. Gating them would leave the pre-container cache permanently unremovable by the
+    shipped CLI while retire_legacy_state unlinks the very same paths unread (O-1, §8.1, §8.2),
+    against §8's own statement that --purge-state removes them.
+    """
     scope = resolve_state_scope(replace(config, stateless=False))
     if scope.layout == "none":
         return (StateEvent("purge", "skipped", None, scope.source),)
-    magic_roles = {"state", "legacy"}
+    magic_roles = {"state"}
     events: list[StateEvent] = []
     for role, path in _state_entries(config):
         target = str(path)
