@@ -9,6 +9,11 @@ The R-2 key equality belongs at THIS layer: ``derive_state_name``'s component 5 
 ``(trusted_public_key or "")``, so ``None`` and the bundled default derive different names
 one level down; ``resolve_state_scope`` is where ``or DEFAULT_TRUSTED_POLICY_PUBLIC_KEY``
 collapses them onto one path.
+
+The default-temp join is pinned here too. ``state_dir=`` and ``cache_file=`` both outrank
+``temp_dir`` inside ``plan_state_scope``, so a suite that only ever passes those two never
+exercises ``_first_existing_dir(temp_dir_candidates(os.name, os.environ))`` — the one wiring
+that puts an ordinary deployment's record in the temp directory rather than nowhere.
 """
 
 from __future__ import annotations
@@ -93,3 +98,41 @@ def test_resolve_state_scope_refuses_non_absolute_state_dir():
     assert scope.source == "state_dir_not_absolute"
     assert scope.path is None
     assert scope.staging_path is None
+
+
+def test_resolve_state_scope_default_config_lands_in_the_temp_container():
+    """A default deployment — no cache_file, no state_dir, not stateless — must resolve to a
+    container inside the directory the real seam finds. Without this the whole feature can be
+    unwired (temp_dir never reaching plan_state_scope) and every default run degrades to
+    StateScope("none", ..., "no_temp_dir"), i.e. no cache at all."""
+    expected_dir = state_store._first_existing_dir(
+        state_store.temp_dir_candidates(os.name, os.environ)
+    )
+    assert expected_dir is not None  # tests/conftest.py redirects TMPDIR/TEMP/TMP to a real dir
+    scope = state_store.resolve_state_scope(ReleaseCheckerConfig())
+    assert scope.layout == "container"
+    assert scope.source == "default_temp"
+    assert scope.path is not None
+    assert str(scope.path.parent) == expected_dir
+    assert scope.staging_path == scope.path.with_name(state_store.staging_name(scope.path.name))
+    assert scope.signature_path is None
+
+
+def test_resolve_state_scope_default_temp_comes_from_the_seam(monkeypatch, tmp_path):
+    """The seam is asked for the full candidate list and ITS answer becomes the container's
+    directory — the default temp dir is not re-read behind the seam's back."""
+    chosen = tmp_path / "chosen-temp"
+    chosen.mkdir()
+    seen = []
+
+    def _seam(candidates):
+        seen.append(candidates)
+        return str(chosen)
+
+    monkeypatch.setattr(state_store, "_first_existing_dir", _seam)
+    scope = state_store.resolve_state_scope(ReleaseCheckerConfig())
+    assert seen == [state_store.temp_dir_candidates(os.name, os.environ)]
+    assert scope.layout == "container"
+    assert scope.source == "default_temp"
+    assert scope.path is not None
+    assert str(scope.path.parent) == str(chosen)
