@@ -10,7 +10,8 @@ No unreleased changes yet.
 
 Windows 11 Release Guard no longer leaves a permanent folder behind on the
 machines it runs on. Its policy cache is now a single compact file in the
-user's temp directory, written in one atomic step, so an interrupted run cannot
+operating system's temp directory, written in one atomic step, so an
+interrupted run cannot
 leave a half-written file or an empty folder behind, and new switches let an
 administrator keep that state in a directory of their choosing, show it, purge
 it, or turn it off entirely. Compliance results are unchanged: cached state is
