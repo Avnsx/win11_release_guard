@@ -394,6 +394,12 @@ def test_legacy_pair_layout_never_retires_the_legacy_cache(monkeypatch, tmp_path
     # wrote -- retiring it would delete the very file this run stored. The write must
     # succeed here, otherwise the outcome clause alone would block the call and this test
     # would not observe the layout clause at all.
+    #
+    # Do NOT re-scope this onto the "none" layout: write_state short-circuits to outcome
+    # "skipped" before any filesystem call, so `event.outcome == "written"` is already False
+    # there and a "none" test passes under every mutation of the gate. Keep all three tests
+    # pinned to tmp_path via cache_file or state_dir so retire_legacy_state early-returns ()
+    # and no mutation can reach the real %LOCALAPPDATA% cache.
     _patch_local(monkeypatch)
     policy_bytes, signature_bytes = _signed_remote(_policy(generated_at_utc=_generated_at(hours_ago=1)))
     _patch_fetch(monkeypatch, policy_bytes, signature_bytes)
