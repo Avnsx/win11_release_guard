@@ -260,7 +260,17 @@ def _host_uid() -> int | None:
         return None
 
 
-_WRITE_FLAGS: int = os.O_CREAT | os.O_WRONLY | os.O_TRUNC | getattr(os, "O_BINARY", 0)
+# O_NOFOLLOW is what keeps every open in this module on a path the tool derived itself. The
+# default state path is a derived name in a shared, world-writable temp directory, so a local
+# attacker who derives it can plant a symlink there; without this flag the O_TRUNC open below
+# follows the link and destroys its target, and _replace then moves the link over the state
+# path so every later run rewrites it. The same flag on the read side stops a planted link
+# from choosing which file the magic gate approves. getattr yields 0 on Windows, which has no
+# such flag, so both words stay byte-identical to the ones that shipped before it.
+_WRITE_FLAGS: int = (
+    os.O_CREAT | os.O_WRONLY | os.O_TRUNC | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+)
+_READ_FLAGS: int = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
 
 
 def write_bytes_atomically(path: Path, data: bytes) -> StateEvent:
@@ -306,12 +316,19 @@ def write_state(
     if scope.layout == "none" or scope.path is None:
         return StateEvent("write", "skipped", None, scope.source)
     if scope.layout == "container":
-        record = encode_state(policy_bytes, signature_bytes)
+        # The writer's caps mirror decode_state's, or a record is written that no read can
+        # ever accept: MAX_STATE_BODY_BYTES bounds the uncompressed body (decode_state
+        # check 4) and MAX_STATE_FILE_BYTES bounds the encoded record. The body cap is
+        # checked before encode_state so an over-cap body is never compressed. Both arms
+        # keep the one detail string _STATE_WRITE_SKIP_PHRASES keys off.
         if (
             not policy_bytes
+            or len(policy_bytes) > MAX_STATE_BODY_BYTES
             or len(signature_bytes or b"") > DEFAULT_MAX_SIGNATURE_BYTES
-            or len(record) > MAX_STATE_FILE_BYTES
         ):
+            return StateEvent("write", "skipped", str(scope.path), "record too large")
+        record = encode_state(policy_bytes, signature_bytes)
+        if len(record) > MAX_STATE_FILE_BYTES:
             return StateEvent("write", "skipped", str(scope.path), "record too large")
         return write_bytes_atomically(Path(scope.path), record)
     # "legacy_pair": two raw files, byte-identical to today, no encode_state, no mkdir.
@@ -342,7 +359,7 @@ def read_state(scope: StateScope) -> StateRead:
     if scope.layout != "container":
         return StateRead("absent")
     try:
-        fd = os.open(str(scope.path), os.O_RDONLY | getattr(os, "O_BINARY", 0))
+        fd = os.open(str(scope.path), _READ_FLAGS)
     except (OSError, ValueError):
         return StateRead("absent")
     try:
@@ -389,7 +406,7 @@ def discard_state(scope: StateScope) -> StateEvent:
         return StateEvent("discard", "skipped", None, scope.source)
     path = str(scope.path)
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+        fd = os.open(path, _READ_FLAGS)
     except FileNotFoundError:
         return StateEvent("discard", "absent", path, None)
     except (OSError, ValueError) as exc:
@@ -594,7 +611,7 @@ def purge_state(config: ReleaseCheckerConfig) -> tuple[StateEvent, ...]:
         target = str(path)
         if role in magic_roles:
             try:
-                fd = os.open(target, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+                fd = os.open(target, _READ_FLAGS)
             except FileNotFoundError:
                 events.append(StateEvent("purge", "absent", target, None))
                 continue

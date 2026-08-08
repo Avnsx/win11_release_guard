@@ -220,7 +220,15 @@ def _policy_is_fresh_at(policy: ReleasePolicy, modified_epoch: float | None, *, 
         return age is not None and age <= max_age_hours
     if modified_epoch is None:
         return False
-    modified = datetime.fromtimestamp(modified_epoch, tz=timezone.utc)
+    try:
+        modified = datetime.fromtimestamp(modified_epoch, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        # read_state fills modified_epoch straight from st.st_mtime, so a container file
+        # carrying a timestamp outside the platform time_t range reaches this conversion.
+        # CPython raises OverflowError there -- an ArithmeticError, NOT a ValueError -- and
+        # it would surface as a corrupt_cache the record never earned. An unusable
+        # timestamp is simply no age available, which is the branch just above.
+        return False
     return datetime.now(timezone.utc) - modified <= timedelta(hours=max_age_hours)
 
 

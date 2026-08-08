@@ -2,14 +2,22 @@
 
 Every failure path is driven through the named ``_replace``/``_unlink`` seams so both
 CI legs exercise the same code; nothing here depends on host-specific kernel behaviour.
+
+The one deliberate exception is the ``O_NOFOLLOW`` block at the end of this file: refusing
+to open a symlink IS host kernel behaviour, so those tests are ``skipif(os.name == "nt")``
+and the Windows leg is covered instead by the flag-arithmetic pin, which holds on both.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
+import pytest
+
 from win11_release_guard import state_store
+from win11_release_guard.config import ReleaseCheckerConfig
 
 
 def test_write_bytes_atomically_writes_and_swaps(tmp_path):
@@ -167,6 +175,42 @@ def test_write_state_container_oversize_record_is_skipped(tmp_path, monkeypatch)
     # Refused before the primitive ran, so there is no record and no staging orphan.
     assert not Path(scope.path).exists()
     assert not Path(scope.staging_path).exists()
+
+
+def test_write_state_container_oversize_body_is_skipped_and_never_written(tmp_path, monkeypatch):
+    """Writer/reader cap parity: the UNCOMPRESSED body is capped too.
+
+    ``MAX_STATE_FILE_BYTES`` bounds the compressed record and ``MAX_STATE_BODY_BYTES``
+    bounds the inflated body, and ``decode_state`` check 4 enforces the second one on
+    every read. A writer that enforces only the first accepts any body that deflates
+    under the record cap — JSON deflates far better than 4:1 — and reports ``"written"``
+    for a record no reader can ever accept. That ``"written"`` is exactly what authorises
+    ``api._persist_policy`` to retire the legacy cache, so the miss deletes a working
+    cache in exchange for an unreadable replacement.
+
+    The caps are monkeypatched down (the read side is patched the same way in
+    ``test_read_state_oversize_with_magic_unusable``) so the branch is reached with a
+    16 KiB body instead of a 32 MiB one: no randomness, no sleep, no large allocation.
+    """
+    monkeypatch.setattr(state_store, "MAX_STATE_BODY_BYTES", 4096)
+    body = b'{"policy": true}' * 1024          # 16 KiB of JSON, deflates to ~60 bytes
+    scope = _container_scope(tmp_path / "rec.tmp")
+    # Premises: the body cap really bites, and the record cap really does NOT, so only
+    # the new clause can produce the skip.
+    assert len(body) > state_store.MAX_STATE_BODY_BYTES
+    assert len(state_store.encode_state(body, b"sig")) <= state_store.MAX_STATE_FILE_BYTES
+
+    event = state_store.write_state(scope, body, b"sig")
+
+    assert event.outcome == "skipped"
+    assert event.path == str(scope.path)
+    assert event.detail == "record too large"  # api._STATE_WRITE_SKIP_PHRASES keys off this
+    assert not Path(scope.path).exists()
+    assert not Path(scope.staging_path).exists()
+    # The property that makes the miss a defect rather than a style point: whatever the
+    # writer left behind must never read back "unusable". A written over-cap record fails
+    # decode_state check 4 ("declared length out of range") on every subsequent run.
+    assert state_store.read_state(scope).status != "unusable"
 
 
 def test_write_state_none_layout_skips_with_source_detail():
@@ -407,6 +451,106 @@ def test_discard_state_unlink_failure_failed(tmp_path, monkeypatch):
     # is still caught by `except (OSError, ValueError)`, which is what "failed" proves.
     assert "PermissionError" in event.detail
     assert dest.exists()  # the unlink failed, so the file survives
+
+
+# --------------------------------------------------------------------------------------
+# O_NOFOLLOW: the state paths are derived, never inspected, and on POSIX the default one
+# lives in a shared world-writable temp directory. A local attacker who derives the record
+# name can plant a symlink there; without O_NOFOLLOW the writer opens it with O_TRUNC and
+# destroys the link's target, and the readers act on a file the tool never derived.
+#
+# The four tests below are skipif(nt) because "refuse to open a symlink" is kernel
+# behaviour that Windows does not provide through this flag; the Windows leg is pinned
+# instead by test_write_flags_add_o_nofollow_without_changing_windows, which holds on both
+# legs precisely because getattr(os, "O_NOFOLLOW", 0) is 0 there.
+# --------------------------------------------------------------------------------------
+
+
+def test_write_flags_add_o_nofollow_without_changing_windows():
+    assert state_store._WRITE_FLAGS == (
+        os.O_CREAT
+        | os.O_WRONLY
+        | os.O_TRUNC
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    if os.name == "nt":
+        # os.O_NOFOLLOW does not exist on Windows, so the getattr contributes 0 and the
+        # flag word is byte-identical to the one that shipped before this hardening.
+        assert state_store._WRITE_FLAGS == os.O_CREAT | os.O_WRONLY | os.O_TRUNC | os.O_BINARY
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")
+def test_write_bytes_atomically_refuses_a_symlinked_staging_path(tmp_path):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    target = tmp_path / "authorized_keys"
+    target.write_bytes(b"ssh-ed25519 the-victims-own-key")
+    dest = state_dir / "rec.tmp"
+    staging = dest.with_name(state_store.staging_name(dest.name))
+    staging.symlink_to(target)
+
+    event = state_store.write_bytes_atomically(dest, b"payload")
+
+    # Without O_NOFOLLOW the O_TRUNC open follows the link and empties the target, and the
+    # os.replace then moves the link over the derived path so every later run rewrites it.
+    assert target.read_bytes() == b"ssh-ed25519 the-victims-own-key"
+    assert event.outcome == "failed"
+    assert not dest.exists()          # the swap never ran
+    assert staging.is_symlink()       # os.open failed, so `opened` is False and no unlink ran
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")
+def test_read_state_refuses_a_symlinked_record(tmp_path):
+    record = state_store.encode_state(b"policy-bytes", b"sig")
+    target = tmp_path / "planted-record.bin"
+    target.write_bytes(record)
+    link = tmp_path / "rec.tmp"
+    link.symlink_to(target)
+
+    read = state_store.read_state(_container_scope(link))
+
+    # A record reached through a symlink is a file the tool did not derive; serving it
+    # would let a squatter choose which signed policy this run considers cached.
+    assert read.status == "absent"
+    assert read.policy_bytes is None
+    assert link.is_symlink()
+    assert target.read_bytes() == record
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")
+def test_discard_state_refuses_a_symlinked_record(tmp_path):
+    record = state_store.encode_state(b"policy-bytes", b"sig")
+    target = tmp_path / "planted-record.bin"
+    target.write_bytes(record)
+    link = tmp_path / "rec.tmp"
+    link.symlink_to(target)
+
+    event = state_store.discard_state(_container_scope(link))
+
+    # os.unlink removes a link rather than its target, so the target surviving is not by
+    # itself evidence; the load-bearing assertions are that the magic gate was never
+    # reached through the link and that the planted link is still there afterwards.
+    assert event.outcome == "failed"
+    assert link.is_symlink()
+    assert target.read_bytes() == record
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink semantics")
+def test_purge_state_refuses_a_symlinked_record(tmp_path):
+    config = ReleaseCheckerConfig(state_dir=str(tmp_path))
+    scope = state_store.resolve_state_scope(config)
+    target = tmp_path / "planted-record.bin"
+    target.write_bytes(state_store.encode_state(b"policy-bytes", b"sig"))
+    Path(scope.path).symlink_to(target)
+
+    event = next(e for e in state_store.purge_state(config) if e.path == str(scope.path))
+
+    # --purge-state is magic-gated for the derived record; the gate must not be satisfiable
+    # through a link, or a squatter decides which file the gate approves.
+    assert event.outcome == "failed"
+    assert Path(scope.path).is_symlink()
+    assert target.exists()
 
 
 def test_discard_state_docstring_carries_deletion_sentence():

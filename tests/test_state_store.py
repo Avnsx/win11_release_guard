@@ -1,6 +1,7 @@
 import dataclasses
 import hashlib
 import struct
+import tracemalloc
 import zlib
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -218,6 +219,24 @@ def test_decode_check1_foreign_when_magic_absent():
     assert read.detail is None
 
 
+def test_decode_check1_foreign_when_only_the_leading_four_magic_bytes_match():
+    """The magic comparison is eight bytes wide, and nothing else in the record can
+    stand in for the other four.
+
+    Everything from byte 8 onwards here is a perfectly healthy record, so a comparison
+    narrowed to ``raw[:4] != STATE_MAGIC[:4]`` reports this file ``usable`` — it would
+    hand a squatter's policy to the caller, and, because ``foreign`` is the one status the
+    deletion rule never acts on, it also promotes an untouchable file into a deletable one.
+    """
+    healthy = encode_state(b"POLICYDATA", b"SIG")
+    raw = STATE_MAGIC[:4] + b"str2" + healthy[8:]
+    assert raw[:4] == STATE_MAGIC[:4] and raw[4:8] != STATE_MAGIC[4:8]  # premise
+    read = decode_state(raw)
+    assert read.status == "foreign"
+    assert read.detail is None
+    assert read.policy_bytes is None
+
+
 def test_decode_check2_unusable_short_header():
     read = decode_state(STATE_MAGIC + b"\x00" * 9)  # 17 bytes: magic present, len < 50
     assert read.status == "unusable"
@@ -248,9 +267,62 @@ def test_decode_check5_unusable_inflate_failed():
     assert read.detail == "inflate failed"
 
 
+def test_decode_check5_bounded_inflate_refuses_a_zip_bomb_without_inflating_it():
+    """``max_length=policy_len + signature_len`` is the only thing standing between a
+    65 KB record and 64 MiB of resident memory, on a tool built to run unattended under
+    an RMM agent.
+
+    The status alone cannot pin it: delete ``max_length`` and the full 64 MiB still
+    inflates, then fails check 7 on length and comes back ``unusable`` all the same. So
+    the assertion that carries this test is the ``tracemalloc`` peak — bounded, the decode
+    allocates well under a megabyte; unbounded it allocates over a hundred.
+    """
+    bomb = zlib.compress(b"\x00" * (64 * 1024 * 1024), 9)
+    raw = _framed(
+        policy_len=64,
+        signature_len=0,
+        digest=hashlib.sha256(b"\x00" * 64).digest(),
+        body=bomb,
+    )
+    assert len(raw) < 256 * 1024  # premise: the record itself is small
+
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        read = decode_state(raw)
+        peak_bytes = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    assert read.status == "unusable"
+    assert peak_bytes < 4 * 1024 * 1024, f"decode allocated {peak_bytes} bytes for a {len(raw)}-byte record"
+
+
 def test_decode_check6_unusable_stream_boundary_mismatch_on_trailing_bytes():
     healthy = encode_state(b"POLICYDATA", b"SIG")
     read = decode_state(healthy + b"EXTRA-TRAILING-BYTES")
+    assert read.status == "unusable"
+    assert read.detail == "stream boundary mismatch"
+
+
+def test_decode_check6_unusable_when_the_zlib_stream_never_ends():
+    """The ``not decompressor.eof`` arm of check 6, which the trailing-bytes test above
+    cannot reach: that one trips on ``unused_data``.
+
+    A truncated write leaves a complete deflate stream with its four-byte adler32 trailer
+    missing. Every other check passes — the declared lengths are exact, so no input is
+    left unconsumed and no bound is hit, and the digest is the real one — so with this arm
+    removed the record decodes ``usable`` and a half-written file is served as policy.
+    """
+    policy, signature = b"POLICYDATA" * 8, b"SIGDATA"
+    body = zlib.compress(policy + signature, 9)
+    raw = _framed(
+        policy_len=len(policy),
+        signature_len=len(signature),
+        digest=hashlib.sha256(policy + signature).digest(),
+        body=body[:-4],  # the adler32 trailer, and only that, is chopped off
+    )
+    read = decode_state(raw)
     assert read.status == "unusable"
     assert read.detail == "stream boundary mismatch"
 

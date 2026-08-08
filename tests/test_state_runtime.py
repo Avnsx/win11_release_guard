@@ -5,6 +5,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 import win11_release_guard.api as api
 import win11_release_guard.state_store as state_store
 from win11_release_guard.config import ReleaseCheckerConfig
@@ -17,7 +19,7 @@ from win11_release_guard.models import (
     ReleasePolicyEntry,
     SourceStatus,
 )
-from win11_release_guard.signing import sign_policy_bytes
+from win11_release_guard.signing import TrustedPolicy, sign_policy_bytes
 
 
 TEST_PRIVATE_KEY = "krtF2muLgucP7JDVNKk2g+YQfz92c7xM49dzszxHxjs="
@@ -79,6 +81,24 @@ def test_policy_is_fresh_at_uses_modified_epoch_when_no_generated_at():
 def test_policy_is_fresh_at_false_when_no_age_available():
     policy = _policy(generated_at_utc="")
     assert api._policy_is_fresh_at(policy, None, max_age_hours=72) is False
+
+
+def test_policy_is_fresh_at_survives_an_out_of_range_modified_epoch():
+    """The runtime twin of the ``describe_state`` hole Lane A closed.
+
+    ``read_state`` fills ``modified_epoch`` straight from ``st.st_mtime``, so a container
+    file carrying a timestamp outside the platform ``time_t`` range reaches this
+    conversion. CPython raises ``OverflowError`` there — an ``ArithmeticError``, NOT a
+    ``ValueError`` — so it is caught by nothing on the way out of ``check_current_system``
+    except the blanket handler that then mislabels the record as a corrupt cache.
+    An unusable timestamp is simply no age, which is already a supported answer here.
+    """
+    assert not issubclass(OverflowError, ValueError)
+    with pytest.raises(OverflowError):  # premise, asserted against the real host
+        datetime.fromtimestamp(2**63, tz=timezone.utc)
+
+    policy = _policy(generated_at_utc="")
+    assert api._policy_is_fresh_at(policy, float(2**63), max_age_hours=72) is False
 
 
 def test_policy_is_fresh_preserves_mtime_laziness(tmp_path):
@@ -524,3 +544,62 @@ def test_legacy_pair_layout_never_retires_the_legacy_cache(monkeypatch, tmp_path
     assert cache_file.read_bytes() == policy_bytes  # the write really did succeed
     assert calls == [], "legacy cache retired from a layout that never writes a container"
     assert result.source_status is SourceStatus.REMOTE_POLICY_OK
+
+
+def test_out_of_range_container_mtime_lands_on_the_same_run_as_no_mtime(monkeypatch, tmp_path):
+    """End-to-end twin of ``test_policy_is_fresh_at_survives_an_out_of_range_modified_epoch``.
+
+    Two seams are injected. ``read_state`` supplies the out-of-range ``modified_epoch``,
+    because no filesystem either CI leg can create stores an mtime that far out (Lane A's
+    ``describe_state`` test makes the same point). ``load_trusted_policy`` supplies the only
+    policy shape that reaches the ``modified_epoch`` branch at all — one with no
+    ``generated_at_utc`` — since the JSON schema rejects that field empty; that is what makes
+    this fix defence-in-depth on a documented branch rather than a live crash today. Nothing
+    else is patched: the tier logic, the fallbacks and the verdict stay the shipped ones.
+
+    Before the fix the poisoned run raises ``OverflowError`` out of ``_load_container_cache``
+    into the blanket handler above it, which charges the record with a ``corrupt_cache`` it
+    never earned and tells the administrator the cache is broken when the clock is.
+    """
+    _patch_local(monkeypatch)
+    _fail_fetch(monkeypatch)
+    policy_bytes, signature_bytes = _signed_remote(_policy(generated_at_utc=_generated_at(hours_ago=1)))
+    monkeypatch.setattr(
+        api,
+        "load_trusted_policy",
+        lambda *args, **kwargs: TrustedPolicy(
+            policy=_policy(generated_at_utc=""),
+            policy_bytes=policy_bytes,
+            signature_bytes=signature_bytes,
+            signature_status="verified",
+        ),
+    )
+    config = ReleaseCheckerConfig(
+        policy_url=REMOTE_URL,
+        state_dir=str(tmp_path),
+        enable_wua_probe=False,
+        trusted_policy_public_key=TEST_PUBLIC_KEY,
+    )
+
+    def _run(modified_epoch):
+        monkeypatch.setattr(
+            state_store,
+            "read_state",
+            lambda scope: state_store.StateRead(
+                "usable",
+                policy_bytes=policy_bytes,
+                signature_bytes=signature_bytes,
+                modified_epoch=modified_epoch,
+            ),
+        )
+        return api.check_current_system(config)
+
+    control = _run(None)             # the supported "no age available" answer
+    poisoned = _run(float(2**63))    # an mtime the platform cannot convert
+
+    # State is an optimisation: an unusable timestamp costs the age, nothing else.
+    assert poisoned.status is control.status
+    assert poisoned.source_status is control.source_status
+    assert poisoned.is_source_check_complete == control.is_source_check_complete
+    assert [p.kind for p in poisoned.source_problems] == [p.kind for p in control.source_problems]
+    assert "corrupt_cache" not in {p.kind for p in poisoned.source_problems}
