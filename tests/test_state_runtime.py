@@ -324,6 +324,112 @@ def test_stateless_run_performs_no_state_io_or_probing(monkeypatch, tmp_path):
     assert uids == []
 
 
+def _run_reaching_none_layout(monkeypatch, **config_overrides):
+    """Drive a full, successful remote run whose state scope resolves to layout "none".
+
+    The point is to reach ``_cache_write_failed_message`` through the REAL path --
+    ``_load_remote_policy`` -> ``_persist_policy`` -> ``state_store.write_state`` --
+    rather than by calling the private helper, so the rendered operator text is proven
+    to be what a run actually emits. Nothing is written anywhere: layout "none" makes
+    ``write_state`` return "skipped" before any filesystem call (§6.4).
+    """
+    _patch_local(monkeypatch)
+    policy_bytes, signature_bytes = _signed_remote(_policy(generated_at_utc=_generated_at(hours_ago=1)))
+    _patch_fetch(monkeypatch, policy_bytes, signature_bytes)
+    return api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=REMOTE_URL,
+            enable_wua_probe=False,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+            **config_overrides,
+        )
+    )
+
+
+def _only_cache_write_failed(result):
+    """The single cache_write_failed problem, asserting there is exactly one."""
+    failures = [p for p in result.source_problems if p.kind == "cache_write_failed"]
+    assert len(failures) == 1, f"expected exactly one cache_write_failed, got {failures}"
+    return failures[0]
+
+
+def _assert_state_never_changed_the_outcome(result) -> None:
+    # State is an optimisation: a scope that cannot store anything must not move the
+    # verdict, the source status, or the completeness of the source check.
+    assert result.source_status is SourceStatus.REMOTE_POLICY_OK
+    assert result.is_source_check_complete is True
+    assert result.status is EvaluationStatus.COMPLIANT
+    assert result.policy_source_kind == "remote_json"
+
+
+def test_no_temp_dir_renders_its_operator_diagnostic(monkeypatch):
+    # No resolvable temp directory and no explicit location -> source "no_temp_dir".
+    monkeypatch.setattr(state_store, "_first_existing_dir", lambda candidates: None)
+
+    result = _run_reaching_none_layout(monkeypatch)
+
+    problem = _only_cache_write_failed(result)
+    assert problem.retryable is True
+    assert problem.message == (
+        "Policy cache could not be written: no resolvable temp directory (no_temp_dir); "
+        "this run is unaffected and the next run will re-fetch."
+    )
+    _assert_state_never_changed_the_outcome(result)
+
+
+def test_state_dir_not_absolute_renders_its_operator_diagnostic(monkeypatch):
+    # A relative --state-dir is refused rather than resolved against the cwd (no Path.cwd
+    # in state_store), so the scope collapses to "none" with source "state_dir_not_absolute".
+    result = _run_reaching_none_layout(monkeypatch, state_dir="relative-state-dir")
+
+    problem = _only_cache_write_failed(result)
+    assert problem.retryable is True
+    assert problem.message == (
+        "Policy cache could not be written: --state-dir is not an absolute path "
+        "(state_dir_not_absolute); this run is unaffected and the next run will re-fetch."
+    )
+    _assert_state_never_changed_the_outcome(result)
+
+
+def test_path_not_nameable_renders_its_operator_diagnostic(monkeypatch):
+    # "." has an empty final component on both path flavours, so with_name raises ValueError
+    # and plan_state_scope yields source "path_not_nameable" identically on nt and posix.
+    result = _run_reaching_none_layout(monkeypatch, cache_file=".")
+
+    problem = _only_cache_write_failed(result)
+    assert problem.retryable is True
+    assert problem.message == (
+        "Policy cache could not be written: the configured path has no file name "
+        "(path_not_nameable); this run is unaffected and the next run will re-fetch."
+    )
+    _assert_state_never_changed_the_outcome(result)
+
+
+def test_cache_write_failed_names_the_path_when_the_event_carries_one(monkeypatch, tmp_path):
+    # Positive control for the OTHER branch of the same message: a real write failure does
+    # carry a path, and that sentence must keep naming the location with "at <path>". Without
+    # this, collapsing both branches onto the pathless wording would go unnoticed.
+    _patch_local(monkeypatch)
+    policy_bytes, signature_bytes = _signed_remote(_policy(generated_at_utc=_generated_at(hours_ago=1)))
+    _patch_fetch(monkeypatch, policy_bytes, signature_bytes)
+    config = ReleaseCheckerConfig(
+        policy_url=REMOTE_URL,
+        state_dir=str(tmp_path),
+        enable_wua_probe=False,
+        trusted_policy_public_key=TEST_PUBLIC_KEY,
+    )
+    scope = state_store.resolve_state_scope(config)
+    monkeypatch.setattr(state_store, "_replace", _boom)
+
+    result = api.check_current_system(config)
+
+    problem = _only_cache_write_failed(result)
+    assert problem.message.startswith(f"Policy cache could not be written at {scope.path} (")
+    assert problem.message.endswith("this run is unaffected and the next run will re-fetch.")
+    assert problem.source_url == str(scope.path)
+    _assert_state_never_changed_the_outcome(result)
+
+
 def _spy_retire(monkeypatch):
     """Observation-based spy on the ONLY legacy-retirement call site (ambiguity flag #9).
 

@@ -174,6 +174,41 @@ def test_purge_state_with_stateless_flag_still_purges_the_configured_location(tm
     assert not Path(scope.path).exists()
 
 
+def test_purge_state_failure_exits_nonzero_and_reports_the_failed_event(tmp_path, monkeypatch, capsys):
+    # The exit-code expression in the --purge-state dispatch was unenforced: replacing the whole
+    # `EXIT_UNKNOWN_OR_POLICY_ERROR if failed else 0` with a bare `return 0` left the suite green.
+    # This test drives a purge whose unlink genuinely fails and pins BOTH halves of the contract:
+    # the failure is reported in the payload AND the process exit code is the failure code.
+    policy_url = POLICY_URL
+    config = ReleaseCheckerConfig(policy_url=policy_url, state_dir=str(tmp_path))
+    scope = state_store.resolve_state_scope(config)
+    assert scope.layout == "container"
+    # Seed a real container so the magic gate passes and the purge actually reaches _unlink;
+    # without this the 'state' role would short-circuit to "absent" and never fail.
+    assert state_store.write_state(scope, b'{"schema_version": 1}', b'{"sig": "x"}').outcome == "written"
+
+    def _io_error(path: str) -> None:
+        # errno 5 is deliberately unmapped, so the raised type stays OSError (errno 13 would
+        # auto-promote to PermissionError). state_store catches (OSError, ValueError) and turns
+        # it into a "failed" event rather than propagating.
+        raise OSError(5, "io error")
+
+    monkeypatch.setattr(state_store, "_unlink", _io_error)
+
+    code = cli.main(["--purge-state", "--policy-url", policy_url, "--state-dir", str(tmp_path)])
+    payload = json.loads(capsys.readouterr().out)
+
+    # The payload half: the failure is visible to an operator reading the JSON.
+    failed_events = [event for event in payload["events"] if event["outcome"] == "failed"]
+    assert failed_events, f"expected at least one failed purge event, got {payload['events']}"
+    assert any("io error" in (event["detail"] or "") for event in failed_events)
+    assert Path(scope.path).exists()  # the record really did survive the failed unlink
+
+    # The exit-code half: a purge that tried and failed must not report success.
+    assert code == cli.EXIT_UNKNOWN_OR_POLICY_ERROR
+    assert code != 0
+
+
 def test_atomic_write_with_inplace_fallback_paths(tmp_path, monkeypatch):
     # 1. happy path: the swap succeeds, event is "written"
     dest = tmp_path / "out.bin"

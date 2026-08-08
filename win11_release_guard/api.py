@@ -354,9 +354,21 @@ _STATE_WRITE_SKIP_PHRASES = {
 
 
 def _cache_write_failed_message(event: StateEvent) -> str:
-    path_phrase = event.path if event.path is not None else _STATE_WRITE_SKIP_PHRASES.get(event.detail, event.detail)
+    """Operator-facing text for one cache_write_failed problem.
+
+    Two grammatical shapes, because the two failure families carry different data. A real
+    write failure names a location, so it reads "... at <path> (<detail>)". A "none" layout
+    has no path at all (write_state short-circuits with path=None, §6.4) and can only name a
+    CONDITION; substituting the condition into the location slot produced sentences like
+    "could not be written at --state-dir is not an absolute path", so the pathless branch
+    renders the phrase as a reason after a colon instead.
+    """
+    if event.path is not None:
+        clause = f" at {event.path}"
+    else:
+        clause = f": {_STATE_WRITE_SKIP_PHRASES.get(event.detail, event.detail)}"
     return (
-        f"Policy cache could not be written at {path_phrase} ({event.detail}); "
+        f"Policy cache could not be written{clause} ({event.detail}); "
         "this run is unaffected and the next run will re-fetch."
     )
 
