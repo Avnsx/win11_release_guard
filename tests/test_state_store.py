@@ -18,6 +18,7 @@ from win11_release_guard.state_store import (
     decode_state,
     derive_state_name,
     encode_state,
+    plan_state_scope,
     staging_name,
     state_path_for,
     state_user_token,
@@ -254,3 +255,103 @@ def test_decode_pins_checked_in_vector():
     assert read.status == "usable"
     assert read.policy_bytes == VECTOR_POLICY
     assert read.signature_bytes == VECTOR_SIGNATURE
+
+
+def _plan(**overrides):
+    base = dict(
+        os_name="posix",
+        env={"USERDOMAIN": "", "USERNAME": ""},
+        temp_dir="/tmp",
+        uid=1000,
+        policy_url="https://example.test/policy.json",
+        trusted_public_key="KEYA",
+        allow_unsigned_policy=False,
+        cache_file=None,
+        state_dir=None,
+        stateless=False,
+    )
+    base.update(overrides)
+    return plan_state_scope(**base)
+
+
+def test_plan_state_scope_stateless_beats_every_other_input():
+    scope = _plan(stateless=True, cache_file="/c.json", state_dir="/d", temp_dir="/tmp")
+    assert scope == StateScope("none", None, None, None, "stateless")
+
+
+def test_plan_state_scope_cache_file_beats_state_dir_and_uses_dot_sig_suffix():
+    scope = _plan(cache_file="/srv/cache.json", state_dir="/srv/state", temp_dir="/tmp")
+    assert scope.layout == "legacy_pair"
+    assert scope.source == "cache_file"
+    assert scope.path == PurePosixPath("/srv/cache.json")
+    # .sig via with_name(name + ".sig") -> cache.json.sig, NOT with_suffix -> cache.sig.
+    assert scope.signature_path == PurePosixPath("/srv/cache.json.sig")
+    assert scope.staging_path == PurePosixPath("/srv/cache.json.staging.tmp")
+
+
+def test_plan_state_scope_state_dir_beats_default_temp():
+    scope = _plan(state_dir="/srv/state", temp_dir="/tmp")
+    assert scope.layout == "container"
+    assert scope.source == "state_dir"
+    assert scope.path is not None
+    assert scope.path.parent == PurePosixPath("/srv/state")
+    assert scope.signature_path is None
+    assert scope.staging_path == scope.path.with_name(scope.path.name + ".staging.tmp")
+
+
+def test_plan_state_scope_default_temp_when_only_temp_dir():
+    scope = _plan(temp_dir="/tmp")
+    assert scope.layout == "container"
+    assert scope.source == "default_temp"
+    assert scope.path.parent == PurePosixPath("/tmp")
+
+
+def test_plan_state_scope_no_temp_dir_and_no_state_dir_is_none():
+    scope = _plan(temp_dir=None)
+    assert scope == StateScope("none", None, None, None, "no_temp_dir")
+
+
+def test_plan_state_scope_non_absolute_state_dir_refused_on_both_flavours():
+    posix = _plan(os_name="posix", state_dir="relative/dir", temp_dir="/tmp")
+    assert (posix.layout, posix.source) == ("none", "state_dir_not_absolute")
+    assert posix.path is None and posix.staging_path is None
+    nt = _plan(os_name="nt", env={}, state_dir="relative\\dir", temp_dir=r"C:\Temp")
+    assert (nt.layout, nt.source) == ("none", "state_dir_not_absolute")
+
+
+def test_plan_state_scope_unnameable_cache_file_is_path_not_nameable_both_flavours():
+    for bad in (".", "/"):
+        scope = _plan(cache_file=bad, temp_dir="/tmp")
+        assert (scope.layout, scope.source) == ("none", "path_not_nameable")
+    for bad in (".", "\\", "C:\\"):
+        scope = _plan(os_name="nt", env={}, cache_file=bad, temp_dir=r"C:\Temp")
+        assert (scope.layout, scope.source) == ("none", "path_not_nameable")
+
+
+def test_plan_state_scope_nt_container_is_windows_flavoured_from_linux():
+    scope = _plan(
+        os_name="nt",
+        env={"USERDOMAIN": "CORP", "USERNAME": "alice"},
+        state_dir=r"C:\ProgramData\w11rg",
+        temp_dir=r"C:\Temp",
+    )
+    assert isinstance(scope.path, PureWindowsPath)
+    assert scope.path.parent == PureWindowsPath(r"C:\ProgramData\w11rg")
+    assert scope.staging_path == scope.path.with_name(scope.path.name + ".staging.tmp")
+
+
+def test_plan_state_scope_matrix_layout_and_source():
+    # {stateless} x {cache_file} x {state_dir} x {temp_dir is None}, asserting (layout, source).
+    cases = {
+        (True, None, None, "/tmp"): ("none", "stateless"),
+        (True, "/c.json", "/d", None): ("none", "stateless"),
+        (False, "/c.json", "/d", "/tmp"): ("legacy_pair", "cache_file"),
+        (False, "/c.json", None, None): ("legacy_pair", "cache_file"),
+        (False, None, "/d", "/tmp"): ("container", "state_dir"),
+        (False, None, "/d", None): ("container", "state_dir"),
+        (False, None, None, "/tmp"): ("container", "default_temp"),
+        (False, None, None, None): ("none", "no_temp_dir"),
+    }
+    for (stateless, cache_file, state_dir, temp_dir), expected in cases.items():
+        scope = _plan(stateless=stateless, cache_file=cache_file, state_dir=state_dir, temp_dir=temp_dir)
+        assert (scope.layout, scope.source) == expected, (stateless, cache_file, state_dir, temp_dir)

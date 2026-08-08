@@ -382,3 +382,56 @@ def discard_state(scope: StateScope) -> StateEvent:
     except (OSError, ValueError) as exc:
         return StateEvent("discard", "failed", path, _reason(exc))
     return StateEvent("discard", "removed", path, None)
+
+
+def plan_state_scope(
+    *,
+    os_name: str,
+    env: Mapping[str, str],
+    temp_dir: str | None,
+    uid: int | None,
+    policy_url: str,
+    trusted_public_key: str | None,
+    allow_unsigned_policy: bool,
+    cache_file: str | None,
+    state_dir: str | None,
+    stateless: bool,
+) -> StateScope:
+    """PURE. Total: returns a StateScope for every input combination and never raises.
+    Precedence: stateless > cache_file > state_dir > default temp derivation (§10.4).
+    Takes no pid and calls no os.getpid(), so both derived paths are deterministic and the
+    §16.2 matrix is assertable for both os_name flavours from either CI leg. trusted_public_key
+    and allow_unsigned_policy are threaded straight to derive_state_name (§2.3)."""
+    if stateless:
+        return StateScope("none", None, None, None, "stateless")
+    flavour = PureWindowsPath if os_name == "nt" else PurePosixPath
+    if cache_file is not None:
+        try:
+            path = flavour(cache_file)
+            staging = path.with_name(staging_name(path.name))
+            signature = path.with_name(path.name + ".sig")  # NOT with_suffix (§2.4 rule 2)
+        except ValueError:
+            return StateScope("none", None, None, None, "path_not_nameable")
+        return StateScope("legacy_pair", path, signature, staging, "cache_file")
+    if state_dir is not None:
+        if not flavour(state_dir).is_absolute():
+            return StateScope("none", None, None, None, "state_dir_not_absolute")
+        directory, source = state_dir, "state_dir"
+    elif temp_dir is not None:
+        directory, source = temp_dir, "default_temp"
+    else:
+        return StateScope("none", None, None, None, "no_temp_dir")
+    name = derive_state_name(
+        policy_url=policy_url,
+        os_name=os_name,
+        env=env,
+        uid=uid,
+        trusted_public_key=trusted_public_key,
+        allow_unsigned_policy=allow_unsigned_policy,
+    )
+    try:
+        path = state_path_for(os_name, directory, name)
+        staging = path.with_name(staging_name(path.name))
+    except ValueError:
+        return StateScope("none", None, None, None, "path_not_nameable")
+    return StateScope("container", path, None, staging, source)
