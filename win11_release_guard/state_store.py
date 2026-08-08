@@ -28,11 +28,13 @@ be tested by round-trip. Never assert on compressed bytes or on file size.
 from __future__ import annotations
 
 import hashlib
+import os
 import struct
 import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import PurePath, PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
+from typing import Any
 
 from .json_utils import DEFAULT_MAX_SIGNATURE_BYTES
 
@@ -195,3 +197,61 @@ def decode_state(raw: bytes) -> StateRead:
         policy_bytes=body[:policy_len],
         signature_bytes=body[policy_len:] if signature_len else None,
     )
+
+
+@dataclass(frozen=True)
+class StateEvent:
+    action: str            # "write" | "discard" | "purge" | "retire"
+    outcome: str           # "written" | "removed" | "absent" | "skipped" | "failed"
+    path: str | None
+    detail: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "outcome": self.outcome,
+            "path": self.path,
+            "detail": self.detail,
+        }
+
+
+def _reason(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _replace(source: str, destination: str) -> None:
+    """I/O SEAM. os.replace, isolated so tests can force a swap failure portably."""
+    os.replace(source, destination)
+
+
+def _unlink(path: str) -> None:
+    """I/O SEAM. os.unlink, isolated so tests can force a delete failure portably."""
+    os.unlink(path)
+
+
+_WRITE_FLAGS: int = os.O_CREAT | os.O_WRONLY | os.O_TRUNC | getattr(os, "O_BINARY", 0)
+
+
+def write_bytes_atomically(path: Path, data: bytes) -> StateEvent:
+    """Write `data` to `path` atomically. Touches disk. NEVER raises.
+
+    Every writer in this package goes through this function. It does not inspect the
+    destination, does not create directories, does not retry, and does not fsync.
+    """
+    staging = None
+    opened = False
+    try:
+        staging = path.with_name(staging_name(path.name))
+        fd = os.open(str(staging), _WRITE_FLAGS, 0o666)
+        opened = True
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        _replace(str(staging), str(path))
+        return StateEvent("write", "written", str(path), None)
+    except (OSError, ValueError) as exc:
+        if opened and staging is not None:
+            try:
+                _unlink(str(staging))
+            except (OSError, ValueError):
+                pass
+        return StateEvent("write", "failed", str(path), _reason(exc))
