@@ -201,3 +201,96 @@ def test_write_state_legacy_pair_missing_parent_returns_failed(tmp_path):
     event = state_store.write_state(scope, b"{}", b"sig")
     assert event.outcome == "failed"       # missing parent, primitive never mkdirs (O-4)
     assert not (tmp_path / "no-such-dir").exists()
+
+
+def test_read_state_round_trip_usable(tmp_path):
+    policy = b"policy-body-bytes"
+    signature = b"sig-bytes"
+    record = state_store.encode_state(policy, signature)
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(record)
+    read = state_store.read_state(_container_scope(dest))
+    assert read.status == "usable"
+    assert read.policy_bytes == policy
+    assert read.signature_bytes == signature
+    assert read.modified_epoch is not None
+
+
+def test_read_state_non_container_layout_absent():
+    scope = state_store.StateScope("none", None, None, None, "stateless")
+    read = state_store.read_state(scope)
+    assert read.status == "absent"
+    assert read.policy_bytes is None
+
+
+def test_read_state_missing_file_absent(tmp_path):
+    read = state_store.read_state(_container_scope(tmp_path / "nope.tmp"))
+    assert read.status == "absent"
+
+
+def test_read_state_foreign_on_magic_mismatch(tmp_path):
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(b"NOTMAGIC" + b"whatever else")
+    read = state_store.read_state(_container_scope(dest))
+    assert read.status == "foreign"
+    assert dest.exists()  # a foreign file is never removed by a read
+
+
+def test_read_state_short_header_unusable(tmp_path):
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(state_store.STATE_MAGIC + b"\x01\x00")  # 10 bytes < STATE_HEADER_LEN
+    read = state_store.read_state(_container_scope(dest))
+    assert read.status == "unusable"
+    assert read.detail == "short header"
+
+
+def test_read_state_digest_corrupted_unusable(tmp_path):
+    record = bytearray(state_store.encode_state(b"policy-bytes", b"sig"))
+    record[18] ^= 0xFF  # corrupt the stored body_digest field (offset 18..50)
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(bytes(record))
+    read = state_store.read_state(_container_scope(dest))
+    assert read.status == "unusable"
+    assert read.detail == "digest mismatch"
+
+
+def test_read_state_oversize_non_magic_is_foreign(tmp_path, monkeypatch):
+    monkeypatch.setattr(state_store, "MAX_STATE_FILE_BYTES", 1024)
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(b"X" * 2048)  # no magic, over the (patched) cap
+    read = state_store.read_state(_container_scope(dest))
+    assert read.status == "foreign"  # step 4 (magic) precedes step 5 (size cap)
+    assert dest.exists()
+
+
+def test_read_state_oversize_with_magic_unusable(tmp_path, monkeypatch):
+    monkeypatch.setattr(state_store, "MAX_STATE_FILE_BYTES", 1024)
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(state_store.STATE_MAGIC + b"X" * 2040)  # 2048 bytes, magic present
+    read = state_store.read_state(_container_scope(dest))
+    assert read.status == "unusable"
+    assert read.detail == "file too large"
+    assert dest.exists()  # a read never deletes
+
+
+def test_read_state_short_read_absent(tmp_path, monkeypatch):
+    record = state_store.encode_state(b"policy-body-bytes", b"sig-bytes")
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(record)
+    # Force the body loop to return fewer bytes than st_size; the direct 8-byte magic
+    # read is unaffected, so this is a short read and not a magic mismatch.
+    monkeypatch.setattr(state_store, "_read_all", lambda fd, size: b"")
+    read = state_store.read_state(_container_scope(dest))
+    assert read.status == "absent"
+    assert read.detail == "short read"
+    assert dest.exists()  # a short read must never delete a file that was not corrupt
+
+
+def test_read_state_directory_at_path(tmp_path):
+    target = tmp_path / "rec.tmp"
+    target.mkdir()
+    read = state_store.read_state(_container_scope(target))
+    # os.open on a directory raises PermissionError on Windows (-> "absent") and
+    # succeeds on Linux, where fstat/S_ISREG rejects it (-> "foreign"). A single
+    # value cannot hold on both CI legs (§16.3).
+    assert read.status in {"foreign", "absent"}

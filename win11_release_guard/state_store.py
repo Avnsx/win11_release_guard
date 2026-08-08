@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 import struct
 import zlib
 from collections.abc import Mapping
@@ -288,3 +289,57 @@ def write_state(
     if signature_bytes is not None and scope.signature_path is not None:
         write_bytes_atomically(Path(scope.signature_path), signature_bytes)
     return event
+
+
+def _read_all(fd: int, size: int) -> bytes:
+    """I/O SEAM. os.read in a loop until EOF or `size` bytes (§6.1 step 6). Factored
+    out so a test can force a SHORT read portably; adds no runtime mechanism."""
+    chunks: list[bytes] = []
+    remaining = size
+    while remaining > 0:
+        chunk = os.read(fd, remaining)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def read_state(scope: StateScope) -> StateRead:
+    """Read and decode the one derived container. Touches disk. NEVER raises.
+    Called AT MOST ONCE PER EVALUATION RUN. (--show-state is not an evaluation run: it
+    never calls check_current_system, and its own single read is named in §9.2.)"""
+    if scope.layout != "container":
+        return StateRead("absent")
+    try:
+        fd = os.open(str(scope.path), os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    except (OSError, ValueError):
+        return StateRead("absent")
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return StateRead("foreign")
+        head = os.read(fd, 8)
+        if head[:8] != STATE_MAGIC:
+            return StateRead("foreign")
+        if st.st_size > MAX_STATE_FILE_BYTES:
+            return StateRead("unusable", detail="file too large")
+        rest = _read_all(fd, st.st_size - len(head))
+        raw = head + rest
+    except (OSError, ValueError):
+        return StateRead("absent")
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    if len(raw) != st.st_size:
+        return StateRead("absent", detail="short read")
+    decoded = decode_state(raw)
+    return StateRead(
+        decoded.status,
+        policy_bytes=decoded.policy_bytes,
+        signature_bytes=decoded.signature_bytes,
+        modified_epoch=st.st_mtime,
+        detail=decoded.detail,
+    )
