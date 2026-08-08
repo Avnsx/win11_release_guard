@@ -34,7 +34,7 @@ import stat
 import struct
 import zlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -545,4 +545,67 @@ def retire_legacy_state(cache_file: str | None, state_dir: str | None) -> tuple[
             if not os.listdir(str(parent)):
                 os.rmdir(str(parent))
                 events.append(StateEvent("retire", "removed", str(parent), None))
+    return tuple(events)
+
+
+def _state_entries(config: ReleaseCheckerConfig) -> tuple[tuple[str, Path], ...]:
+    """The single (role, path) producer and the only PurePath -> Path enumeration site. Forces
+    stateless=False (§9.2 rule 3). container -> (state, staging); legacy_pair -> (cache_file,
+    staging, signature, staging); plus the two legacy paths on Windows for any non-'none' layout."""
+    scope = resolve_state_scope(replace(config, stateless=False))
+    entries: list[tuple[str, Path]] = []
+    if scope.layout == "container" and scope.path is not None:
+        entries.append(("state", Path(scope.path)))
+        if scope.staging_path is not None:
+            entries.append(("staging", Path(scope.staging_path)))
+    elif scope.layout == "legacy_pair" and scope.path is not None:
+        entries.append(("cache_file", Path(scope.path)))
+        if scope.staging_path is not None:
+            entries.append(("staging", Path(scope.staging_path)))
+        if scope.signature_path is not None:
+            entries.append(("signature", Path(scope.signature_path)))
+            sig_staging = scope.signature_path.with_name(staging_name(scope.signature_path.name))
+            entries.append(("staging", Path(sig_staging)))
+    if scope.layout != "none":
+        for legacy in legacy_state_paths(os.name, os.environ):
+            entries.append(("legacy", Path(legacy)))
+    return tuple(entries)
+
+
+def purge_state(config: ReleaseCheckerConfig) -> tuple[StateEvent, ...]:
+    """One StateEvent per path this configuration may have written. Magic-gated for state/legacy,
+    no magic check for staging/cache_file/signature (§7.2). Closes the magic-check descriptor
+    before unlink. layout 'none' -> one skipped event. Never rmdirs (R-1). Never raises."""
+    scope = resolve_state_scope(replace(config, stateless=False))
+    if scope.layout == "none":
+        return (StateEvent("purge", "skipped", None, scope.source),)
+    magic_roles = {"state", "legacy"}
+    events: list[StateEvent] = []
+    for role, path in _state_entries(config):
+        target = str(path)
+        if role in magic_roles:
+            try:
+                fd = os.open(target, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+            except FileNotFoundError:
+                events.append(StateEvent("purge", "absent", target, None))
+                continue
+            except (OSError, ValueError) as exc:
+                events.append(StateEvent("purge", "failed", target, _reason(exc)))
+                continue
+            try:
+                head = _read_all(fd, len(STATE_MAGIC))
+            except (OSError, ValueError):
+                head = b""
+            finally:
+                os.close(fd)
+            if head != STATE_MAGIC:
+                events.append(StateEvent("purge", "skipped", target, "not our format"))
+                continue
+        try:
+            _unlink(target)
+            events.append(StateEvent("purge", "removed", target, None))
+        except FileNotFoundError:
+            events.append(StateEvent("purge", "absent", target, None))
+        except (OSError, ValueError) as exc:
+            events.append(StateEvent("purge", "failed", target, _reason(exc)))
     return tuple(events)
