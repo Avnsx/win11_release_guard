@@ -322,3 +322,93 @@ def test_stateless_run_performs_no_state_io_or_probing(monkeypatch, tmp_path):
     assert writes == []
     assert dirs == []
     assert uids == []
+
+
+def _spy_retire(monkeypatch):
+    """Observation-based spy on the ONLY legacy-retirement call site (ambiguity flag #9).
+
+    Appends instead of raising: _persist_policy swallows Exception (A-1), so a raising
+    spy would pass vacuously. Patches state_store.<name> because api.py binds the module
+    with `from . import state_store` and calls through it.
+    """
+    calls: list[tuple[str | None, str | None]] = []
+    real = state_store.retire_legacy_state
+
+    def spy(cache_file, state_dir):
+        calls.append((cache_file, state_dir))
+        return real(cache_file, state_dir)
+
+    monkeypatch.setattr(state_store, "retire_legacy_state", spy)
+    return calls
+
+
+def test_failed_container_write_never_retires_the_legacy_cache(monkeypatch, tmp_path):
+    # Owner rule: an existing populated cache may be deleted on upgrade ONLY when the
+    # replacement is assured. A failed write means it is not assured, so the legacy
+    # cache must survive to serve the next offline run.
+    _patch_local(monkeypatch)
+    policy_bytes, signature_bytes = _signed_remote(_policy(generated_at_utc=_generated_at(hours_ago=1)))
+    _patch_fetch(monkeypatch, policy_bytes, signature_bytes)
+    calls = _spy_retire(monkeypatch)
+    monkeypatch.setattr(state_store, "_replace", _boom)  # the write seam fails
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=REMOTE_URL,
+            state_dir=str(tmp_path),
+            enable_wua_probe=False,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+        )
+    )
+
+    assert calls == [], "legacy cache retired despite the replacement write failing"
+    # State is an optimisation: the verdict and source status are unaffected.
+    assert result.source_status is SourceStatus.REMOTE_POLICY_OK
+    assert result.status is EvaluationStatus.COMPLIANT
+
+
+def test_successful_container_write_retires_the_legacy_cache_once(monkeypatch, tmp_path):
+    # Positive control. Without this, the assertion above would pass even if retirement
+    # were deleted outright, and the spy would be vacuous.
+    _patch_local(monkeypatch)
+    policy_bytes, signature_bytes = _signed_remote(_policy(generated_at_utc=_generated_at(hours_ago=1)))
+    _patch_fetch(monkeypatch, policy_bytes, signature_bytes)
+    calls = _spy_retire(monkeypatch)
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=REMOTE_URL,
+            state_dir=str(tmp_path),
+            enable_wua_probe=False,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+        )
+    )
+
+    assert result.source_status is SourceStatus.REMOTE_POLICY_OK
+    assert len(calls) == 1, f"expected exactly one retirement attempt, got {calls}"
+
+
+def test_legacy_pair_layout_never_retires_the_legacy_cache(monkeypatch, tmp_path):
+    # The other half of the gate: `scope.layout == "container"`. An explicit cache_file
+    # selects the "legacy_pair" layout, where the legacy pair IS the live cache we just
+    # wrote -- retiring it would delete the very file this run stored. The write must
+    # succeed here, otherwise the outcome clause alone would block the call and this test
+    # would not observe the layout clause at all.
+    _patch_local(monkeypatch)
+    policy_bytes, signature_bytes = _signed_remote(_policy(generated_at_utc=_generated_at(hours_ago=1)))
+    _patch_fetch(monkeypatch, policy_bytes, signature_bytes)
+    calls = _spy_retire(monkeypatch)
+    cache_file = tmp_path / "windows-release-policy.json"
+
+    result = api.check_current_system(
+        ReleaseCheckerConfig(
+            policy_url=REMOTE_URL,
+            cache_file=str(cache_file),
+            enable_wua_probe=False,
+            trusted_policy_public_key=TEST_PUBLIC_KEY,
+        )
+    )
+
+    assert cache_file.read_bytes() == policy_bytes  # the write really did succeed
+    assert calls == [], "legacy cache retired from a layout that never writes a container"
+    assert result.source_status is SourceStatus.REMOTE_POLICY_OK
