@@ -142,6 +142,26 @@ def test_program_version_identity_markers_are_current() -> None:
     assert CLIENT_APPLICATION_ID == expected_identity
 
 
+def test_readme_advertises_the_current_release_version_and_notes() -> None:
+    # tools/check_version_consistency.py only matches the win11_release_guard/<version> runtime
+    # identity marker, so the bare version in the README fact table and the two release-notes links
+    # survive a version bump untouched and the front page silently keeps advertising the previous
+    # release. Both the v0.3.6 and the v0.4.0 bump needed a follow-up commit for exactly these
+    # lines. Everything here is derived from package_version(), so the next bump updates it.
+    from win11_release_guard.version import package_version
+
+    version = package_version()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    notes = f"docs/releases/v{version}.md"
+
+    assert (ROOT / notes).is_file()
+    assert [line for line in readme.splitlines() if line.startswith("| Version |")] == [
+        f"| Version | `{version}` |"
+    ]
+    assert sorted(set(re.findall(r"docs/releases/(v\d+\.\d+\.\d+)\.md", readme))) == [f"v{version}"]
+    assert f"[v{version} notes]" in readme
+
+
 def test_removed_prototype_entrypoint_is_absent() -> None:
     assert not (ROOT / LEGACY_PROTOTYPE_NAME).exists()
 

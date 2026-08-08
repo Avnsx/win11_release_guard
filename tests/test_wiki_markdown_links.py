@@ -268,6 +268,17 @@ def test_sidebar_wiki_links_target_existing_pages() -> None:
     assert findings == []
 
 
+def test_sidebar_lists_every_release_page() -> None:
+    # _Sidebar.md is the only navigation into a release page on both the generated Pages wiki and
+    # the synced GitHub Wiki, and nothing else enumerates it: a new Release-vX.Y.Z.md page that the
+    # release-prep commit forgets to list here is orphaned while the whole suite stays green.
+    sidebar = (WIKI / "_Sidebar.md").read_text(encoding="utf-8")
+    listed = {_wiki_target(match.group(1)) for match in WIKI_LINK_RE.finditer(sidebar)}
+    missing = sorted(path.stem for path in WIKI.glob("Release-*.md") if path.stem not in listed)
+
+    assert missing == []
+
+
 def test_sidebar_keeps_wiki_link_syntax_outside_tables() -> None:
     sidebar = WIKI / "_Sidebar.md"
     text = sidebar.read_text(encoding="utf-8")

@@ -48,9 +48,15 @@ stateless. `--cache-file` keeps its transparent `policy.json` plus `.sig` pair.
 Writes are atomic. State, the optional Windows Update cookie cache, the legacy
 JSON cache pair, and `--output` all go through a staging file and `os.replace`,
 so an interrupted run cannot leave a half-written file or an empty cache
-directory behind. Those files are written as bytes and therefore use LF line
-endings on every platform. A cache write that fails records one
-`cache_write_failed` source problem instead of losing the verified policy.
+directory behind. A cache write that fails records one `cache_write_failed`
+source problem instead of losing the verified policy.
+
+Two files changed their line endings. The Windows Update cookie cache and the
+embedder-only `cache.save_policy_cache` helper now serialise their JSON and write
+the bytes, so on Windows those two contain LF instead of the previous CRLF. A
+`--cache-file` legacy pair is not one of them: it still holds the publisher's
+exact policy bytes beside the detached signature, exactly as it always has, so a
+cached policy still verifies against its signature.
 
 ## Release Gate Result
 

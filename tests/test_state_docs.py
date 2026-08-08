@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+RELEASE_MATERIAL = ("wiki/Release-v0.5.0.md", "docs/releases/v0.5.0.md")
 
 
 def _read(rel: str) -> str:
@@ -115,3 +117,17 @@ def test_line_ending_change_is_attributed_to_the_helper_that_actually_changed() 
     released = _read("CHANGELOG.md").split("## v0.5.0", 1)[1].split("## v0.4.0", 1)[0]
     bullet = _block_with(released, "LF instead of CRLF", "\n* ")
     assert "save_policy_cache" in bullet
+
+
+def test_release_material_does_not_blame_the_legacy_pair_for_the_line_ending_change() -> None:
+    # The same attribution rule, held over the two v0.5.0 release-material files. Those two become
+    # permanent published release history at the tag, so a wrong claim there cannot be corrected
+    # afterwards the way a wiki or changelog page can. Every paragraph that mentions the line-ending
+    # change must name the helper that actually moved to the byte write, and must record that a
+    # `--cache-file` legacy pair still stores the publisher's exact bytes -- if it did not, the
+    # detached Ed25519 signature would no longer verify against the cached policy.
+    for rel in RELEASE_MATERIAL:
+        paragraphs = [_squash(block) for block in _read(rel).split("\n\n") if re.search(r"\bLF\b", block)]
+        assert len(paragraphs) == 1, f"{rel}: expected one paragraph about the line endings, found {len(paragraphs)}"
+        assert "save_policy_cache" in paragraphs[0], f"{rel}: {paragraphs[0]}"
+        assert "publisher's exact" in paragraphs[0], f"{rel}: {paragraphs[0]}"
