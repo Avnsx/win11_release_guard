@@ -1,3 +1,8 @@
+"""Legacy JSON cache helpers retained for API compatibility.
+
+The client runtime does not use them; runtime state lives in ``state_store.py``.
+"""
+
 from __future__ import annotations
 
 import json
@@ -10,6 +15,7 @@ from .config import DEFAULT_CACHE_FILE_NAME, DEFAULT_CACHE_MAX_AGE_HOURS
 from .exceptions import PolicyParseError
 from .json_utils import DEFAULT_MAX_POLICY_BYTES, StrictJSONError, strict_json_object
 from .models import ReleasePolicy
+from .state_store import write_bytes_atomically
 
 
 def _default_cache_path_for(
@@ -78,9 +84,8 @@ def load_policy_cache(path: str | Path) -> ReleasePolicy:
 
 def save_policy_cache(path: str | Path, policy: ReleasePolicy) -> None:
     cache_path = Path(path)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(policy.to_dict(), indent=2, sort_keys=True)
-    cache_path.write_text(payload + "\n", encoding="utf-8")
+    write_bytes_atomically(cache_path, (payload + "\n").encode("utf-8"))
 
 
 def load_cached_policy(
