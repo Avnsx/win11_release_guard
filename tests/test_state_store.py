@@ -99,6 +99,38 @@ def test_derive_state_name_changes_with_each_digest_component():
     assert derive_state_name(**_name_kwargs(format_version=2)) != base
 
 
+def test_derive_state_name_pins_the_six_component_digest():
+    """The name is sha256 over exactly six components joined with a single NUL byte,
+    truncated to sixteen hex characters.
+
+    The expected value is rebuilt here from the six components in their documented order
+    rather than pasted from a run of the code, because a pasted literal would pin whatever
+    the code currently does. Permuting the order or changing the separator keeps every
+    other test in this file green — the name stays deterministic and stays sensitive to
+    each input — while silently renaming the derived file on every deployment, orphaning
+    every record already on disk. A deliberate ``STATE_FORMAT_VERSION`` bump has the same
+    effect and must update this vector along with it.
+    """
+    policy_url = "https://example.test/policy.json"
+    material = b"\x00".join((
+        b"w11rg-state",                    # 1. STATE_NAMESPACE, digest input only
+        b"1",                              # 2. str(format_version), ascii
+        policy_url.encode("utf-8"),        # 3. the policy url
+        b"1000",                           # 4. state_user_token: str(uid) off nt
+        hashlib.sha256(b"KEYA").digest(),  # 5. sha256 OF the trusted key, not the key
+        b"False",                          # 6. str(bool(allow_unsigned_policy))
+    ))
+    expected = "tmp" + hashlib.sha256(material).hexdigest()[:16] + ".tmp"
+    assert derive_state_name(
+        policy_url=policy_url,
+        os_name="posix",
+        env={},
+        uid=1000,
+        trusted_public_key="KEYA",
+        allow_unsigned_policy=False,
+    ) == expected
+
+
 def test_derive_state_name_key_layering_none_matches_empty_but_differs_from_default():
     none_name = derive_state_name(**_name_kwargs(trusted_public_key=None))
     empty_name = derive_state_name(**_name_kwargs(trusted_public_key=""))

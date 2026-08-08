@@ -606,7 +606,13 @@ def purge_state(config: ReleaseCheckerConfig) -> tuple[StateEvent, ...]:
             except (OSError, ValueError):
                 head = b""
             finally:
-                os.close(fd)
+                # Swallowed exactly as in read_state and discard_state: a close that
+                # fails on a descriptor already read cannot be allowed out of a
+                # function documented NEVER raises.
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             if head != STATE_MAGIC:
                 events.append(StateEvent("purge", "skipped", target, "not our format"))
                 continue
@@ -647,7 +653,10 @@ def describe_state(config: ReleaseCheckerConfig) -> dict[str, Any]:
             entry["exists"] = True
             entry["size_bytes"] = st.st_size
             entry["modified_utc"] = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
-        except (OSError, ValueError):
+        except (OSError, OverflowError, ValueError):
+            # OverflowError is not a ValueError — it is an ArithmeticError — and it is
+            # what CPython raises for an st_mtime outside the platform time_t range, so
+            # dropping it from this tuple breaks the NEVER-raises contract above.
             pass
         if role == "state":
             entry["status"] = state_read.status

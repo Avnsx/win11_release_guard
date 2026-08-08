@@ -6,6 +6,7 @@ CI legs exercise the same code; nothing here depends on host-specific kernel beh
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from win11_release_guard import state_store
@@ -148,6 +149,26 @@ def test_write_state_container_oversize_signature_is_skipped(tmp_path):
     assert not Path(scope.path).exists()
 
 
+def test_write_state_container_oversize_record_is_skipped(tmp_path, monkeypatch):
+    """The third arm of the container guard, which neither sibling above reaches.
+
+    What ``MAX_STATE_FILE_BYTES`` bounds is the ENCODED record, so the body has to be
+    incompressible or ``zlib`` would shrink it back under the cap and the branch would
+    never be entered: a deterministic run of sha256 digests, no randomness, no sleep.
+    """
+    monkeypatch.setattr(state_store, "MAX_STATE_FILE_BYTES", 1024)
+    body = b"".join(hashlib.sha256(n.to_bytes(4, "big")).digest() for n in range(64))
+    assert len(state_store.encode_state(body, b"sig")) > 1024  # premise: the cap really bites
+    scope = _container_scope(tmp_path / "rec.tmp")
+    event = state_store.write_state(scope, body, b"sig")
+    assert event.outcome == "skipped"
+    assert event.path == str(scope.path)
+    assert event.detail == "record too large"
+    # Refused before the primitive ran, so there is no record and no staging orphan.
+    assert not Path(scope.path).exists()
+    assert not Path(scope.staging_path).exists()
+
+
 def test_write_state_none_layout_skips_with_source_detail():
     for source in ("no_temp_dir", "state_dir_not_absolute", "path_not_nameable"):
         scope = state_store.StateScope("none", None, None, None, source)
@@ -223,6 +244,23 @@ def test_read_state_non_container_layout_absent():
     assert read.policy_bytes is None
 
 
+def test_read_state_legacy_pair_layout_is_absent_even_when_the_record_decodes(tmp_path):
+    """The ``layout != "container"`` early return, pinned over a file that decodes
+    perfectly, because only that return can turn a usable record into ``absent``.
+
+    ``test_read_state_non_container_layout_absent`` above cannot carry this: its scope has
+    ``path=None``, so with the early return gone ``os.open("None")`` merely raises
+    ``FileNotFoundError`` and the very same ``absent`` comes back out of the error arm.
+    """
+    dest = tmp_path / "policy.json"
+    dest.write_bytes(state_store.encode_state(b"policy-bytes", b"sig"))
+    read = state_store.read_state(_legacy_pair_scope(dest))
+    assert read.status == "absent"
+    assert read.policy_bytes is None
+    assert read.modified_epoch is None
+    assert dest.exists()  # the legacy pair is read by cache.py, never by this function
+
+
 def test_read_state_missing_file_absent(tmp_path):
     read = state_store.read_state(_container_scope(tmp_path / "nope.tmp"))
     assert read.status == "absent"
@@ -284,6 +322,30 @@ def test_read_state_short_read_absent(tmp_path, monkeypatch):
     assert read.status == "absent"
     assert read.detail == "short read"
     assert dest.exists()  # a short read must never delete a file that was not corrupt
+
+
+def test_read_state_rejects_a_non_regular_file(tmp_path, monkeypatch):
+    """Step 3 of the read path, pinned over a file that is otherwise a perfectly good
+    record: only the mode check can report ``foreign`` here, and it must do so before the
+    magic read, which is exactly what makes the record's own validity irrelevant.
+
+    The mode verdict is injected rather than staged on disk because no non-regular file
+    both CI legs can open read-only actually discriminates: reading ``/dev/null`` or
+    ``NUL`` yields EOF, which the magic check reports as ``foreign`` all by itself, and
+    Windows refuses to open a directory at all — which is why
+    ``test_read_state_directory_at_path`` below has to accept two statuses.
+    """
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(state_store.encode_state(b"policy-bytes", b"sig"))
+
+    class _NeverRegular:
+        S_ISREG = staticmethod(lambda mode: False)
+
+    monkeypatch.setattr(state_store, "stat", _NeverRegular)
+    read = state_store.read_state(_container_scope(dest))
+    assert read.status == "foreign"
+    assert read.policy_bytes is None
+    assert dest.exists()  # a non-regular path is refused, never removed, by a read
 
 
 def test_read_state_directory_at_path(tmp_path):

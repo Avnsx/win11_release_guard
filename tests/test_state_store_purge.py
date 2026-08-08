@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -137,6 +138,105 @@ def test_purge_state_reports_failed_when_unlink_raises(tmp_path, monkeypatch):
     state_event = next(e for e in events if e.path == str(scope.path))
     assert state_event.outcome == "failed"
     assert "permission denied" in (state_event.detail or "")
+
+
+def test_purge_state_survives_a_failing_close(tmp_path, monkeypatch):
+    """``read_state`` and ``discard_state`` both wrap the magic-check ``os.close`` in
+    ``try/except OSError: pass``. ``purge_state`` is documented NEVER raises and must be
+    consistent with its two siblings, or an ``EBADF`` on the descriptor it has just read
+    escapes a purge that already decided the record is ours and is about to unlink it.
+
+    The descriptor really is closed before the failure is raised, so nothing leaks, and
+    the patch is undone before the assertions so a failing run cannot report through a
+    broken ``os.close``.
+    """
+    config = ReleaseCheckerConfig(state_dir=str(tmp_path))
+    scope = state_store.resolve_state_scope(config)
+    _seed_container(scope.path)
+    real_close = os.close
+    closed: list[int] = []
+
+    def failing_close(fd):
+        closed.append(fd)
+        real_close(fd)
+        raise OSError(9, "bad file descriptor")
+
+    monkeypatch.setattr(state_store.os, "close", failing_close)
+    try:
+        events = state_store.purge_state(config)
+    finally:
+        monkeypatch.undo()
+
+    assert closed, "the magic-check descriptor was never closed"
+    state_event = next(e for e in events if e.path == str(scope.path))
+    assert state_event.outcome == "removed"
+    assert not Path(scope.path).exists()
+
+
+def test_state_entries_signature_staging_matches_the_writer_derivation(tmp_path, monkeypatch):
+    """``StateScope`` carries no ``signature_staging_path`` field. What justifies the
+    absence is that ``_state_entries`` recomputes that one name with the same expression
+    ``write_bytes_atomically`` uses, so both sides always agree. Should they ever drift, a
+    legacy-pair signature write that dies mid-flight leaves a ``.sig.staging.tmp`` orphan
+    that ``--purge-state`` can no longer see, in a directory the operator named.
+    """
+    cache_file = tmp_path / "policy.json"
+    config = ReleaseCheckerConfig(cache_file=str(cache_file))
+    scope = state_store.resolve_state_scope(config)
+    swaps: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        state_store, "_replace", lambda source, destination: swaps.append((source, destination))
+    )
+    state_store.write_state(scope, b'{"policy": true}', b"detached-sig")
+
+    staging = [str(path) for role, path in state_store._state_entries(config) if role == "staging"]
+    expected = str(
+        scope.signature_path.with_name(state_store.staging_name(scope.signature_path.name))
+    )
+    assert expected in staging
+    assert str(scope.staging_path) in staging
+    assert len(staging) == 2  # the policy staging name and the .sig staging name, no more
+    # ...and it is the very name the writer staged the signature under.
+    staged_signature = next(src for src, dest in swaps if dest == str(scope.signature_path))
+    assert staged_signature == expected
+
+
+def test_describe_state_survives_an_out_of_range_modification_time(tmp_path, monkeypatch):
+    """``describe_state`` is documented NEVER raises, but its per-path guard caught only
+    ``(OSError, ValueError)``. CPython raises ``OverflowError`` — an ``ArithmeticError``,
+    NOT a ``ValueError`` — when a stat timestamp falls outside the platform ``time_t``
+    range, so one such file escaped the guard and took the whole ``--show-state`` payload
+    down with it.
+
+    The out-of-range clock is injected rather than written to disk with ``os.utime``: no
+    filesystem either CI leg can create stores an mtime that far out (a Windows FILETIME
+    stops near year 30828 and yields ``OSError``, which was already caught), so the
+    branch is unreachable through real host behaviour. The premise is therefore asserted
+    against the real host first, and only the conversion itself is replaced.
+    """
+    assert not issubclass(OverflowError, ValueError)
+    with pytest.raises(OverflowError):
+        datetime.fromtimestamp(2**63, tz=timezone.utc)
+
+    config = ReleaseCheckerConfig(state_dir=str(tmp_path))
+    scope = state_store.resolve_state_scope(config)
+    _seed_container(scope.path)
+
+    class _OutOfRangeClock:
+        @staticmethod
+        def fromtimestamp(timestamp, tz=None):
+            raise OverflowError("timestamp out of range for platform time_t")
+
+    monkeypatch.setattr(state_store, "datetime", _OutOfRangeClock)
+    payload = state_store.describe_state(config)
+    entry = next(e for e in payload["entries"] if e["role"] == "state")
+    # The failed conversion costs exactly one field. Everything established before it,
+    # and everything the record itself yields, must still be reported.
+    assert entry["exists"] is True
+    assert entry["size_bytes"] is not None
+    assert entry["modified_utc"] is None
+    assert entry["status"] == "usable"
+    assert entry["policy_sha256"] == hashlib.sha256(_POLICY).hexdigest()
 
 
 def test_describe_state_reports_usable_container(tmp_path):
