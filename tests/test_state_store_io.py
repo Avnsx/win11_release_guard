@@ -294,3 +294,64 @@ def test_read_state_directory_at_path(tmp_path):
     # succeeds on Linux, where fstat/S_ISREG rejects it (-> "foreign"). A single
     # value cannot hold on both CI legs (§16.3).
     assert read.status in {"foreign", "absent"}
+
+
+def test_discard_state_removes_container(tmp_path):
+    record = state_store.encode_state(b"policy-bytes", b"sig")
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(record)
+    event = state_store.discard_state(_container_scope(dest))
+    assert event.action == "discard"
+    assert event.outcome == "removed"
+    assert event.path == str(dest)
+    assert not dest.exists()
+
+
+def test_discard_state_non_container_skipped():
+    scope = state_store.StateScope("none", None, None, None, "stateless")
+    event = state_store.discard_state(scope)
+    assert event.outcome == "skipped"
+    assert event.path is None
+
+
+def test_discard_state_refuses_foreign(tmp_path):
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(b"NOTMAGIC" + b"foreign content")
+    event = state_store.discard_state(_container_scope(dest))
+    assert event.outcome == "skipped"
+    assert event.detail == "not our format"
+    assert dest.exists()  # a file whose magic does not match is NEVER unlinked
+
+
+def test_discard_state_absent_path(tmp_path):
+    event = state_store.discard_state(_container_scope(tmp_path / "nope.tmp"))
+    assert event.outcome == "absent"
+    assert event.detail is None
+
+
+def test_discard_state_unlink_failure_failed(tmp_path, monkeypatch):
+    record = state_store.encode_state(b"policy-bytes", b"sig")
+    dest = tmp_path / "rec.tmp"
+    dest.write_bytes(record)
+
+    def boom(path):
+        raise OSError(13, "permission denied")
+
+    monkeypatch.setattr(state_store, "_unlink", boom)
+    event = state_store.discard_state(_container_scope(dest))
+    assert event.outcome == "failed"
+    # OSError(13, ...) is auto-mapped by Python to the PermissionError subclass, so
+    # _reason's f"{type(exc).__name__}: {exc}" names that concrete type. The subclass
+    # is still caught by `except (OSError, ValueError)`, which is what "failed" proves.
+    assert "PermissionError" in event.detail
+    assert dest.exists()  # the unlink failed, so the file survives
+
+
+def test_discard_state_docstring_carries_deletion_sentence():
+    doc = state_store.discard_state.__doc__
+    assert (
+        "The tool unlinks a record only at a path it derived itself, only after it has "
+        "opened that file and confirmed its first eight bytes equal STATE_MAGIC, and only "
+        "because the file did not yield a signature-verified policy."
+    ) in " ".join(doc.split())
+    assert 'A role == "staging" path is unlinked with no magic check' in " ".join(doc.split())

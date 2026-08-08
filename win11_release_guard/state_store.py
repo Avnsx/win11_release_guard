@@ -343,3 +343,42 @@ def read_state(scope: StateScope) -> StateRead:
         modified_epoch=st.st_mtime,
         detail=decoded.detail,
     )
+
+
+def discard_state(scope: StateScope) -> StateEvent:
+    """Remove the derived container because it did not yield a verified policy.
+    Touches disk. NEVER raises. Returns outcome 'removed' | 'absent' | 'skipped' | 'failed'.
+
+    The tool unlinks a record only at a path it derived itself, only after it has
+    opened that file and confirmed its first eight bytes equal STATE_MAGIC, and only
+    because the file did not yield a signature-verified policy. A role == "staging"
+    path is unlinked with no magic check; that carve-out is exercised only by
+    write_bytes_atomically's failure-path cleanup and by purge_state, never here.
+    """
+    if scope.layout != "container":
+        return StateEvent("discard", "skipped", None, scope.source)
+    path = str(scope.path)
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    except FileNotFoundError:
+        return StateEvent("discard", "absent", path, None)
+    except (OSError, ValueError) as exc:
+        return StateEvent("discard", "failed", path, _reason(exc))
+    try:
+        head = os.read(fd, 8)
+    except (OSError, ValueError):
+        head = b""
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    if head[:8] != STATE_MAGIC:
+        return StateEvent("discard", "skipped", path, "not our format")
+    try:
+        _unlink(path)
+    except FileNotFoundError:
+        return StateEvent("discard", "absent", path, None)
+    except (OSError, ValueError) as exc:
+        return StateEvent("discard", "failed", path, _reason(exc))
+    return StateEvent("discard", "removed", path, None)
