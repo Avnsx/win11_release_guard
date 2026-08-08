@@ -255,3 +255,36 @@ def write_bytes_atomically(path: Path, data: bytes) -> StateEvent:
             except (OSError, ValueError):
                 pass
         return StateEvent("write", "failed", str(path), _reason(exc))
+
+
+def write_state(
+    scope: StateScope,
+    policy_bytes: bytes,
+    signature_bytes: bytes | None,
+) -> StateEvent:
+    """The single state writer. Touches disk. NEVER raises. Layout-aware:
+
+    * "container" -> one encoded record through the primitive, size-guarded on THIS branch only.
+    * "legacy_pair" -> two raw primitive writes (policy, then .sig when present), byte-identical
+      to today, no mkdir; returns the policy write's event.
+    * "none"/stateless -> "skipped" carrying scope.source as the detail, before any filesystem
+      call (§6.4). scope.source is one of "stateless" | "no_temp_dir" | "state_dir_not_absolute"
+      | "path_not_nameable"; _persist_policy maps every value except "stateless" to one
+      cache_write_failed.
+    """
+    if scope.layout == "none" or scope.path is None:
+        return StateEvent("write", "skipped", None, scope.source)
+    if scope.layout == "container":
+        record = encode_state(policy_bytes, signature_bytes)
+        if (
+            not policy_bytes
+            or len(signature_bytes or b"") > DEFAULT_MAX_SIGNATURE_BYTES
+            or len(record) > MAX_STATE_FILE_BYTES
+        ):
+            return StateEvent("write", "skipped", str(scope.path), "record too large")
+        return write_bytes_atomically(Path(scope.path), record)
+    # "legacy_pair": two raw files, byte-identical to today, no encode_state, no mkdir.
+    event = write_bytes_atomically(Path(scope.path), policy_bytes)
+    if signature_bytes is not None and scope.signature_path is not None:
+        write_bytes_atomically(Path(scope.signature_path), signature_bytes)
+    return event
