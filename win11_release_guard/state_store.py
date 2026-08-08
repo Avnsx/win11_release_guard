@@ -20,17 +20,28 @@ is unlinked with no magic check.
 Test seams: the only host interaction points, private but test-visible, are
 _first_existing_dir, _host_uid, _replace, _unlink and _read_all. Tests patch
 these five names and nothing else; no other function performs I/O behind them.
+
+Codec testing law: Decode of a checked-in vector may be pinned. Encode may only
+be tested by round-trip. Never assert on compressed bytes or on file size.
 """
 
 from __future__ import annotations
 
 import hashlib
+import struct
+import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 
+from .json_utils import DEFAULT_MAX_SIGNATURE_BYTES
+
 STATE_NAMESPACE: bytes = b"w11rg-state"  # digest input only; NEVER written to disk
 STATE_FORMAT_VERSION: int = 1
+STATE_MAGIC: bytes = b"\xdb\xa7\x0d\x0aSTR1"     # DB A7 CR LF 'S' 'T' 'R' '1'
+STATE_HEADER_LEN: int = 50
+MAX_STATE_FILE_BYTES: int = 8 * 1024 * 1024      # on-disk cap, fixed, never configurable
+MAX_STATE_BODY_BYTES: int = 32 * 1024 * 1024     # inflated cap, fixed, never configurable
 
 
 def temp_dir_candidates(os_name: str, env: Mapping[str, str]) -> tuple[str, ...]:
@@ -120,3 +131,67 @@ class StateScope:
     staging_path: PurePath | None    # None when layout == "none"
     source: str                      # "cache_file" | "state_dir" | "default_temp" | "stateless"
                                      # | "no_temp_dir" | "state_dir_not_absolute" | "path_not_nameable"
+
+
+@dataclass(frozen=True)
+class StateRead:
+    status: str                      # "absent" | "foreign" | "unusable" | "usable"
+    policy_bytes: bytes | None = None
+    signature_bytes: bytes | None = None
+    modified_epoch: float | None = None
+    detail: str | None = None
+
+
+_HEADER = struct.Struct("<8sHII32s")  # magic, format_version, policy_len, signature_len, body_digest
+
+
+def encode_state(policy_bytes: bytes, signature_bytes: bytes | None) -> bytes:
+    """PURE bytes -> bytes. Header + zlib.compress(policy + signature, 9); the digest
+    is over the UNCOMPRESSED body so the two CI legs' compressors may differ."""
+    signature = signature_bytes or b""
+    body = policy_bytes + signature
+    header = _HEADER.pack(
+        STATE_MAGIC,
+        STATE_FORMAT_VERSION,
+        len(policy_bytes),
+        len(signature),
+        hashlib.sha256(body).digest(),
+    )
+    return header + zlib.compress(body, 9)
+
+
+def decode_state(raw: bytes) -> StateRead:
+    """PURE bytes -> StateRead. Never raises. Nine ordered checks, first failure wins."""
+    if raw[:8] != STATE_MAGIC:
+        return StateRead("foreign")
+    if len(raw) < STATE_HEADER_LEN:
+        return StateRead("unusable", detail="short header")
+    _magic, format_version, policy_len, signature_len, body_digest = _HEADER.unpack(
+        raw[:STATE_HEADER_LEN]
+    )
+    if format_version != STATE_FORMAT_VERSION:
+        return StateRead("unusable", detail=f"format version {format_version}")
+    if (
+        policy_len == 0
+        or policy_len > MAX_STATE_BODY_BYTES
+        or signature_len > DEFAULT_MAX_SIGNATURE_BYTES
+    ):
+        return StateRead("unusable", detail="declared length out of range")
+    decompressor = zlib.decompressobj()
+    try:
+        body = decompressor.decompress(
+            raw[STATE_HEADER_LEN:], max_length=policy_len + signature_len
+        )
+    except zlib.error:
+        return StateRead("unusable", detail="inflate failed")
+    if decompressor.unconsumed_tail or decompressor.unused_data or not decompressor.eof:
+        return StateRead("unusable", detail="stream boundary mismatch")
+    if len(body) != policy_len + signature_len:
+        return StateRead("unusable", detail="length mismatch")
+    if hashlib.sha256(body).digest() != body_digest:
+        return StateRead("unusable", detail="digest mismatch")
+    return StateRead(
+        "usable",
+        policy_bytes=body[:policy_len],
+        signature_bytes=body[policy_len:] if signature_len else None,
+    )
