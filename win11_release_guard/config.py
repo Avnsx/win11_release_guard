@@ -72,6 +72,8 @@ class ReleaseCheckerConfig:
     allow_runtime_release_health_html: bool = False
     allow_unsigned_policy: bool = False
     trusted_policy_public_key: str | None = None
+    state_dir: str | None = None
+    stateless: bool = False
     use_bundled_policy_fallback: bool = True
     source_check_required_for_green: bool = False
     strict_production: bool = field(default_factory=lambda: strict_production_from_env())
@@ -83,6 +85,8 @@ class ReleaseCheckerConfig:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "policy_url", normalize_policy_url(self.policy_url))
+        object.__setattr__(self, "state_dir", normalize_state_dir(self.state_dir))
+        object.__setattr__(self, "stateless", bool(self.stateless))
         object.__setattr__(self, "strict_production", bool(self.strict_production))
         object.__setattr__(self, "max_policy_bytes", _normalize_positive_int(self.max_policy_bytes, DEFAULT_MAX_POLICY_BYTES))
         if self.strict_production:
@@ -97,6 +101,11 @@ class ReleaseCheckerConfig:
 
 
 def normalize_policy_url(value: str | None) -> str | None:
+    normalized = str(value).strip() if value is not None else None
+    return normalized or None
+
+
+def normalize_state_dir(value: str | None) -> str | None:
     normalized = str(value).strip() if value is not None else None
     return normalized or None
 
