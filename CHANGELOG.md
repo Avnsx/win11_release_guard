@@ -2,7 +2,44 @@
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Changed
+
+* The client runtime now keeps its default policy cache as one compact,
+  atomically written record in the operating-system temp directory instead of a
+  permanent JSON file under `%LOCALAPPDATA%\win11_release_guard\`. On-disk state
+  is an optimisation only: it never changes the signed compliance verdict or the
+  exit code.
+* `--diagnose-config` now reports `cache_file` as the effective runtime state
+  location, or a configured `--cache-file`, instead of the legacy default cache
+  path. It is `null` when the run is stateless.
+* `--output` now writes atomically through a staging file and `os.replace`,
+  keeping a single in-place fallback for a report file another process holds
+  open; its failure message names the path and the underlying reason, and the
+  exit code stays `2`.
+* The optional Windows Update cookie cache and the legacy JSON policy cache are
+  written through the atomic write primitive, so on Windows both files are now
+  LF instead of CRLF.
+* `cache.save_policy_cache` and `wu_offer_probe.store_cached_cookie` no longer
+  raise when the destination cannot be written; they return without writing, so
+  a `--cache-file` under a missing parent directory quietly caches nothing
+  instead of creating a directory tree.
+
+### Added
+
+* Operator and embedder state controls: the `--state-dir`, `--stateless`,
+  `--purge-state`, and `--show-state` flags; the matching
+  `WIN11_RELEASE_GUARD_STATE_DIR` and `WIN11_RELEASE_GUARD_STATELESS`
+  environment variables; the `WIN11_RELEASE_GUARD_CACHE_FILE` environment
+  variable, which now supplies the runtime `--cache-file` default; and the
+  `purge_state`, `describe_state`, and `read_state_bytes` embedder API.
+
+### Fixed
+
+* A verified remote policy is no longer discarded from memory when its cache
+  write fails; the run proceeds on the verified policy and records one
+  `cache_write_failed` source problem.
+* An unusable state record now self-heals instead of failing every run, and an
+  interrupted write no longer leaves a permanent empty cache directory behind.
 
 ## v0.4.0 - 2026-08-07
 

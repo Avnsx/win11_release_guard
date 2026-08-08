@@ -24,6 +24,7 @@ Related links: [maintainer guide](maintainer-guide.md) | [wiki architecture](../
 | `http_client.py` | Shared outbound HTTP client with consistent headers, transparent gzip/deflate decompression, bounded reads, retry with backoff, and conditional (`ETag`/`If-None-Match`) requests. |
 | `signing.py`, `json_utils.py`, `policy_schema.py` | Trust, strict JSON, schema validation. |
 | `cache.py`, `bundled_policy.py`, `freshness.py`, `version.py` | Cache, bundled fallback, age calculations, identity. |
+| `state_store.py` | Non-permanent on-disk runtime state: temp-directory record derivation, the compact `zlib`+`sha256` record codec, the atomic write primitive, the self-healing read path, the magic-gated deletion rule, and the purge/describe/read embedder API. |
 
 ## Tool Scripts
 

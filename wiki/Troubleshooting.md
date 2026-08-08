@@ -109,6 +109,19 @@ public Microsoft evidence. It is informational UI generated from local policy
 facts and validated public evidence; it does not change signed verdicts,
 required-baseline selection, runtime client behavior, or `/api/v1` aliases.
 
+## On-Disk State
+
+| Check | What to do |
+| --- | --- |
+| `cache_write_failed` source problem | The state or `--cache-file` write was skipped or failed; the run continues on the freshly verified remote policy and the verdict and exit code are unchanged. The problem message names the path and reason. |
+| Two instances at once (`WinError 32`) | First cause to rule out: two runs with the same configuration share one staging file name and one raced the other's `os.replace`. The loser records `cache_write_failed` and moves on; no data is lost. |
+| `--cache-file` under a missing parent | The write primitive never creates directories, so a `--cache-file` whose parent directory does not exist is skipped, not created. The run records `cache_write_failed` and caches nothing, and the `cache.save_policy_cache` and `wu_offer_probe.store_cached_cookie` helpers return without raising in the same situation. Create the directory once, deliberately, then rerun. |
+| Legacy pair `.sig` mismatch | For a `--cache-file` legacy pair the policy and its `.sig` are written together; a stale or mismatched `.sig` reads back as `corrupt_cache` and self-heals on the next successful remote fetch. |
+| Stored record shows `corrupt_cache` | A container record that fails its magic, length, stream-boundary, or digest checks is treated as unusable and retried; it is rewritten from the next verified remote policy. |
+| `--show-state --output` did not write | A monitoring agent holding the output path open can refuse both the atomic swap and the one in-place fallback; the state report still prints, a top-level `detail` names the reason, and the command exits `2`. |
+| `--output` did not write | The report is written atomically through a staging file and `os.replace`, with one in-place fallback. When both fail the message names the path and the underlying error, for example `Could not write JSON output to C:\reports\out.json: FileNotFoundError: [Errno 2] No such file or directory`, and the command exits `2` as before. |
+| Cookie cache or legacy cache file now ends lines with LF | Both are written as bytes through the atomic write primitive, so on Windows they contain LF instead of the previous CRLF. The JSON content is otherwise unchanged and every reader of these files is unaffected. |
+
 ## Related Pages
 
 [Home](Home) | [Source Diagnostics](Source-Diagnostics) | [Agent Chokepoints](Agent-Chokepoints)
