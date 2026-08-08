@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -252,11 +253,73 @@ def test_generator_probe_passes_the_explicit_cookie_cache_path(monkeypatch) -> N
     assert _Path(".tmp") in made
 
 
-def test_wu_offer_probe_module_has_no_cwd_write_primitives() -> None:
-    from pathlib import Path as _Path
+# --- wu_offer_probe.py source guard -------------------------------------------------------
+# Same AST technique as tests/test_no_cwd_writes.py, kept local because `tests/` is not a
+# package: importing that module by name would either duplicate it alongside the copy pytest
+# already collected or lean on pytest's prepend-import-mode sys.path insertion.
+#
+# Attribute NAMES are matched whatever the value expression, so `Path(x).mkdir()` and
+# `self._dir.mkdir()` fire alongside `os.mkdir`; `os.makedirs` is included because the previous
+# substring guard silently missed it.
+_PROBE_BANNED_ATTRS = frozenset({"cwd", "getcwd", "makedirs", "mkdir"})
+_PROBE_BANNED_IMPORT_NAMES = frozenset({"getcwd", "makedirs", "mkdir"})
+_PROBE_BANNED_MODULES = frozenset({"tempfile"})
 
-    src = (_Path(__file__).resolve().parents[1] / "win11_release_guard" / "wu_offer_probe.py").read_text(encoding="utf-8")
-    assert ".mkdir(" not in src
-    assert "os.getcwd" not in src
-    assert "Path.cwd" not in src
-    assert "tempfile" not in src
+
+def _probe_cwd_hits(source: str, filename: str) -> list[str]:
+    """AST scan for CWD reads, directory creation and ``tempfile`` use in a client-runtime module."""
+    tree = ast.parse(source, filename=filename)
+    hits: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in _PROBE_BANNED_ATTRS:
+            hits.append(f"{filename}:{node.lineno} .{node.attr}")
+        elif isinstance(node, ast.Import):
+            hits.extend(
+                f"{filename}:{node.lineno} import {alias.name}"
+                for alias in node.names
+                if alias.name.split(".")[0] in _PROBE_BANNED_MODULES
+            )
+        elif isinstance(node, ast.ImportFrom):
+            if node.module is not None and node.module.split(".")[0] in _PROBE_BANNED_MODULES:
+                hits.append(f"{filename}:{node.lineno} from {node.module} import ...")
+            hits.extend(
+                f"{filename}:{node.lineno} from {node.module} import {alias.name}"
+                for alias in node.names
+                if alias.name in _PROBE_BANNED_IMPORT_NAMES
+            )
+    return hits
+
+
+def test_probe_matcher_flags_every_planted_write_primitive() -> None:
+    for planted in (
+        "os.makedirs('a')",
+        "os.mkdir('b')",
+        "Path.mkdir(p)",
+        "Path('c').mkdir(parents=True)",
+        "self._dir.mkdir()",
+        "os.getcwd()",
+        "Path.cwd()",
+        "from os import makedirs",
+        "import tempfile",
+        "from tempfile import mkdtemp",
+    ):
+        assert _probe_cwd_hits(planted + "\n", "planted.py"), f"matcher missed {planted!r}"
+
+
+def test_probe_matcher_spares_comments_docstrings_and_strings() -> None:
+    # Every one of these lines contains a substring the previous grep-style guard tripped on.
+    lookalike = (
+        '"""This module never calls Path.cwd or os.getcwd."""\n'
+        "import os\n"
+        "# never call target.mkdir(parents=True) or reach for tempfile here\n"
+        "MESSAGE = 'os.getcwd / .mkdir( / tempfile'\n"
+        "os.path.join('a', 'b')\n"
+        "os.name\n"
+    )
+    assert _probe_cwd_hits(lookalike, "legit.py") == []
+
+
+def test_wu_offer_probe_module_has_no_cwd_write_primitives() -> None:
+    module = Path(__file__).resolve().parents[1] / "win11_release_guard" / "wu_offer_probe.py"
+    hits = _probe_cwd_hits(module.read_text(encoding="utf-8"), module.name)
+    assert hits == [], f"CWD/dir-creation/tempfile sites in wu_offer_probe.py: {hits}"
