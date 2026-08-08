@@ -37,6 +37,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Any
 
+from .config import (
+    DEFAULT_TRUSTED_POLICY_PUBLIC_KEY,
+    ReleaseCheckerConfig,
+    resolve_policy_url,
+)
 from .json_utils import DEFAULT_MAX_SIGNATURE_BYTES
 
 STATE_NAMESPACE: bytes = b"w11rg-state"  # digest input only; NEVER written to disk
@@ -228,6 +233,29 @@ def _replace(source: str, destination: str) -> None:
 def _unlink(path: str) -> None:
     """I/O SEAM. os.unlink, isolated so tests can force a delete failure portably."""
     os.unlink(path)
+
+
+def _first_existing_dir(candidates: tuple[str, ...]) -> str | None:
+    """I/O SEAM. First candidate for which os.path.isdir is True, else None. Never creates,
+    never writes, never probes; every OSError/ValueError yields the next candidate."""
+    for candidate in candidates:
+        try:
+            if os.path.isdir(candidate):
+                return candidate
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _host_uid() -> int | None:
+    """I/O SEAM. The only os.getuid call site in the package; None on Windows."""
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:
+        return None
+    try:
+        return getuid()
+    except (OSError, ValueError):
+        return None
 
 
 _WRITE_FLAGS: int = os.O_CREAT | os.O_WRONLY | os.O_TRUNC | getattr(os, "O_BINARY", 0)
@@ -435,3 +463,29 @@ def plan_state_scope(
     except ValueError:
         return StateScope("none", None, None, None, "path_not_nameable")
     return StateScope("container", path, None, staging, source)
+
+
+def resolve_state_scope(config: ReleaseCheckerConfig) -> StateScope:
+    """The single I/O entry point. Never creates anything, never raises. Stateless short-circuits
+    before any seam runs (§2.4); otherwise gathers os.name/os.environ and the two seams, resolves
+    the effective URL and trusted key, and threads allow_unsigned_policy to plan_state_scope."""
+    if config.stateless:
+        return StateScope("none", None, None, None, "stateless")
+    os_name = os.name
+    env = os.environ
+    temp_dir = _first_existing_dir(temp_dir_candidates(os_name, env))
+    uid = _host_uid()
+    policy_url = resolve_policy_url(config.policy_url) or ""
+    trusted_public_key = config.trusted_policy_public_key or DEFAULT_TRUSTED_POLICY_PUBLIC_KEY
+    return plan_state_scope(
+        os_name=os_name,
+        env=env,
+        temp_dir=temp_dir,
+        uid=uid,
+        policy_url=policy_url,
+        trusted_public_key=trusted_public_key,
+        allow_unsigned_policy=config.allow_unsigned_policy,
+        cache_file=config.cache_file,
+        state_dir=config.state_dir,
+        stateless=config.stateless,
+    )
