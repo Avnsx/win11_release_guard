@@ -993,3 +993,70 @@ def test_evaluation_result_candidate_status_round_trips():
     assert restored.local_scope_status is EvaluationStatus.OUT_OF_SCOPE
     assert restored.policy_age_hours == 1104.0
     assert restored.feed_age_days == 46.0
+
+
+PENDING_26H2_FIXTURE = "tests/fixtures/windows11-release-health-26h2-pending-b.html"
+
+
+def _pending_26h2_policy() -> ReleasePolicy:
+    from win11_release_guard.remote_policy import parse_windows11_release_health_html
+
+    with open(PENDING_26H2_FIXTURE, encoding="utf-8") as handle:
+        return parse_windows11_release_health_html(handle.read())
+
+
+def _client_device(build_family: int, ubr: int, display_version: str | None) -> LocalWindowsState:
+    return LocalWindowsState(
+        current_build=build_family,
+        ubr=ubr,
+        full_build=f"{build_family}.{ubr}",
+        build_family=build_family,
+        display_version=display_version,
+        is_windows_client=True,
+        is_windows_11_or_newer=True,
+        is_server=False,
+    )
+
+
+def test_static_build_family_map_recognises_26h2():
+    from win11_release_guard.local_state import infer_release_from_build_family
+
+    assert infer_release_from_build_family(26300) == "26H2"
+
+
+def test_infer_installed_release_without_policy_maps_26h2_build_family():
+    inference = infer_installed_release(_client_device(26300, 9550, None), None)
+
+    assert inference.release == "26H2"
+    assert inference.confidence == "fallback_static"
+
+
+def test_select_quality_baseline_b_release_only_never_falls_back_to_a_preview():
+    assert select_quality_baseline(_pending_26h2_policy(), "26H2", quality_policy="b_release_only") == {}
+
+
+def test_explicit_target_without_b_release_does_not_require_a_preview_build():
+    result = evaluate_windows_update_state(
+        _client_device(26300, 9457, "26H2"),
+        _pending_26h2_policy(),
+        explicit_target_release="26H2",
+    )
+
+    assert result.status is EvaluationStatus.COMPLIANT
+    assert result.baseline_build is None
+    assert any("no monthly security (B) release" in warning for warning in result.warnings)
+
+
+def test_device_on_held_target_september_b_release_is_compliant():
+    result = evaluate_windows_update_state(_client_device(26200, 9445, "25H2"), _pending_26h2_policy())
+
+    assert result.status is EvaluationStatus.COMPLIANT
+    assert result.target.version == "25H2"
+    assert result.baseline_build == "26200.9445"
+
+
+def test_device_on_pending_release_reports_above_broad_target():
+    result = evaluate_windows_update_state(_client_device(26300, 9550, "26H2"), _pending_26h2_policy())
+
+    assert result.status is EvaluationStatus.ABOVE_BROAD_TARGET_OR_SPECIAL_RELEASE
+    assert result.target.version == "25H2"

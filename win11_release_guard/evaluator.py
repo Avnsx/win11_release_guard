@@ -833,6 +833,9 @@ def select_quality_baseline(
         filtered = rows
 
     if not filtered:
+        if selected_policy is QualityPolicy.B_RELEASE_ONLY:
+            # A preview, OOB, or unclassified row is never a B-release-only baseline.
+            return {}
         filtered = rows
 
     return max(
@@ -1226,10 +1229,25 @@ def evaluate_windows_update_state(
     baseline = select_quality_baseline(policy, target.version, quality_policy, target_entry=target)
     installed_release = inference.release
     installed_build = _local_full_build(local_state)
-    baseline_build = (
-        baseline.build
-        if isinstance(baseline, ReleaseHistoryEntry)
-        else target.effective_baseline_build
+    awaiting_b_release = (
+        not isinstance(baseline, ReleaseHistoryEntry)
+        and _quality_policy(quality_policy) is QualityPolicy.B_RELEASE_ONLY
+        and any(row.release.upper() == target.version.upper() for row in policy.release_history)
+    )
+    if isinstance(baseline, ReleaseHistoryEntry):
+        baseline_build = baseline.build
+    elif awaiting_b_release:
+        # required_baseline_build falls back to latest_build, which is a preview here.
+        baseline_build = target.baseline_build
+    else:
+        baseline_build = target.effective_baseline_build
+    baseline_warnings = (
+        [
+            f"Release history lists no monthly security (B) release for {target.version} yet; "
+            "no quality baseline is enforced until its first B release."
+        ]
+        if awaiting_b_release and baseline_build is None
+        else []
     )
     installed_build_origin = determine_installed_build_origin(
         local_state=local_state,
@@ -1333,8 +1351,22 @@ def evaluate_windows_update_state(
         local_consensus=local_consensus,
         baseline_build=baseline_build,
         action=action,
-        notes=[*local_consensus.warnings, *edition_warnings, *origin_warnings, *wua_warnings, *notes],
-        warnings=[*local_consensus.warnings, *edition_warnings, *origin_warnings, *wua_warnings, *notes],
+        notes=[
+            *local_consensus.warnings,
+            *edition_warnings,
+            *baseline_warnings,
+            *origin_warnings,
+            *wua_warnings,
+            *notes,
+        ],
+        warnings=[
+            *local_consensus.warnings,
+            *edition_warnings,
+            *baseline_warnings,
+            *origin_warnings,
+            *wua_warnings,
+            *notes,
+        ],
         wua_secondary=wua_secondary,
         target_selection_reason=target_selection_reason,
         metadata={

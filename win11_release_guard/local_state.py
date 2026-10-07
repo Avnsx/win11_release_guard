@@ -47,6 +47,7 @@ DEFAULT_BUILD_FAMILY_RELEASES: Mapping[int, str] = {
     22631: "23H2",
     26100: "24H2",
     26200: "25H2",
+    26300: "26H2",
     28000: "26H1",
 }
 
