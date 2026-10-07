@@ -870,6 +870,193 @@ def test_release_health_parser_requires_b_baseline_for_broad_target():
         parse_windows11_release_health_html(_fixture_html_without_b_baseline_for_25h2())
 
 
+PENDING_26H2_FIXTURE = "windows11-release-health-26h2-pending-b.html"
+
+
+def _pending_26h2_html() -> str:
+    return _fixture_html_file(PENDING_26H2_FIXTURE)
+
+
+def _history_row(update_type: str, availability_date: str, build: str, kb_article: str) -> str:
+    return (
+        "      <tr>\n"
+        "        <td>General Availability Channel</td>\n"
+        f"        <td>{update_type}</td>\n"
+        f"        <td>{availability_date}</td>\n"
+        f"        <td>{build}</td>\n"
+        f"        <td>{kb_article}</td>\n"
+        "      </tr>\n"
+    )
+
+
+def _with_history_row(html: str, heading: str, row: str) -> str:
+    section = html.index(f"<h3>{heading}</h3>")
+    body = html.index("<tbody>\n", section) + len("<tbody>\n")
+    return html[:body] + row + html[body:]
+
+
+def _pending_26h2_html_after_october_patch_tuesday() -> str:
+    html = _with_history_row(
+        _pending_26h2_html(),
+        "Version 26H2 (OS build 26300)",
+        _history_row("2026-10 B", "2026-10-13", "26300.9700", "KB5130001"),
+    )
+    return _with_history_row(
+        html,
+        "Version 25H2 (OS build 26200)",
+        _history_row("2026-10 B", "2026-10-13", "26200.9700", "KB5130001"),
+    )
+
+
+def _pending_26h2_html_with_patch_tuesday_missing_for_26h2() -> str:
+    return _with_history_row(
+        _pending_26h2_html(),
+        "Version 25H2 (OS build 26200)",
+        _history_row("2026-10 B", "2026-10-13", "26200.9700", "KB5130001"),
+    )
+
+
+def _current_entry(policy: ReleasePolicy, version: str) -> ReleasePolicyEntry:
+    return next(entry for entry in policy.current_versions if entry.version == version)
+
+
+def test_release_health_parser_holds_broad_target_while_new_h2_awaits_first_b_release():
+    policy = parse_windows11_release_health_html(_pending_26h2_html())
+
+    target = policy.broad_target_existing_devices
+    assert target is not None
+    assert (target.version, target.build_family) == ("25H2", 26200)
+    assert target.baseline_build == "26200.9445"
+    assert target.required_baseline_build == "26200.9445"
+    assert target.latest_build == "26200.9550"
+
+
+def test_release_health_parser_marks_pending_release_not_broad_target_without_special_flags():
+    policy = parse_windows11_release_health_html(_pending_26h2_html())
+
+    pending = _current_entry(policy, "26H2")
+    assert pending.metadata["not_broad_target"] is True
+    assert pending.metadata["not_broad_target_existing_devices"] is True
+    assert pending.metadata["pending_first_b_release"] is True
+    assert "25H2" in pending.metadata["broad_target_hold_reason"]
+    assert "special_release" not in pending.metadata
+    assert "new_devices_only" not in pending.metadata
+    assert pending.baseline_build is None
+    assert [entry.version for entry in policy.special_releases] == ["26H1"]
+    assert [entry.version for entry in policy.excluded_for_existing_devices] == ["26H1"]
+    assert policy.supported_build_families[26300] == "26H2"
+
+
+def test_release_health_parser_hold_leaves_older_releases_without_b_rows_unflagged():
+    html = _pending_26h2_html().replace(_history_row("2026-09 B", "2026-09-08", "22631.7582", "KB5122880"), "", 1)
+    policy = parse_windows11_release_health_html(html)
+
+    assert _current_entry(policy, "23H2").baseline_build is None
+    assert _current_entry(policy, "26H2").metadata["pending_first_b_release"] is True
+    assert "not_broad_target" not in _current_entry(policy, "23H2").metadata
+    assert "pending_first_b_release" not in _current_entry(policy, "23H2").metadata
+
+
+def test_release_health_parser_reports_pending_first_b_release_as_dashboard_notice():
+    policy = parse_windows11_release_health_html(_pending_26h2_html())
+
+    events = [
+        event
+        for event in policy.source_diagnostics["parser"]["events"]
+        if event.get("kind") == "broad_target_pending_b_release"
+    ]
+    assert len(events) == 1
+    event = events[0]
+    assert event["severity"] == "notice"
+    assert (event["release"], event["build_family"], event["build"]) == ("26H2", 26300, "26300.9550")
+    assert event["held_release"] == "25H2"
+    assert event["held_required_baseline_build"] == "26200.9445"
+    assert event["affects_broad_target"] is True
+    assert event["affects_required_baseline"] is False
+    assert "26H2" in event["message"] and "25H2" in event["message"]
+
+
+def test_release_health_parser_promotes_new_h2_after_its_first_b_release():
+    policy = parse_windows11_release_health_html(_pending_26h2_html_after_october_patch_tuesday())
+
+    target = policy.broad_target_existing_devices
+    assert target is not None
+    assert (target.version, target.build_family) == ("26H2", 26300)
+    assert target.required_baseline_build == "26300.9700"
+    assert "pending_first_b_release" not in _current_entry(policy, "26H2").metadata
+    assert "not_broad_target" not in _current_entry(policy, "26H2").metadata
+    assert not [
+        event
+        for event in policy.source_diagnostics["parser"]["events"]
+        if event.get("kind") == "broad_target_pending_b_release"
+    ]
+
+
+def test_release_health_parser_fails_closed_when_patch_tuesday_passed_without_b_for_new_h2():
+    with pytest.raises(PolicyParseError, match="B-release required baseline.*26H2/26300"):
+        parse_windows11_release_health_html(_pending_26h2_html_with_patch_tuesday_missing_for_26h2())
+
+
+def test_release_health_parser_fails_closed_when_only_a_newer_release_could_hold_the_target():
+    html = _pending_26h2_html()
+    for version in ("25H2", "24H2", "23H2"):
+        row_start = html.index(f"      <tr>\n        <td>{version}</td>")
+        row_end = html.index("      </tr>\n", row_start) + len("      </tr>\n")
+        html = html[:row_start] + html[row_end:]
+    newer_h1_row = (
+        "      <tr>\n        <td>27H1</td>\n        <td>General Availability Channel</td>\n"
+        "        <td>2026-02-10</td>\n        <td>2029-03-13</td>\n        <td>2030-03-12</td>\n"
+        "        <td>2026-09 B</td>\n        <td>2026-09-08</td>\n        <td>28100.1000</td>\n      </tr>\n"
+    )
+    first_current_row = html.index("      <tr>\n        <td>26H2</td>")
+    html = html[:first_current_row] + newer_h1_row + html[first_current_row:]
+    newer_h1_history = (
+        "  <h3>Version 27H1 (OS build 28100)</h3>\n  <table>\n    <thead>\n      <tr>\n"
+        "        <th>Servicing option</th>\n        <th>Update type</th>\n        <th>Availability date</th>\n"
+        "        <th>Build</th>\n        <th>KB article</th>\n      </tr>\n    </thead>\n    <tbody>\n"
+        + _history_row("2026-09 B", "2026-09-08", "28100.1000", "KB5124099")
+        + "    </tbody>\n  </table>\n\n"
+    )
+    html = html.replace("  <h3>Version 26H1 (OS build 28000)</h3>", newer_h1_history + "  <h3>Version 26H1 (OS build 28000)</h3>", 1)
+
+    with pytest.raises(PolicyParseError, match="B-release required baseline.*26H2/26300"):
+        parse_windows11_release_health_html(html)
+
+
+def test_release_health_parser_uses_release_history_date_when_current_availability_is_blank():
+    html = _pending_26h2_html().replace("<td>2026-09-29</td>\n        <td>2028-10-10</td>", "<td></td>\n        <td>2028-10-10</td>", 1)
+
+    policy = parse_windows11_release_health_html(html)
+
+    assert policy.broad_target_existing_devices.version == "25H2"
+    assert _current_entry(policy, "26H2").metadata["pending_first_b_release"] is True
+
+
+def test_release_health_parser_fails_closed_when_pending_release_has_no_dates():
+    html = _pending_26h2_html().replace("<td>2026-09-29</td>", "<td></td>")
+
+    with pytest.raises(PolicyParseError, match="B-release required baseline.*26H2/26300"):
+        parse_windows11_release_health_html(html)
+
+
+@pytest.mark.parametrize(
+    "edition_scope",
+    [EditionScope.UNKNOWN, EditionScope.HOME_PRO, EditionScope.ENTERPRISE_EDUCATION],
+)
+def test_client_target_selection_agrees_with_held_broad_target_after_json_round_trip(edition_scope):
+    from win11_release_guard.evaluator import select_broad_fleet_target
+
+    policy = policy_from_dict(policy_to_dict(parse_windows11_release_health_html(_pending_26h2_html())))
+
+    selected = select_broad_fleet_target(
+        policy,
+        edition_scope=edition_scope,
+        servicing_channel=ServicingChannel.GENERAL_AVAILABILITY,
+    )
+    target = policy.broad_target_existing_devices
+    assert (selected.version, selected.build_family) == (target.version, target.build_family) == ("25H2", 26200)
+
+
 def test_non_json_non_html_source_raises_policy_parse_error():
     with pytest.raises(PolicyParseError, match="neither JSON nor HTML"):
         load_policy_bytes(b"plain text")

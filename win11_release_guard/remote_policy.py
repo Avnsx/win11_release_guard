@@ -16,6 +16,12 @@ from .config import (
 )
 from .exceptions import PolicyError, PolicyFetchError, PolicyParseError
 from . import http_client
+from .broad_target_hold import (
+    BroadTargetHold,
+    pending_b_release_diagnostic,
+    prove_broad_target_hold,
+    with_pending_b_release_metadata,
+)
 from .json_utils import DEFAULT_MAX_POLICY_BYTES, StrictJSONError, strict_json_object
 from .models import (
     EditionScope,
@@ -794,6 +800,43 @@ def _select_quality_baseline(
     )
 
 
+def _broad_target_hold(
+    current_versions: list[ReleasePolicyEntry],
+    special_versions: set[str],
+    release_history: list[ReleaseHistoryEntry],
+    pending: ReleasePolicyEntry,
+) -> BroadTargetHold | None:
+    remaining = [
+        entry
+        for entry in current_versions
+        if (entry.version, entry.build_family) != (pending.version, pending.build_family)
+    ]
+    try:
+        target = _select_broad_target(remaining, special_versions)
+    except PolicyParseError:
+        return None
+    if _release_key(target.version) >= _release_key(pending.version):
+        return None
+    baseline = _select_quality_baseline(release_history, target.version, QualityPolicy.B_RELEASE_ONLY)
+    if baseline is None:
+        return None
+    return prove_broad_target_hold(
+        pending=pending,
+        target=target,
+        baseline=baseline,
+        release_history=release_history,
+    )
+
+
+def _raise_on_conflicting_target(conflicts: tuple[dict[str, Any], ...], entry: ReleasePolicyEntry) -> None:
+    for conflict in conflicts:
+        if _conflict_matches_entry(conflict, entry):
+            raise PolicyParseError(
+                "Conflicting Current Versions candidates make broad_target_existing_devices ambiguous: "
+                f"{conflict.get('message')}"
+            )
+
+
 def _conflict_matches_entry(conflict: Mapping[str, Any], entry: ReleasePolicyEntry) -> bool:
     try:
         build_family = int(conflict.get("build_family"))
@@ -1312,22 +1355,28 @@ def parse_windows11_release_health_html(html: str) -> ReleasePolicy:
     broad_target = _select_broad_target(current_versions, special_versions)
     if broad_target is None:
         raise PolicyParseError("Could not select broad_target_existing_devices from Release Health HTML.")
-    for conflict in current_selection.conflicts:
-        if _conflict_matches_entry(conflict, broad_target):
-            raise PolicyParseError(
-                "Conflicting Current Versions candidates make broad_target_existing_devices ambiguous: "
-                f"{conflict.get('message')}"
-            )
+    _raise_on_conflicting_target(current_selection.conflicts, broad_target)
     baseline = _select_quality_baseline(
         release_history,
         broad_target.version,
         QualityPolicy.B_RELEASE_ONLY,
     )
     if baseline is None:
-        raise PolicyParseError(
-            "Could not select B-release required baseline for broad_target_existing_devices "
-            f"{broad_target.version}/{broad_target.build_family} from Release Health release_history."
-        )
+        hold = _broad_target_hold(current_versions, special_versions, release_history, broad_target)
+        if hold is None:
+            raise PolicyParseError(
+                "Could not select B-release required baseline for broad_target_existing_devices "
+                f"{broad_target.version}/{broad_target.build_family} from Release Health release_history."
+            )
+        _raise_on_conflicting_target(current_selection.conflicts, hold.target)
+        current_versions = [
+            with_pending_b_release_metadata(entry, hold)
+            if (entry.version, entry.build_family) == (hold.pending.version, hold.pending.build_family)
+            else entry
+            for entry in current_versions
+        ]
+        parser_diagnostics.append(pending_b_release_diagnostic(hold))
+        broad_target, baseline = hold.target, hold.baseline
     broad_target = replace(
         broad_target,
         baseline_build=baseline.build,
