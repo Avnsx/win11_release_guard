@@ -954,7 +954,7 @@ def _validate_build(value: Any, field: str, *, required: bool = False) -> str | 
     return build
 
 
-def _build_key(value: str) -> tuple[int, int]:
+def _validated_build_key(value: str) -> tuple[int, int]:
     major, minor = value.split(".", 1)
     return int(major), int(minor)
 
@@ -966,7 +966,7 @@ def _validate_latest_observed_build(
 ) -> None:
     if latest_build is None or latest_observed_build is None:
         return
-    if _build_key(latest_observed_build) < _build_key(latest_build):
+    if _validated_build_key(latest_observed_build) < _validated_build_key(latest_build):
         raise PolicyParseError(f"{field} must not be older than latest_build.")
 
 
