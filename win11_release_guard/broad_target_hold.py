@@ -79,10 +79,18 @@ def prove_broad_target_hold(
 
 def hold_reason(hold: BroadTargetHold) -> str:
     return (
-        f"Windows 11 {hold.pending.version} is listed as available since {hold.available_since.isoformat()}, "
-        "but Release Health lists no monthly security (B) release for it yet. "
-        f"broad_target_existing_devices stays on {hold.target.version} (required baseline {hold.baseline.build}) "
-        f"until {hold.pending.version} receives its first B release."
+        f"No B release for Windows 11 {hold.pending.version} yet, so the broad target stays on "
+        f"{hold.target.version} (required baseline {hold.baseline.build}). "
+        f"Release Health lists {hold.pending.version} as available since {hold.available_since.isoformat()}; "
+        "it becomes the broad target with its first monthly security (B) release."
+    )
+
+
+def hold_user_message(hold: BroadTargetHold) -> str:
+    return (
+        f"{hold.target.version} stays the broad target with required baseline {hold.baseline.build} until "
+        f"Windows 11 {hold.pending.version} receives its first monthly security (B) release on a Patch Tuesday. "
+        f"Devices already on {hold.pending.version} report ABOVE_BROAD_TARGET_OR_SPECIAL_RELEASE until then."
     )
 
 
@@ -114,4 +122,5 @@ def pending_b_release_diagnostic(hold: BroadTargetHold) -> dict[str, Any]:
         "affects_broad_target": True,
         "affects_required_baseline": False,
         "message": hold_reason(hold),
+        "user_message": hold_user_message(hold),
     }

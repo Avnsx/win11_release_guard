@@ -23,7 +23,9 @@ from .config import (
     DEFAULT_RELEASE_HEALTH_URL,
     DEFAULT_TRUSTED_POLICY_KEY_ID,
 )
-from .exceptions import PolicyFetchError, PolicyParseError
+from .broad_target_hold import PENDING_B_RELEASE_KIND
+from .evaluator import select_broad_fleet_target
+from .exceptions import PolicyError, PolicyFetchError, PolicyParseError
 from .freshness import (
     epoch_milliseconds_from_iso,
     freshness_policy_metadata,
@@ -32,7 +34,14 @@ from .freshness import (
 )
 from . import http_client
 from .json_utils import DEFAULT_MAX_MICROSOFT_SOURCE_BYTES
-from .models import QualityPolicy, ReleaseHistoryEntry, ReleasePolicy, ReleasePolicyEntry
+from .models import (
+    EditionScope,
+    QualityPolicy,
+    ReleaseHistoryEntry,
+    ReleasePolicy,
+    ReleasePolicyEntry,
+    ServicingChannel,
+)
 from .policy_schema import (
     GENERATOR_VERSION,
     SUPPORTED_POLICY_SCHEMA_VERSION,
@@ -3695,7 +3704,44 @@ def _policy_with_enrichment(
         validation_warnings=combined_warnings,
         metadata=metadata,
     )
+    _raise_on_client_target_disagreement(enriched)
     return enriched
+
+
+_CLIENT_TARGET_AGREEMENT_SCOPES = (
+    EditionScope.UNKNOWN,
+    EditionScope.HOME_PRO,
+    EditionScope.ENTERPRISE_EDUCATION,
+)
+
+
+def _raise_on_client_target_disagreement(policy: ReleasePolicy) -> None:
+    """Refuse to publish a feed whose runtime target selection disagrees with the signed target.
+
+    Runtime clients re-derive their General Availability target from ``current_versions``
+    instead of reading ``broad_target_existing_devices``, so both selections must agree.
+    """
+
+    target = policy.broad_target_existing_devices
+    if target is None:
+        return
+    for scope in _CLIENT_TARGET_AGREEMENT_SCOPES:
+        try:
+            selected = select_broad_fleet_target(
+                policy,
+                edition_scope=scope,
+                servicing_channel=ServicingChannel.GENERAL_AVAILABILITY,
+            )
+        except PolicyError as exc:
+            raise PolicyParseError(
+                f"Runtime clients cannot select a broad target for {scope.value} devices: {exc}"
+            ) from exc
+        if (selected.version, selected.build_family) != (target.version, target.build_family):
+            raise PolicyParseError(
+                f"Runtime clients would select {selected.version}/{selected.build_family} for {scope.value} "
+                f"devices, but broad_target_existing_devices is {target.version}/{target.build_family}; "
+                "refusing to publish a policy with a split target."
+            )
 
 
 def generate_policy(
@@ -6610,6 +6656,8 @@ def _source_diagnostic_display_title(event: Mapping[str, Any]) -> str:
         return f"Release Health lag for {release_text}"
     if kind == "missing_broad_target_baseline" and release:
         return f"Missing baseline for {release_text}"
+    if kind == PENDING_B_RELEASE_KIND and release:
+        return f"{release_text} awaits its first B release"
     if build and release:
         return f"{_source_diagnostic_event_label(kind)} for {release_text} build {build}"
     return _source_diagnostic_event_label(kind)
@@ -6617,6 +6665,8 @@ def _source_diagnostic_display_title(event: Mapping[str, Any]) -> str:
 
 def _source_diagnostic_source_label(kind: Any) -> str:
     text = str(kind or "").strip().lower()
+    if text == PENDING_B_RELEASE_KIND:
+        return "Release policy"
     if "atom" in text:
         return "Servicing index"
     if "manifest" in text:

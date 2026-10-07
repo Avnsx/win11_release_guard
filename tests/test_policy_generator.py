@@ -5,6 +5,7 @@ import hashlib
 import re
 from datetime import datetime, timezone
 from dataclasses import replace
+from html import escape as html_escape
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -5421,3 +5422,122 @@ def test_msrc_cvrf_client_product_names_filters_to_windows_11() -> None:
         "Windows 11 Version 25H2 for x64-based Systems",
         "windows 11 version 24h2 for arm64-based systems",
     )
+
+
+PENDING_26H2_FIXTURE = FIXTURES / "windows11-release-health-26h2-pending-b.html"
+
+
+def _pending_26h2_policy() -> ReleasePolicy:
+    return build_policy_from_sources(
+        release_health_html_path=PENDING_26H2_FIXTURE,
+        servicing_toc_path=FIXTURES / "windows11-servicing-toc.json",
+        signature_status="valid",
+        support_article_fetcher=_offline_support_article_fetcher,
+        msrc_cvrf_fetcher=_offline_msrc_cvrf_fetcher,
+    )
+
+
+def _pending_b_release_events(policy_data: dict[str, object]) -> list[dict[str, object]]:
+    return [
+        event
+        for event in policy_data["source_diagnostics"]["events"]
+        if event.get("kind") == "broad_target_pending_b_release"
+    ]
+
+
+def test_generated_policy_holds_broad_target_while_new_release_awaits_first_b_release(tmp_path):
+    outputs = _generated_output_bundle(_pending_26h2_policy(), tmp_path)
+    data = outputs["policy"]
+
+    target = data["broad_target_existing_devices"]
+    assert (target["version"], target["build_family"]) == ("25H2", 26200)
+    assert target["required_baseline_build"] == "26200.9445"
+    assert data["quality_baselines"]["25H2"]["b_release_only"]["build"] == "26200.9445"
+    assert "b_release_only" not in data["quality_baselines"]["26H2"]
+    pending = next(entry for entry in data["current_versions"] if entry["version"] == "26H2")
+    assert pending["metadata"]["not_broad_target"] is True
+    assert pending["metadata"]["not_broad_target_existing_devices"] is True
+    assert pending["metadata"]["pending_first_b_release"] is True
+    assert data["supported_build_families"]["26300"] == "26H2"
+    assert [(note["type"], note["release"]) for note in data["known_notes"]] == [("special_release", "26H1")]
+
+
+def test_generated_pending_b_release_notice_is_dashboard_only(tmp_path):
+    from tools.sync_source_diagnostics_issues import diagnostics_from_policy
+
+    outputs = _generated_output_bundle(_pending_26h2_policy(), tmp_path)
+    data = outputs["policy"]
+
+    events = _pending_b_release_events(data)
+    assert len(events) == 1
+    event = events[0]
+    assert event["severity"] == "notice"
+    assert is_source_diagnostic_id(event["id"])
+    assert event["message"] in data["source_diagnostics"]["notices"]
+    assert event["message"] not in data["source_diagnostics"]["warnings"]
+    assert all(issue.kind != "broad_target_pending_b_release" for issue in diagnostics_from_policy(data))
+    index = outputs["index"]
+    assert "Windows 11 26H2 awaits its first B release" in index
+    assert html_escape(event["user_message"]) in index
+    assert "stays the broad target with required baseline 26200.9445" in event["user_message"]
+    assert "ABOVE_BROAD_TARGET_OR_SPECIAL_RELEASE" in event["user_message"]
+    assert "the broad target stays on 25H2 (required baseline 26200.9445)" in index
+
+
+def test_generated_policy_promotes_new_release_once_it_has_a_b_release(tmp_path):
+    october_b = (
+        "      <tr>\n        <td>General Availability Channel</td>\n        <td>2026-10 B</td>\n"
+        "        <td>2026-10-13</td>\n        <td>{build}</td>\n        <td>KB5130001</td>\n      </tr>\n"
+    )
+    html = PENDING_26H2_FIXTURE.read_text(encoding="utf-8")
+    for heading, build in (("Version 26H2 (OS build 26300)", "26300.9700"), ("Version 25H2 (OS build 26200)", "26200.9700")):
+        body = html.index("<tbody>\n", html.index(f"<h3>{heading}</h3>")) + len("<tbody>\n")
+        html = html[:body] + october_b.format(build=build) + html[body:]
+    source = tmp_path / "release-health.html"
+    source.write_text(html, encoding="utf-8")
+
+    policy = build_policy_from_sources(
+        release_health_html_path=source,
+        servicing_toc_path=FIXTURES / "windows11-servicing-toc.json",
+        signature_status="valid",
+        support_article_fetcher=_offline_support_article_fetcher,
+        msrc_cvrf_fetcher=_offline_msrc_cvrf_fetcher,
+    )
+    data = _generated_output_bundle(policy, tmp_path / "site")["policy"]
+
+    assert data["broad_target_existing_devices"]["version"] == "26H2"
+    assert data["broad_target_existing_devices"]["required_baseline_build"] == "26300.9700"
+    assert not _pending_b_release_events(data)
+
+
+def test_generator_refuses_to_publish_when_runtime_clients_would_select_another_target(monkeypatch):
+    import win11_release_guard.remote_policy as remote_policy_module
+
+    monkeypatch.setattr(remote_policy_module, "with_pending_b_release_metadata", lambda entry, hold: entry)
+
+    with pytest.raises(PolicyParseError, match=r"Runtime clients would select 26H2/26300 .*25H2/26200"):
+        _pending_26h2_policy()
+
+
+def test_client_target_agreement_guard_checks_enterprise_education_scope():
+    policy = _pending_26h2_policy()
+
+    def enterprise_only_newer_release(entry: ReleasePolicyEntry) -> ReleasePolicyEntry:
+        if entry.version != "26H2":
+            return entry
+        metadata = {
+            key: value
+            for key, value in entry.metadata.items()
+            if key not in {"not_broad_target", "not_broad_target_existing_devices", "pending_first_b_release"}
+        }
+        metadata["home_pro_end"] = "End of updates"
+        return replace(entry, metadata=metadata)
+
+    split = replace(
+        policy,
+        current_versions=tuple(enterprise_only_newer_release(entry) for entry in policy.current_versions),
+        supported_releases=tuple(enterprise_only_newer_release(entry) for entry in policy.supported_releases),
+    )
+
+    with pytest.raises(PolicyParseError, match=r"would select 26H2/26300 for enterprise_education devices"):
+        policy_generator_module._raise_on_client_target_disagreement(split)
