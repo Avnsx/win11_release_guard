@@ -23,7 +23,13 @@ from win11_release_guard.config import (
 from win11_release_guard.exceptions import PolicyFetchError, PolicyParseError
 from win11_release_guard.freshness import epoch_milliseconds_from_iso
 from win11_release_guard.models import QualityPolicy, ReleasePolicy, ReleasePolicyEntry
+import urllib.request
+
 import win11_release_guard.policy_generator as policy_generator_module
+from win11_release_guard.policy_generator import clock as generator_clock
+from win11_release_guard.policy_generator import msrc_cvrf as generator_msrc_cvrf
+from win11_release_guard.policy_generator import sources as generator_sources
+from win11_release_guard.policy_generator import support_articles as generator_support_articles
 from win11_release_guard.policy_generator import (
     SOURCE_DIAGNOSTIC_ID_PREFIX,
     _source_label,
@@ -169,7 +175,7 @@ def _html() -> str:
 
 
 def test_generator_utc_now_is_monotonic_at_millisecond_precision() -> None:
-    values = [policy_generator_module._utc_now() for _ in range(4)]
+    values = [generator_clock.utc_now() for _ in range(4)]
     epochs = [epoch_milliseconds_from_iso(value) for value in values]
 
     assert all(epoch is not None for epoch in epochs)
@@ -923,10 +929,10 @@ def test_default_support_article_fetcher_rejects_redirect_to_non_support_host(mo
     def fake_urlopen(request: object, timeout: float) -> Response:
         return Response()
 
-    monkeypatch.setattr(policy_generator_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     with pytest.raises(PolicyFetchError, match="unsafe URL"):
-        policy_generator_module._default_support_article_fetcher(KB5094126_SUPPORT_URL, 1.0, 1024)
+        generator_support_articles.default_support_article_fetcher(KB5094126_SUPPORT_URL, 1.0, 1024)
 
 
 def _with_26h2_ga(html: str) -> str:
@@ -2476,7 +2482,7 @@ def test_load_source_text_propagates_programming_error_from_fetch(monkeypatch: p
     def raising_fetch(url: str, *, timeout: float, charset: str | None, max_bytes: int) -> str:
         raise AssertionError("fetch must not be attempted")
 
-    monkeypatch.setattr(policy_generator_module, "_fetch_url", raising_fetch)
+    monkeypatch.setattr(generator_sources, "fetch_url", raising_fetch)
 
     with pytest.raises(AssertionError, match="fetch must not be attempted"):
         policy_generator_module.load_source_text(
@@ -2492,7 +2498,7 @@ def test_load_source_text_still_degrades_genuine_fetch_failure_when_not_required
     def failing_fetch(url: str, *, timeout: float, charset: str | None, max_bytes: int) -> str:
         raise PolicyFetchError("network unavailable")
 
-    monkeypatch.setattr(policy_generator_module, "_fetch_url", failing_fetch)
+    monkeypatch.setattr(generator_sources, "fetch_url", failing_fetch)
 
     result = policy_generator_module.load_source_text(
         url="https://policy-source.invalid/source.json",
@@ -2512,7 +2518,7 @@ def test_load_source_text_required_genuine_fetch_failure_still_raises_policy_fet
     def failing_fetch(url: str, *, timeout: float, charset: str | None, max_bytes: int) -> str:
         raise OSError("connection reset")
 
-    monkeypatch.setattr(policy_generator_module, "_fetch_url", failing_fetch)
+    monkeypatch.setattr(generator_sources, "fetch_url", failing_fetch)
 
     with pytest.raises(PolicyFetchError, match="could not fetch"):
         policy_generator_module.load_source_text(
@@ -5136,9 +5142,9 @@ def test_default_support_article_fetcher_follows_help_kb_redirect_to_servicing_a
     def fake_urlopen(request: object, timeout: float) -> Response:
         return Response()
 
-    monkeypatch.setattr(policy_generator_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    html = policy_generator_module._default_support_article_fetcher(
+    html = generator_support_articles.default_support_article_fetcher(
         "https://support.microsoft.com/help/5101650", 1.0, 4096
     )
 
@@ -5169,8 +5175,8 @@ def offline_enrichment_fetchers(monkeypatch: pytest.MonkeyPatch) -> dict[str, li
         calls["msrc"].append(url)
         return _offline_msrc_cvrf_fetcher(url, timeout, max_bytes)
 
-    monkeypatch.setattr(policy_generator_module, "_default_support_article_fetcher", support_fetcher)
-    monkeypatch.setattr(policy_generator_module, "_default_msrc_cvrf_fetcher", msrc_fetcher)
+    monkeypatch.setattr(generator_support_articles, "default_support_article_fetcher", support_fetcher)
+    monkeypatch.setattr(generator_msrc_cvrf, "default_msrc_cvrf_fetcher", msrc_fetcher)
     return calls
 
 

@@ -8,6 +8,9 @@ from pathlib import Path
 
 from win11_release_guard.models import ReleasePolicy, ReleasePolicyEntry
 import win11_release_guard.policy_generator as policy_generator_module
+from win11_release_guard.policy_generator import assembly as generator_assembly
+from win11_release_guard.policy_generator import clock as generator_clock
+from win11_release_guard.policy_generator.pages import dashboard as generator_dashboard
 from win11_release_guard.policy_generator import generate_policy, render_policy_index, write_policy_outputs
 
 
@@ -564,7 +567,7 @@ def test_pages_index_shows_generated_age_and_source_diagnostics_summary(tmp_path
 
 
 def test_pages_index_renders_day_hour_freshness_visual_state(monkeypatch) -> None:
-    monkeypatch.setattr(policy_generator_module, "_utc_now", lambda: "2026-06-07T15:00:00+00:00")
+    monkeypatch.setattr(generator_clock, "utc_now", lambda: "2026-06-07T15:00:00+00:00")
     policy = ReleasePolicy(generated_at_utc="2026-06-01T00:00:00+00:00")
 
     index = render_policy_index(policy, policy_bytes=None, signature=None)
@@ -1417,11 +1420,8 @@ def test_pages_index_epoch_copy_buttons_preserve_milliseconds() -> None:
 
 
 def test_pages_index_does_not_emit_release_link_for_invalid_program_version(monkeypatch) -> None:
-    monkeypatch.setattr(
-        policy_generator_module,
-        "GENERATOR_VERSION",
-        "win11_release_guard/not-a-version<script>",
-    )
+    monkeypatch.setattr(generator_assembly, "GENERATOR_VERSION", "win11_release_guard/not-a-version<script>")
+    monkeypatch.setattr(generator_dashboard, "GENERATOR_VERSION", "win11_release_guard/not-a-version<script>")
 
     index = render_policy_index(ReleasePolicy(), policy_bytes=None, signature=None)
     HTMLParser().feed(index)
@@ -1530,7 +1530,8 @@ def test_pages_index_embeds_feed_currency_thresholds_for_current_refresh_due_and
 
 
 def test_pages_index_release_link_tracks_future_program_versions(monkeypatch) -> None:
-    monkeypatch.setattr(policy_generator_module, "GENERATOR_VERSION", "win11_release_guard/1.2.3")
+    monkeypatch.setattr(generator_assembly, "GENERATOR_VERSION", "win11_release_guard/1.2.3")
+    monkeypatch.setattr(generator_dashboard, "GENERATOR_VERSION", "win11_release_guard/1.2.3")
 
     index = render_policy_index(ReleasePolicy(), policy_bytes=None, signature=None)
     HTMLParser().feed(index)
