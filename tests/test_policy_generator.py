@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from win11_release_guard import release_health as _release_health_module
 import json
 import hashlib
 import re
@@ -5519,7 +5520,7 @@ def test_generated_policy_promotes_new_release_once_it_has_a_b_release(tmp_path)
 def test_generator_refuses_to_publish_when_runtime_clients_would_select_another_target(monkeypatch):
     import win11_release_guard.remote_policy as remote_policy_module
 
-    monkeypatch.setattr(remote_policy_module, "with_pending_b_release_metadata", lambda entry, hold: entry)
+    monkeypatch.setattr(_release_health_module, "with_pending_b_release_metadata", lambda entry, hold: entry)
 
     with pytest.raises(PolicyParseError, match=r"Runtime clients would select 26H2/26300 .*25H2/26200"):
         _pending_26h2_policy()
