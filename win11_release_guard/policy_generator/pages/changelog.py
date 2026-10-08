@@ -38,6 +38,7 @@ def _wiki_sitemap_urls(*, wiki_dir: str | Path = WIKI_SOURCE_DIR, base_url: str 
     urls = [_wiki_page_href(source, base_url=base_url) for source in sources]
     return tuple(dict.fromkeys(urls))
 
+
 def _changelog_anchor_slug(title: str) -> str:
     if "unreleased" in title.casefold():
         return "unreleased"
@@ -45,6 +46,7 @@ def _changelog_anchor_slug(title: str) -> str:
     if version:
         return version
     return _heading_slug_base(title)
+
 
 def _changelog_version_from_title(title: str) -> str | None:
     if "unreleased" in title.casefold():
@@ -54,16 +56,19 @@ def _changelog_version_from_title(title: str) -> str | None:
         return None
     return f"v{match.group(1)}"
 
+
 def _changelog_release_href(version: str | None) -> str | None:
     if not version:
         return None
     return f"{GITHUB_RELEASES_BASE_URL}/{version}"
+
 
 def _changelog_index_description() -> str:
     return (
         "Windows 11 Release Guard changelog for Windows 11 release compliance, signed public policy feed "
         "changes, RMM, and fleet administration release history."
     )
+
 
 def _changelog_section_description(section: ChangelogSection) -> str:
     version_label = section.version or section.title
@@ -75,6 +80,7 @@ def _changelog_section_description(section: ChangelogSection) -> str:
     if "25h2" in lower_markdown or "26h1" in lower_markdown:
         description += " Includes Windows 11 25H2 and 26H1 release targeting notes."
     return description
+
 
 def _parse_changelog_sections(text: str) -> tuple[ChangelogSection, ...]:
     lines = text.splitlines()
@@ -101,6 +107,7 @@ def _parse_changelog_sections(text: str) -> tuple[ChangelogSection, ...]:
         )
     return tuple(sections)
 
+
 def _changelog_render_warnings(text: str, sections: Sequence[ChangelogSection]) -> tuple[str, ...]:
     warnings: list[str] = []
     if not text.strip():
@@ -121,22 +128,27 @@ def _changelog_render_warnings(text: str, sections: Sequence[ChangelogSection]) 
         warnings.append("CHANGELOG.md contains duplicate version headings; generated duplicate-safe anchors.")
     return tuple(dict.fromkeys(warnings))
 
+
 def _changelog_section_href(section: ChangelogSection, *, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     return f"{_changelog_pages_base_url(base_url=base_url)}#{section.slug}"
+
 
 def _changelog_version_page_href(section: ChangelogSection, *, base_url: str = DEFAULT_PAGES_BASE_URL) -> str | None:
     if not section.version:
         return None
     return f"{_changelog_pages_base_url(base_url=base_url)}{section.version}/"
 
+
 def _changelog_section_is_unreleased(section: ChangelogSection) -> bool:
     return section.title.strip().casefold() == "[unreleased]"
+
 
 def _changelog_heading_overrides(sections: Sequence[ChangelogSection]) -> dict[str, str | tuple[str, ...]]:
     grouped: dict[str, list[str]] = {}
     for section in sections:
         grouped.setdefault(section.title, []).append(section.slug)
     return {title: slugs[0] if len(slugs) == 1 else tuple(slugs) for title, slugs in grouped.items()}
+
 
 def _render_changelog_version_actions(
     section: ChangelogSection,
@@ -156,6 +168,7 @@ def _render_changelog_version_actions(
         links.append(f'<a href="{escape(section.release_href)}" rel="noopener noreferrer">GitHub release</a>')
     return f'<nav class="changelog-version-actions" aria-label="{escape(section.title)} links">{"".join(links)}</nav>'
 
+
 def _inject_changelog_version_actions(
     body_html: str,
     sections: Sequence[ChangelogSection],
@@ -172,6 +185,7 @@ def _inject_changelog_version_actions(
             count=1,
         )
     return updated
+
 
 def _render_changelog_navigation(
     sections: Sequence[ChangelogSection],
@@ -214,6 +228,7 @@ def _render_changelog_navigation(
         )
     return f'<section class="changelog-version-nav" aria-label="Changelog versions"><h2>Versions</h2><ol>{"".join(items)}</ol></section>'
 
+
 def _render_changelog_body(
     markdown: str,
     sections: Sequence[ChangelogSection],
@@ -232,6 +247,7 @@ def _render_changelog_body(
         heading_icons=True,
     )
     return _inject_changelog_version_actions(body_html, sections, base_url=base_url), headings, broken_links
+
 
 def render_changelog_pages(
     *,
@@ -297,6 +313,7 @@ def render_changelog_pages(
         )
     return rendered
 
+
 def write_changelog_pages(
     output_dir: str | Path,
     *,
@@ -311,6 +328,7 @@ def write_changelog_pages(
         _write_public_artifact_text(target, html)
         written[relative_path] = target
     return written
+
 
 def _changelog_sitemap_urls(
     *,

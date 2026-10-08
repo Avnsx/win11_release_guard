@@ -12,6 +12,7 @@ class WikiHeading:
     text: str
     slug: str
 
+
 @dataclass(frozen=True)
 class WikiPageSource:
     path: Path
@@ -19,12 +20,14 @@ class WikiPageSource:
     slug: str
     lookup_keys: tuple[str, ...]
 
+
 @dataclass(frozen=True)
 class RenderedWikiPage:
     source: WikiPageSource
     html: str
     headings: tuple[WikiHeading, ...]
     broken_links: tuple[str, ...]
+
 
 @dataclass(frozen=True)
 class ChangelogSection:

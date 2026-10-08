@@ -17,6 +17,7 @@ from . import sources
 
 SupportArticleFetcher = Callable[[str, float, int], str]
 
+
 def _kb_url(kb_article: str | None, feed_entry: AtomFeedEntry | None = None) -> str | None:
     if feed_entry is not None:
         return _atom_entry_support_url(feed_entry)
@@ -24,6 +25,7 @@ def _kb_url(kb_article: str | None, feed_entry: AtomFeedEntry | None = None) -> 
     if not kb:
         return None
     return f"https://support.microsoft.com/help/{kb[2:]}"
+
 
 _MAX_SUPPORT_ARTICLE_URL_LENGTH = 2048
 
@@ -43,9 +45,11 @@ _SUPPORT_ARTICLE_SERVICING_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 
+
 def _support_article_content_path(path: str) -> str:
     match = re.fullmatch(r"/[a-z]{2}-[a-z]{2}(/.*)", path, flags=re.IGNORECASE)
     return match.group(1) if match else path
+
 
 def _safe_support_article_url(value: str | None) -> str | None:
     url = str(value or "").strip()
@@ -93,12 +97,15 @@ def _safe_support_article_url(value: str | None) -> str | None:
         return f"https://support.microsoft.com{path}"
     return None
 
+
 _safe_atom_support_article_url = _safe_support_article_url
+
 
 def _atom_entry_support_url(entry: AtomFeedEntry | None) -> str | None:
     if entry is None:
         return None
     return _safe_support_article_url(entry.link)
+
 
 class _SupportArticleTextExtractor(HTMLParser):
     _SKIP_TAGS = {"script", "style", "noscript", "svg"}
@@ -212,6 +219,7 @@ class _SupportArticleTextExtractor(HTMLParser):
     def blocks(self) -> tuple[tuple[str, str], ...]:
         return tuple(self._blocks)
 
+
 _SECURITY_ARTICLE_PHRASES = (
     "includes the latest security fixes",
     "addresses security vulnerabilities",
@@ -284,18 +292,23 @@ _SUPPORT_ARTICLE_IMPROVEMENT_DETAIL_LIMIT = 4
 
 _SUPPORT_ARTICLE_IMPROVEMENT_DETAIL_MAX_LENGTH = 180
 
+
 def _compact_article_text(value: str | None) -> str:
     return re.sub(r"\s+", " ", value or "").strip()
+
 
 def _support_article_heading_key(value: str | None) -> str:
     return _compact_article_text(value).strip(" :").lower()
 
+
 def _support_article_is_applies_to_heading(value: str | None) -> bool:
     return _support_article_heading_key(value) == "applies to"
+
 
 def _support_article_is_applies_stop_heading(value: str | None) -> bool:
     key = _support_article_heading_key(value)
     return any(key == stop or key.startswith(f"{stop} ") for stop in _SUPPORT_ARTICLE_APPLIES_STOP_HEADINGS)
+
 
 def _clean_support_article_applies_to(value: str | None) -> str | None:
     text = _compact_article_text(value).rstrip(" .;")
@@ -305,6 +318,7 @@ def _clean_support_article_applies_to(value: str | None) -> str | None:
         return text
     truncated = text[:_SUPPORT_ARTICLE_APPLIES_TO_MAX_LENGTH].rsplit(" ", 1)[0].rstrip(" .;")
     return truncated or text[:_SUPPORT_ARTICLE_APPLIES_TO_MAX_LENGTH].rstrip(" .;")
+
 
 def _bounded_support_article_applies_to_text(value: str | None) -> str | None:
     text = _compact_article_text(value)
@@ -318,6 +332,7 @@ def _bounded_support_article_applies_to_text(value: str | None) -> str | None:
     if match:
         text = text[: match.start()]
     return _clean_support_article_applies_to(text)
+
 
 def _extract_support_article_applies_to(
     blocks: Sequence[tuple[str, str]],
@@ -351,6 +366,7 @@ def _extract_support_article_applies_to(
         return _bounded_support_article_applies_to_text(match.group(1))
     return None
 
+
 def _bounded_support_article_improvement_detail(value: str | None) -> str | None:
     text = _compact_article_text(value)
     if not text:
@@ -364,6 +380,7 @@ def _bounded_support_article_improvement_detail(value: str | None) -> str | None
     if len(text) > _SUPPORT_ARTICLE_IMPROVEMENT_DETAIL_MAX_LENGTH:
         text = text[:_SUPPORT_ARTICLE_IMPROVEMENT_DETAIL_MAX_LENGTH].rsplit(" ", 1)[0].rstrip(" .;,")
     return text.rstrip(" .;") + "."
+
 
 def _extract_support_article_improvement_details(blocks: Sequence[tuple[str, str]]) -> list[str]:
     details: list[str] = []
@@ -384,6 +401,7 @@ def _extract_support_article_improvement_details(blocks: Sequence[tuple[str, str
             return details
     return details
 
+
 def _atom_title_bucket(title: Any) -> dict[str, str]:
     normalized = re.sub(r"\s+", " ", str(title or "")).strip().lower().replace("_", "-")
     for needle, bucket in _TITLE_BUCKET_RULES:
@@ -393,11 +411,13 @@ def _atom_title_bucket(title: Any) -> dict[str, str]:
         return {"bucket": "OS Build Update", "confidence": "low"}
     return {"bucket": "Microsoft Support Update", "confidence": "low"}
 
+
 def _msrc_month_id_from_atom_date(value: Any) -> str | None:
     parsed = _parse_source_timestamp(str(value or "") or None)
     if parsed is None:
         return None
     return f"{parsed.year}-{_MONTH_ABBREVIATIONS[parsed.month]}"
+
 
 def _record_msrc_month_id(record: Mapping[str, Any]) -> str | None:
     """Resolve the MSRC CVRF month id for an enrichment record.
@@ -415,6 +435,7 @@ def _record_msrc_month_id(record: Mapping[str, Any]) -> str | None:
         return month_id
     fallback = record.get("msrc_cvrf_month_fallback")
     return str(fallback) if fallback else None
+
 
 def _extract_support_article_facts(url: str, html_text: str) -> dict[str, Any]:
     parser = _SupportArticleTextExtractor()
@@ -465,6 +486,7 @@ def _extract_support_article_facts(url: str, html_text: str) -> dict[str, Any]:
     }
     return {key: value for key, value in facts.items() if value not in (None, "", [], ())}
 
+
 def default_support_article_fetcher(url: str, timeout: float, max_bytes: int) -> str:
     safe_url = _safe_support_article_url(url)
     if safe_url is None:
@@ -475,6 +497,7 @@ def default_support_article_fetcher(url: str, timeout: float, max_bytes: int) ->
         max_bytes=max_bytes,
         final_url_validator=_safe_support_article_url,
     )
+
 
 def _support_article_enrichment(
     url: str,
@@ -520,6 +543,7 @@ def _support_article_enrichment(
         facts["reason"] = reason
     return facts
 
+
 def _support_article_security_result(article: Mapping[str, Any] | None) -> dict[str, Any]:
     if not isinstance(article, Mapping):
         return {
@@ -558,12 +582,15 @@ def _support_article_security_result(article: Mapping[str, Any] | None) -> dict[
         "evidence_source": "none",
     }
 
+
 def _support_article_record_url(record: Mapping[str, Any]) -> str | None:
     return _safe_support_article_url(str(record.get("support_url") or record.get("atom_feed_url") or "") or None)
+
 
 _SUPPORT_ARTICLE_VALIDATION_STATUSES = {"ok", "degraded", "mismatch", "unavailable", "skipped"}
 
 _SUPPORT_ARTICLE_VALIDATION_REASON_LIMIT = 6
+
 
 def _support_article_canonical_url(value: Any) -> str | None:
     safe_url = _safe_support_article_url(str(value or "") or None)
@@ -571,6 +598,7 @@ def _support_article_canonical_url(value: Any) -> str | None:
         return None
     parsed = urlparse(safe_url)
     return parsed._replace(fragment="").geturl()
+
 
 def _support_article_expected_facts(record: Mapping[str, Any]) -> dict[str, str]:
     expected: dict[str, str] = {}
@@ -584,6 +612,7 @@ def _support_article_expected_facts(record: Mapping[str, Any]) -> dict[str, str]
     if release:
         expected["release"] = release
     return expected
+
 
 def _support_article_releases_from_applies_to(value: Any) -> tuple[str, ...] | None:
     text = _compact_article_text(str(value or ""))
@@ -605,6 +634,7 @@ def _support_article_releases_from_applies_to(value: Any) -> tuple[str, ...] | N
     if "windows 11" in normalized:
         return None
     return ()
+
 
 def _normalized_support_article_release_values(value: Any) -> tuple[str, ...]:
     releases: list[str] = []

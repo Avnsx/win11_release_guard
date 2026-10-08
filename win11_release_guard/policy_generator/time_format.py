@@ -18,12 +18,14 @@ def _last_sunday(year: int, month: int) -> datetime:
         day -= timedelta(days=1)
     return day.replace(hour=1, minute=0, second=0, microsecond=0)
 
+
 def _berlin_offset_hours(utc_dt: datetime) -> tuple[int, str]:
     start = _last_sunday(utc_dt.year, 3)
     end = _last_sunday(utc_dt.year, 10)
     if start <= utc_dt < end:
         return 2, "CEST"
     return 1, "CET"
+
 
 def _generated_at_human(value: str | None) -> str:
     utc_dt = _parse_policy_datetime(value)
@@ -49,6 +51,7 @@ def _generated_at_human(value: str | None) -> str:
         f"{local_dt.year}, {local_dt:%H:%M:%S} {label}"
     )
 
+
 def _generated_at_local_date(value: str | None) -> str:
     utc_dt = _parse_policy_datetime(value)
     offset_hours, _label = _berlin_offset_hours(utc_dt)
@@ -69,11 +72,13 @@ def _generated_at_local_date(value: str | None) -> str:
     )
     return f"{months[local_dt.month - 1]} {local_dt.day}, {local_dt.year}"
 
+
 def _generated_at_local_time(value: str | None) -> str:
     utc_dt = _parse_policy_datetime(value)
     offset_hours, label = _berlin_offset_hours(utc_dt)
     local_dt = utc_dt.replace(tzinfo=None) + timedelta(hours=offset_hours)
     return f"{local_dt:%H:%M:%S} {label}"
+
 
 def _utc_time_human(value: str | None) -> str:
     utc_dt = parse_iso_utc_datetime(value)
@@ -98,6 +103,7 @@ def _utc_time_human(value: str | None) -> str:
         f"{weekdays[utc_dt.weekday()]}, {utc_dt.day} {months[utc_dt.month - 1]} "
         f"{utc_dt.year}, {utc_dt:%H:%M:%S} UTC"
     )
+
 
 def _dual_zone_time_human(value: Any) -> str | None:
     utc_dt = parse_iso_utc_datetime(str(value or ""))
@@ -124,6 +130,7 @@ def _dual_zone_time_human(value: Any) -> str | None:
         f"at {local_dt:%H:%M} {label} / {utc_dt:%H:%M} UTC"
     )
 
+
 def _generated_age_days(value: str | None, *, reference: datetime | None = None) -> float:
     generated = _parse_policy_datetime(value)
     now = reference or datetime.now(timezone.utc)
@@ -131,8 +138,10 @@ def _generated_age_days(value: str | None, *, reference: datetime | None = None)
         now = now.replace(tzinfo=timezone.utc)
     return round(max(0.0, (now.astimezone(timezone.utc) - generated).total_seconds() / 86400), 2)
 
+
 def _age_unit_text(value: int, unit: str) -> str:
     return f"{value} {unit}" if value == 1 else f"{value} {unit}s"
+
 
 def _dashboard_exact_age_text(seconds: int) -> str:
     seconds = max(0, int(seconds))
@@ -146,6 +155,7 @@ def _dashboard_exact_age_text(seconds: int) -> str:
         parts.append(_age_unit_text(hours, "hour"))
     parts.append(_age_unit_text(minutes, "minute"))
     return ", ".join(parts)
+
 
 def _dashboard_age_display(
     value: str | None,

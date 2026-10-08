@@ -61,6 +61,7 @@ def _entry_with_b_release_baseline(
         required_baseline_build=baseline_build,
     )
 
+
 def _policy_with_enrichment(
     base_policy: ReleasePolicy,
     *,
@@ -266,11 +267,13 @@ def _policy_with_enrichment(
     _raise_on_client_target_disagreement(enriched)
     return enriched
 
+
 _CLIENT_TARGET_AGREEMENT_SCOPES = (
     EditionScope.UNKNOWN,
     EditionScope.HOME_PRO,
     EditionScope.ENTERPRISE_EDUCATION,
 )
+
 
 def _raise_on_client_target_disagreement(policy: ReleasePolicy) -> None:
     """Refuse to publish a feed whose runtime target selection disagrees with the signed target.
@@ -299,6 +302,7 @@ def _raise_on_client_target_disagreement(policy: ReleasePolicy) -> None:
                 f"devices, but broad_target_existing_devices is {target.version}/{target.build_family}; "
                 "refusing to publish a policy with a split target."
             )
+
 
 def generate_policy(
     *,
@@ -379,9 +383,11 @@ def generate_policy(
     validate_policy_document(policy.to_dict())
     return policy
 
+
 def generate_policy_json(**kwargs: Any) -> str:
     policy = generate_policy(**kwargs)
     return policy_document_to_json(policy.to_dict())
+
 
 def build_policy_from_sources(
     *,

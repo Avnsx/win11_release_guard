@@ -170,6 +170,7 @@ def _source_diagnostics(
         diagnostics["baseline_update_notice"] = dict(baseline_update_notice)
     return diagnostics
 
+
 def _known_notes(policy: ReleasePolicy) -> tuple[dict[str, Any], ...]:
     notes: list[dict[str, Any]] = []
     for entry in policy.special_releases:

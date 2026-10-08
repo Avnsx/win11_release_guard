@@ -77,6 +77,7 @@ def _source_diagnostic_row_from_event(event: Mapping[str, Any]) -> dict[str, Any
         row["is_security"] = event["is_security"]
     return row
 
+
 def _source_diagnostic_row_from_text(severity: str, message: Any, *, source: str, title: str) -> dict[str, Any]:
     normalized_severity = _source_diagnostic_event_severity(severity)
     normalized_message = _short_diagnostic_text(message)
@@ -96,11 +97,13 @@ def _source_diagnostic_row_from_text(severity: str, message: Any, *, source: str
         "tags": (),
     }
 
+
 def _raw_diagnostic_messages(source_diagnostics: Mapping[str, Any], key: str) -> tuple[str, ...]:
     values = source_diagnostics.get(key)
     if not isinstance(values, list):
         return ()
     return tuple(str(item) for item in values if str(item or "").strip())
+
 
 def _freshness_diagnostic_row(generated_age_days: float) -> dict[str, Any] | None:
     if generated_age_days >= DEFAULT_POLICY_STRICT_STALE_AGE_DAYS:
@@ -124,6 +127,7 @@ def _freshness_diagnostic_row(generated_age_days: float) -> dict[str, Any] | Non
             title="Policy feed refresh due",
         )
     return None
+
 
 def _source_diagnostic_rows(policy: ReleasePolicy, *, generated_age_days: float) -> tuple[dict[str, Any], ...]:
     source_diagnostics = _source_diagnostics_for_policy(policy)
@@ -170,6 +174,7 @@ def _source_diagnostic_rows(policy: ReleasePolicy, *, generated_age_days: float)
         deduped.append(row)
     return tuple(deduped)
 
+
 def _excluded_release_diagnostic_rows(policy: ReleasePolicy) -> tuple[dict[str, Any], ...]:
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -207,12 +212,14 @@ def _excluded_release_diagnostic_rows(policy: ReleasePolicy) -> tuple[dict[str, 
         )
     return tuple(rows)
 
+
 def _display_source_event_counts(rows: tuple[Mapping[str, Any], ...]) -> dict[str, int]:
     display_counts = {"notice": 0, "warning": 0, "error": 0}
     for row in rows:
         severity = _source_diagnostic_event_severity(row.get("severity"))
         display_counts[severity] += 1
     return display_counts
+
 
 def _source_diagnostic_text(value: Any, *, fallback: str = "") -> str:
     if value in (None, ""):
@@ -223,6 +230,7 @@ def _source_diagnostic_text(value: Any, *, fallback: str = "") -> str:
         return fallback
     text = re.sub(r"\s+", " ", text).strip()
     return text or fallback
+
 
 def _source_diagnostic_display_text(value: Any, *, fallback: str = "") -> str:
     text = _source_diagnostic_text(value, fallback=fallback)
@@ -245,6 +253,7 @@ def _source_diagnostic_display_text(value: Any, *, fallback: str = "") -> str:
         text,
     )
 
+
 def _source_diagnostic_attr_text(value: Any) -> str:
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         return ", ".join(
@@ -253,6 +262,7 @@ def _source_diagnostic_attr_text(value: Any) -> str:
             if item
         )
     return _source_diagnostic_text(value)
+
 
 def _source_diagnostic_issue_number(value: Any) -> int | None:
     if isinstance(value, bool):
@@ -263,12 +273,15 @@ def _source_diagnostic_issue_number(value: Any) -> int | None:
         return None
     return number if number > 0 else None
 
+
 def _source_diagnostic_issue_state(value: Any) -> str:
     text = _source_diagnostic_text(value).lower()
     return text if text in {"open", "closed"} else "tracked"
 
+
 def _canonical_source_diagnostic_issue_url(number: int) -> str:
     return f"{GITHUB_ISSUES_BASE_URL}/{number}"
+
 
 def _source_diagnostic_issue_record(
     diagnostic_id: str,
@@ -289,6 +302,7 @@ def _source_diagnostic_issue_record(
         "state": state,
         "url": canonical_url,
     }
+
 
 def _source_diagnostic_issue_records(source_diagnostics: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     raw = source_diagnostics.get("issue_status")
@@ -312,8 +326,10 @@ def _source_diagnostic_issue_records(source_diagnostics: Mapping[str, Any]) -> d
         issue_records[key] = metadata
     return issue_records
 
+
 def _source_diagnostic_issue_is_closed(issue: Mapping[str, Any] | None) -> bool:
     return isinstance(issue, Mapping) and _source_diagnostic_issue_state(issue.get("state")) == "closed"
+
 
 def _source_diagnostic_rows_without_closed_issue_tickets(
     rows: Sequence[dict[str, Any]],
@@ -327,6 +343,7 @@ def _source_diagnostic_rows_without_closed_issue_tickets(
                 continue
         visible.append(row)
     return tuple(visible)
+
 
 def _source_diagnostic_counts_without_closed_issue_tickets(
     counts: Mapping[str, int],
@@ -347,6 +364,7 @@ def _source_diagnostic_counts_without_closed_issue_tickets(
         adjusted[severity] = max(0, adjusted[severity] - 1)
     return adjusted
 
+
 def _source_diagnostic_rows_by_priority(rows: Sequence[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
     indexed_rows = tuple(enumerate(rows))
     return tuple(
@@ -359,6 +377,7 @@ def _source_diagnostic_rows_by_priority(rows: Sequence[dict[str, Any]]) -> tuple
             ),
         )
     )
+
 
 def _source_diagnostic_source_class(source: Any) -> str:
     text = _source_diagnostic_text(source, fallback="source").lower()
@@ -380,6 +399,7 @@ def _source_diagnostic_source_class(source: Any) -> str:
         return "src-policy"
     return "src-source"
 
+
 def _source_diagnostic_support_url(row: Mapping[str, Any]) -> str | None:
     for key in ("support_article_url", "source_url", "support_url", "atom_feed_url"):
         safe_url = _safe_support_article_url(str(row.get(key) or "") or None)
@@ -387,10 +407,12 @@ def _source_diagnostic_support_url(row: Mapping[str, Any]) -> str | None:
             return safe_url
     return None
 
+
 def _source_diagnostic_security_url(row: Mapping[str, Any]) -> str | None:
     if str(row.get("security_evidence_source") or "").strip().lower() == "msrc_cvrf":
         return MSRC_UPDATE_GUIDE_URL
     return None
+
 
 def _source_diagnostic_read_more_url(row: Mapping[str, Any]) -> str | None:
     support_url = _source_diagnostic_support_url(row)
@@ -403,6 +425,7 @@ def _source_diagnostic_read_more_url(row: Mapping[str, Any]) -> str | None:
     if is_security:
         return _source_diagnostic_security_url(row)
     return None
+
 
 def _source_diagnostic_row_id(row: Mapping[str, Any]) -> str:
     existing_id = _source_diagnostic_id_hint_for_event(row)

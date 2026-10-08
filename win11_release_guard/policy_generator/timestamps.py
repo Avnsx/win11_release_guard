@@ -21,18 +21,22 @@ def _parse_source_timestamp(value: str | None) -> datetime | None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
 
+
 def _newest_timestamp(values: list[str | None]) -> str | None:
     candidates = [(parsed, value) for value in values if (parsed := _parse_source_timestamp(value))]
     if not candidates:
         return None
     return max(candidates, key=lambda item: item[0])[1]
 
+
 def _datetime_utc_z(value: datetime) -> str:
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
 
 def _source_timestamp_utc_z(value: Any) -> str | None:
     parsed = _parse_source_timestamp(str(value or "") or None)
     return _datetime_utc_z(parsed) if parsed else None
+
 
 def _baseline_notice_official_date(value: str | None) -> datetime | None:
     """Parse a date-only Microsoft source value to a UTC-midnight datetime.
@@ -49,6 +53,7 @@ def _baseline_notice_official_date(value: str | None) -> datetime | None:
         return datetime(int(match[1]), int(match[2]), int(match[3]), tzinfo=timezone.utc)
     except ValueError:
         return None
+
 
 def _source_timestamp_for_sort(value: str | None) -> datetime:
     return _parse_source_timestamp(value) or datetime.min.replace(tzinfo=timezone.utc)

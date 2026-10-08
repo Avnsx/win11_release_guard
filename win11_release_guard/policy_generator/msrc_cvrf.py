@@ -18,8 +18,10 @@ from .constants import (
 
 MsrcCvrfFetcher = Callable[[str, float, int], Any]
 
+
 def _msrc_cvrf_url(month_id: str) -> str:
     return f"{MSRC_CVRF_API_BASE_URL}/{month_id}"
+
 
 def default_msrc_cvrf_fetcher(url: str, timeout: float, max_bytes: int) -> Mapping[str, Any]:
     result = http_client.request(
@@ -36,6 +38,7 @@ def default_msrc_cvrf_fetcher(url: str, timeout: float, max_bytes: int) -> Mappi
         raise PolicyFetchError("MSRC CVRF response must be a JSON object.")
     return decoded
 
+
 def _as_sequence(value: Any) -> tuple[Any, ...]:
     if value in (None, ""):
         return ()
@@ -45,6 +48,7 @@ def _as_sequence(value: Any) -> tuple[Any, ...]:
         return tuple(value)
     return (value,)
 
+
 def _dict_value(mapping: Mapping[str, Any], *keys: str) -> Any:
     lower_keys = {key.lower(): key for key in mapping}
     for key in keys:
@@ -52,6 +56,7 @@ def _dict_value(mapping: Mapping[str, Any], *keys: str) -> Any:
         if actual is not None:
             return mapping.get(actual)
     return None
+
 
 def _nested_text_values(value: Any) -> tuple[str, ...]:
     values: list[str] = []
@@ -69,6 +74,7 @@ def _nested_text_values(value: Any) -> tuple[str, ...]:
         values.append(str(value))
     return tuple(values)
 
+
 def _cvrf_description_value(value: Any) -> str | None:
     if isinstance(value, Mapping):
         for key in ("Value", "value", "Text", "text", "Description", "description"):
@@ -83,13 +89,16 @@ def _cvrf_description_value(value: Any) -> str | None:
         return str(value)
     return None
 
+
 def _cvrf_vulnerabilities(cvrf: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
     raw = _dict_value(cvrf, "Vulnerability", "Vulnerabilities")
     return tuple(item for item in _as_sequence(raw) if isinstance(item, Mapping))
 
+
 def _cvrf_remediations(vulnerability: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
     raw = _dict_value(vulnerability, "Remediations", "Remediation")
     return tuple(item for item in _as_sequence(raw) if isinstance(item, Mapping))
+
 
 def _cvrf_product_ids(remediation: Mapping[str, Any]) -> tuple[str, ...]:
     products: list[str] = []
@@ -102,6 +111,7 @@ def _cvrf_product_ids(remediation: Mapping[str, Any]) -> tuple[str, ...]:
                     if text:
                         products.append(text)
     return tuple(dict.fromkeys(products))
+
 
 def _cvrf_product_names_by_id(cvrf: Mapping[str, Any], *, max_depth: int = 12) -> dict[str, str]:
     names: dict[str, str] = {}
@@ -135,6 +145,7 @@ def _cvrf_product_names_by_id(cvrf: Mapping[str, Any], *, max_depth: int = 12) -
         visit(_dict_value(cvrf, "ProductTree", "Producttree"), 0)
     return names
 
+
 def _cvrf_resolved_product_names(
     product_ids: Iterable[str],
     names_by_id: Mapping[str, str],
@@ -142,10 +153,12 @@ def _cvrf_resolved_product_names(
     resolved = [str(names_by_id.get(str(product_id), product_id)).strip() for product_id in product_ids]
     return tuple(sorted(dict.fromkeys(name for name in resolved if name)))
 
+
 def _cvrf_client_product_names(product_names: Iterable[str]) -> tuple[str, ...]:
     return tuple(
         name for name in product_names if str(name).strip().lower().startswith("windows 11")
     )
+
 
 def _cvrf_vulnerability_severities(vulnerability: Mapping[str, Any]) -> tuple[str, ...]:
     severities: list[str] = []
@@ -164,6 +177,7 @@ def _cvrf_vulnerability_severities(vulnerability: Mapping[str, Any]) -> tuple[st
             severities.append(description.strip())
     return tuple(dict.fromkeys(item for item in severities if item))
 
+
 def _normalize_cvrf_kb_article(value: str | None) -> str | None:
     text = str(value or "").strip()
     match = re.fullmatch(r"(?:KB)?([1-9][0-9]{5,7})", text, flags=re.IGNORECASE)
@@ -171,10 +185,12 @@ def _normalize_cvrf_kb_article(value: str | None) -> str | None:
         return f"KB{match.group(1)}"
     return _extract_kb(text)
 
+
 def _cvrf_text_matches_kb(text: str, kb: str) -> bool:
     bare_kb = kb[2:]
     pattern = re.compile(rf"(?<![A-Za-z0-9])(?:{re.escape(kb)}|{re.escape(bare_kb)})(?![A-Za-z0-9])", re.IGNORECASE)
     return pattern.search(text) is not None
+
 
 def _cvrf_kb_join(cvrf: Mapping[str, Any], kb_article: str | None) -> dict[str, Any]:
     if not isinstance(cvrf, Mapping):

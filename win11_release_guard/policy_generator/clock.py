@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 _LAST_UTC_NOW_MS = 0
 
+
 def utc_now() -> str:
     global _LAST_UTC_NOW_MS
     epoch_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -17,6 +18,7 @@ def utc_now() -> str:
     return datetime.fromtimestamp(seconds, timezone.utc).replace(microsecond=milliseconds * 1000).isoformat(
         timespec="milliseconds"
     )
+
 
 def _parse_policy_datetime(value: str | None) -> datetime:
     if not value:

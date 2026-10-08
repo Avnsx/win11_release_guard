@@ -40,6 +40,7 @@ def sign_policy_bytes(
     signature["signed_at_utc"] = clock.utc_now()
     return signature
 
+
 def _copy_pypi_download_image(output_dir: Path) -> Path:
     source_path = PYPI_DOWNLOAD_IMAGE_PATH
     if not source_path.is_file():
@@ -48,6 +49,7 @@ def _copy_pypi_download_image(output_dir: Path) -> Path:
     target_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source_path, target_path)
     return target_path
+
 
 def write_policy_outputs(
     policy: ReleasePolicy,
@@ -142,8 +144,10 @@ def write_policy_outputs(
 
     return written
 
+
 def render_robots_txt() -> str:
     return ROBOTS_TXT
+
 
 def render_sitemap_xml(policy: ReleasePolicy, *, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     generated_at = escape(policy.generated_at_utc or clock.utc_now())
@@ -174,6 +178,7 @@ def render_sitemap_xml(policy: ReleasePolicy, *, base_url: str = DEFAULT_PAGES_B
         "</urlset>\n"
     )
 
+
 def _published_urls_for_base_url(base_url: str) -> dict[str, str]:
     normalized = base_url.rstrip("/")
     return {
@@ -185,6 +190,7 @@ def _published_urls_for_base_url(base_url: str) -> dict[str, str]:
         "api_signature": f"{normalized}/api/v1/policy.sig",
         "api_manifest": f"{normalized}/api/v1/manifest.json",
     }
+
 
 def render_policy_manifest(
     policy: ReleasePolicy,

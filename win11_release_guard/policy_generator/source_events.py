@@ -55,11 +55,13 @@ def _current_version_latest_older_than_history(
         )
     return tuple(stale)
 
+
 def _newest_atom_build(entries: tuple[AtomFeedEntry, ...]) -> str | None:
     builds = [build for entry in entries for build in entry.builds]
     if not builds:
         return None
     return max(builds, key=_build_key)
+
 
 def _month_year_from_article_date(value: Any) -> str | None:
     match = re.fullmatch(r"([A-Za-z]+)\s+\d{1,2},\s+(20\d{2})", str(value or "").strip())
@@ -67,11 +69,13 @@ def _month_year_from_article_date(value: Any) -> str | None:
         return None
     return f"{match.group(1)} {match.group(2)}"
 
+
 def _month_year_from_timestamp(value: Any) -> str | None:
     parsed = _parse_source_timestamp(str(value or "") or None)
     if parsed is None:
         return None
     return f"{_MONTH_NAMES[parsed.month - 1]} {parsed.year}"
+
 
 def _support_article_notice_summary(event: Mapping[str, Any], article: Mapping[str, Any]) -> str | None:
     status = str(article.get("status") or "")
@@ -131,6 +135,7 @@ def _support_article_notice_summary(event: Mapping[str, Any], article: Mapping[s
         if reasons:
             summary += f"; support article validation degraded: {', '.join(reasons)}"
     return summary + "."
+
 
 def _event_with_support_article(
     event: dict[str, Any],
@@ -212,6 +217,7 @@ def _event_with_support_article(
         event["user_message"] = summary
     return event
 
+
 def _atom_newer_event(
     item: Mapping[str, Any],
     target: ReleasePolicyEntry | None,
@@ -289,12 +295,14 @@ def _atom_newer_event(
             event["msrc_cvrf_month_id"] = month_id
     return event
 
+
 def _is_unresolved_source_drift_event(event: Mapping[str, Any]) -> bool:
     return (
         str(event.get("severity") or "") in {"warning", "error"}
         and str(event.get("kind") or "")
         in {"atom_newer_than_release_history", "current_versions_lag_release_history"}
     )
+
 
 def _current_versions_lag_event(item: Mapping[str, Any], target: ReleasePolicyEntry | None) -> dict[str, Any]:
     release = str(item.get("version") or "") or None
@@ -320,6 +328,7 @@ def _current_versions_lag_event(item: Mapping[str, Any], target: ReleasePolicyEn
         ),
     }
 
+
 def _source_diagnostic_messages(events: list[dict[str, Any]], *, minimum: str = "warning") -> list[str]:
     severities = {"notice": 0, "warning": 1, "error": 2}
     threshold = severities[minimum]
@@ -330,12 +339,14 @@ def _source_diagnostic_messages(events: list[dict[str, Any]], *, minimum: str = 
         and event.get("message")
     ]
 
+
 def _source_diagnostic_notices(events: list[dict[str, Any]]) -> list[str]:
     return [
         str(event["message"])
         for event in events
         if event.get("severity") == "notice" and event.get("message")
     ]
+
 
 def _source_input_event(kind: str, message: str, *, severity: str = "warning") -> dict[str, Any]:
     return {
@@ -350,6 +361,7 @@ def _source_input_event(kind: str, message: str, *, severity: str = "warning") -
         "message": message,
     }
 
+
 def _windows_update_offer_label(offer: WindowsUpdateOffer) -> str:
     build = str(offer.build or "").strip()
     kb_article = str(offer.kb_article or "").strip()
@@ -360,6 +372,7 @@ def _windows_update_offer_label(offer: WindowsUpdateOffer) -> str:
     if build and kb_article:
         return f"{build} ({kb_article})"
     return build or kb_article
+
 
 def _windows_update_probe_events(probe: WindowsUpdateProbe | None) -> list[dict[str, Any]]:
     if probe is None:
@@ -396,6 +409,7 @@ def _windows_update_probe_events(probe: WindowsUpdateProbe | None) -> list[dict[
             severity="notice",
         )
     ]
+
 
 def _source_status(
     source_fetch_status: Mapping[str, Any],

@@ -30,9 +30,11 @@ _BASELINE_UPDATE_NOTICE_SCHEMA = "win11_release_guard.baseline_update_notice.v1"
 
 _BASELINE_UPDATE_NOTICE_WINDOW_DAYS = 14
 
+
 def _baseline_notice_source_url(row: ReleaseHistoryEntry) -> str | None:
     metadata_url = row.metadata.get("atom_feed_url") if isinstance(row.metadata, Mapping) else None
     return _safe_support_article_url(str(metadata_url or "") or None)
+
 
 def _required_baseline_history_row(
     target: ReleasePolicyEntry | None,
@@ -53,6 +55,7 @@ def _required_baseline_history_row(
     if not candidates:
         return None
     return max(candidates, key=_history_sort_key)
+
 
 def _baseline_update_notice_record(
     target: ReleasePolicyEntry | None,
@@ -103,6 +106,7 @@ def _baseline_update_notice_record(
             )
     return {key: value for key, value in record.items() if value not in (None, "", [], ())}
 
+
 def _baseline_notice_visibility_window(
     row: ReleaseHistoryEntry,
 ) -> tuple[str, str, str, str] | None:
@@ -112,6 +116,7 @@ def _baseline_notice_visibility_window(
     official_date = f"{visible_from.year:04d}-{visible_from.month:02d}-{visible_from.day:02d}"
     visible_until = visible_from + timedelta(days=_BASELINE_UPDATE_NOTICE_WINDOW_DAYS)
     return official_date, "date", _datetime_utc_z(visible_from), _datetime_utc_z(visible_until)
+
 
 def _baseline_notice_is_active(
     row: ReleaseHistoryEntry | None,
@@ -134,6 +139,7 @@ def _baseline_notice_is_active(
         and visible_from_dt <= generated_dt < visible_until_dt
     )
 
+
 def _baseline_notice_security_evidence_status(
     is_security: Any,
     evidence_source: str,
@@ -143,6 +149,7 @@ def _baseline_notice_security_evidence_status(
     if is_security is False:
         return "not_security"
     return "unknown"
+
 
 def _security_evidence_display_label(*, is_security: Any, evidence_source: Any) -> str | None:
     source = str(evidence_source or "").strip().lower()
@@ -155,6 +162,7 @@ def _security_evidence_display_label(*, is_security: Any, evidence_source: Any) 
     if is_security is False:
         return "Non-security according to trusted evidence"
     return None
+
 
 def _baseline_notice_security_sentence(is_security: Any, evidence_source: Any) -> str:
     """Source-aware, human-facing security sentence for the baseline summary.
@@ -175,6 +183,7 @@ def _baseline_notice_security_sentence(is_security: Any, evidence_source: Any) -
     if is_security is False:
         return "Checked evidence does not classify it as a security update."
     return "Security classification is unavailable from the checked enrichment source."
+
 
 def _baseline_notice_summary(
     *,
@@ -201,6 +210,7 @@ def _baseline_notice_summary(
     )
     return " ".join(sentence for sentence in sentences if sentence)
 
+
 def _baseline_notice_update_summary(article: Mapping[str, Any], validation_status: str) -> str | None:
     if validation_status not in {"ok", "degraded"}:
         return None
@@ -225,6 +235,7 @@ def _baseline_notice_update_summary(article: Mapping[str, Any], validation_statu
     if not labels:
         return None
     return f"Update highlights: public notes mention {_human_join(labels)}."
+
 
 def _baseline_update_notice_payload(
     *,
@@ -347,6 +358,7 @@ def _baseline_update_notice_payload(
         "support_article_improvement_details": improvement_details,
     }
     return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
+
 
 def _baseline_update_notice_event(notice: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(notice, Mapping) or notice.get("active") is not True:

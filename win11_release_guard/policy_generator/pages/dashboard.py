@@ -51,11 +51,13 @@ def _program_version_from_generator(value: str | None) -> str:
         return "unknown"
     return text.rsplit("/", 1)[-1] if "/" in text else text
 
+
 def _program_release_url(version: str | None) -> str | None:
     text = str(version or "").strip()
     if not _RELEASE_VERSION_PATTERN.fullmatch(text):
         return None
     return f"{GITHUB_RELEASES_BASE_URL}/v{text}"
+
 
 def _program_title_version_html(version: str | None) -> str:
     text = str(version or "").strip() or "unknown"
@@ -76,6 +78,7 @@ def _program_title_version_html(version: str | None) -> str:
         f"{escaped_text}</a>"
     )
 
+
 def _pypi_download_link_html(*, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     image_url = _pypi_download_image_url(base_url=base_url)
     return (
@@ -84,6 +87,7 @@ def _pypi_download_link_html(*, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
         f'<img src="{escape(image_url, quote=True)}" alt="Download from PyPI" width="96" height="96">'
         "</a>"
     )
+
 
 def _header_nav_html(*, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     dashboard_icon = (
@@ -125,6 +129,7 @@ def _header_nav_html(*, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
         f'<ul class="nav-inner">{links}</ul>'
         "</nav>"
     )
+
 
 def _render_endpoint_links() -> str:
     endpoints = (
@@ -169,6 +174,7 @@ def _render_endpoint_links() -> str:
         for title, endpoint, description, icon in endpoints
     )
 
+
 def _safe_json_script_payload(data: Mapping[str, Any]) -> str:
     return (
         json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -176,6 +182,7 @@ def _safe_json_script_payload(data: Mapping[str, Any]) -> str:
         .replace("<", "\\u003c")
         .replace(">", "\\u003e")
     )
+
 
 def render_policy_index(
     policy: ReleasePolicy,

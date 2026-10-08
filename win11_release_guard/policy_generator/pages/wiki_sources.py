@@ -21,6 +21,7 @@ def _wiki_page_url_slug(stem: str) -> str:
     slug = re.sub(r"-{2,}", "-", slug).strip("-")
     return slug or "page"
 
+
 def _wiki_lookup_key(value: str) -> str:
     normalized = value.strip()
     if normalized.lower().endswith(".md"):
@@ -30,12 +31,14 @@ def _wiki_lookup_key(value: str) -> str:
     normalized = re.sub(r"-{2,}", "-", normalized)
     return normalized.strip("-").casefold()
 
+
 def _wiki_first_heading(text: str) -> str | None:
     for line in text.splitlines():
         match = _MARKDOWN_HEADING_RE.match(line)
         if match:
             return _plain_wiki_inline_text(match.group(2)).strip() or None
     return None
+
 
 def _wiki_title_from_path(path: Path, text: str) -> str:
     heading = _wiki_first_heading(text)
@@ -44,6 +47,7 @@ def _wiki_title_from_path(path: Path, text: str) -> str:
     if path.stem.casefold() == "home":
         return "Home"
     return path.stem.replace("-", " ").replace("_", " ").strip() or path.stem
+
 
 def _plain_wiki_inline_text(text: str) -> str:
     text = re.sub(r"!\[([^\]\n]*)\]\([^)]+\)", r"\1", text)
@@ -60,11 +64,13 @@ def _plain_wiki_inline_text(text: str) -> str:
     text = text.replace("**", "").replace("__", "").replace("`", "")
     return text
 
+
 def _heading_slug_base(text: str) -> str:
     normalized = _plain_wiki_inline_text(text).casefold()
     normalized = re.sub(r"[^a-z0-9]+", "-", normalized)
     normalized = normalized.strip("-")
     return normalized or "section"
+
 
 def _unique_heading_slug(text: str, used_slugs: dict[str, int]) -> str:
     base = _heading_slug_base(text)
@@ -74,6 +80,7 @@ def _unique_heading_slug(text: str, used_slugs: dict[str, int]) -> str:
         return base
     return f"{base}-{count}"
 
+
 def _unique_slug(base: str, used_slugs: dict[str, int]) -> str:
     clean_base = base.strip() or "section"
     count = used_slugs.get(clean_base, 0) + 1
@@ -82,27 +89,33 @@ def _unique_slug(base: str, used_slugs: dict[str, int]) -> str:
         return clean_base
     return f"{clean_base}-{count}"
 
+
 def _wiki_home_source(wiki_dir: Path) -> WikiPageSource:
     title = "Home"
     slug = _wiki_page_url_slug(title)
     lookup_keys = tuple(dict.fromkeys((_wiki_lookup_key(title), _wiki_lookup_key(slug))))
     return WikiPageSource(path=wiki_dir / "Home.md", title=title, slug=slug, lookup_keys=lookup_keys)
 
+
 def _fallback_wiki_home_markdown(message: str) -> str:
     return "\n".join(("# Home", "", message, ""))
+
 
 def _wiki_dir_display_name(source_dir: Path) -> str:
     if source_dir.is_absolute():
         return source_dir.name or "wiki"
     return source_dir.as_posix()
 
+
 def _wiki_source_display_name(path: Path) -> str:
     if path.is_absolute():
         return path.name
     return path.as_posix()
 
+
 def _is_wiki_helper_page(path: Path) -> bool:
     return path.name.casefold() in WIKI_HELPER_PAGE_NAMES
+
 
 def _wiki_helper_text(texts: Mapping[Path, str], helper_name: str) -> str | None:
     normalized = helper_name.casefold()
@@ -110,6 +123,7 @@ def _wiki_helper_text(texts: Mapping[Path, str], helper_name: str) -> str | None
         if path.name.casefold() == normalized:
             return text
     return None
+
 
 def _read_markdown_source(path: Path) -> str:
     """Read repo-controlled Markdown without aborting generation on invalid bytes.
@@ -124,6 +138,7 @@ def _read_markdown_source(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return path.read_bytes().decode("utf-8", errors="replace")
+
 
 def _discover_wiki_sources(wiki_dir: str | Path = WIKI_SOURCE_DIR) -> tuple[tuple[WikiPageSource, ...], dict[Path, str]]:
     source_dir = Path(wiki_dir)
@@ -153,6 +168,7 @@ def _discover_wiki_sources(wiki_dir: str | Path = WIKI_SOURCE_DIR) -> tuple[tupl
         )
         sources.append(WikiPageSource(path=path, title=title, slug=slug, lookup_keys=lookup_keys))
     return tuple(sources), texts
+
 
 def _prepare_wiki_sources(
     wiki_dir: str | Path = WIKI_SOURCE_DIR,
@@ -187,6 +203,7 @@ def _prepare_wiki_sources(
         sources = (fallback_source, *sources)
     return sources, texts, tuple(warnings)
 
+
 def _wiki_page_map(sources: Sequence[WikiPageSource]) -> dict[str, WikiPageSource]:
     pages: dict[str, WikiPageSource] = {}
     for source in sources:
@@ -194,26 +211,32 @@ def _wiki_page_map(sources: Sequence[WikiPageSource]) -> dict[str, WikiPageSourc
             pages.setdefault(key, source)
     return pages
 
+
 def _wiki_output_relative_path(source: WikiPageSource) -> Path:
     if source.path.stem.casefold() == "home":
         return Path("wiki") / "index.html"
     return Path("wiki") / source.slug / "index.html"
 
+
 def _pages_wiki_url(*, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     return f"{base_url.rstrip('/')}/wiki/"
+
 
 def _pages_root_url(*, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     return f"{base_url.rstrip('/')}/"
 
+
 def _pypi_download_image_url(*, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     _ = base_url
     return PYPI_DOWNLOAD_IMAGE_PATH.as_posix()
+
 
 def _wiki_page_href(source: WikiPageSource, *, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     wiki_base = _pages_wiki_url(base_url=base_url)
     if source.path.stem.casefold() == "home":
         return wiki_base
     return f"{wiki_base}{source.slug}/"
+
 
 def _resolve_wiki_target(
     target: str,
@@ -231,6 +254,7 @@ def _resolve_wiki_target(
     if fragment:
         href = f"{href}#{_heading_slug_base(fragment)}"
     return href, None
+
 
 def _changelog_pages_base_url(*, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     return f"{base_url.rstrip('/')}/wiki/changelog/"

@@ -37,6 +37,7 @@ _WIKI_NAV_GROUP_RE = re.compile(r"<p><strong>(.*?)</strong></p>(?=\s*<[uo]l>)", 
 
 _WIKI_NAV_GROUP_CLASS_RE = re.compile(r'<p class="wiki-nav-group"><strong>.*?</strong></p>', re.DOTALL)
 
+
 def _mark_current_wiki_navigation_html(site_navigation_html: str, current_url: str | None) -> str:
     html = _WIKI_NAV_GROUP_RE.sub(r'<p class="wiki-nav-group"><strong>\1</strong></p>', site_navigation_html)
     if not current_url:
@@ -68,6 +69,7 @@ def _mark_current_wiki_navigation_html(site_navigation_html: str, current_url: s
             return html[: group.start()] + marked_group + html[group.end() :]
     return html
 
+
 def _wiki_navigation_html(
     site_navigation_html: str,
     *,
@@ -96,6 +98,7 @@ def _wiki_navigation_html(
         f"{current_site_navigation_html}</section>"
     )
 
+
 def _wiki_breadcrumbs_html(source: WikiPageSource, *, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     dashboard_url = _pages_root_url(base_url=base_url)
     wiki_url = _pages_wiki_url(base_url=base_url)
@@ -110,6 +113,7 @@ def _wiki_breadcrumbs_html(source: WikiPageSource, *, base_url: str = DEFAULT_PA
     items.append(f'<li aria-current="page">{escape(source.title)}</li>')
     return f'<nav class="wiki-breadcrumbs" aria-label="Breadcrumb"><ol>{"".join(items)}</ol></nav>'
 
+
 def _render_default_wiki_navigation(sources: Sequence[WikiPageSource], *, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     items = "".join(
         f'<li><a href="{escape(_wiki_page_href(source, base_url=base_url))}">{escape(source.title)}</a></li>'
@@ -117,11 +121,13 @@ def _render_default_wiki_navigation(sources: Sequence[WikiPageSource], *, base_u
     )
     return f'<h2>Wiki</h2><ul>{items}</ul>'
 
+
 def _render_wiki_broken_links(broken_links: Sequence[str]) -> str:
     if not broken_links:
         return ""
     items = "".join(f"<li>{escape(link)}</li>" for link in broken_links)
     return f'<section class="wiki-broken-links"><h2>Broken wiki links</h2><ul>{items}</ul></section>'
+
 
 def _render_wiki_warnings(warnings: Sequence[str]) -> str:
     if not warnings:
@@ -129,11 +135,13 @@ def _render_wiki_warnings(warnings: Sequence[str]) -> str:
     items = "".join(f"<li>{escape(warning)}</li>" for warning in dict.fromkeys(warnings))
     return f'<section class="wiki-render-warnings"><h2>Generator warnings</h2><ul>{items}</ul></section>'
 
+
 def _clean_meta_text(text: str) -> str:
     cleaned = _plain_wiki_inline_text(text)
     cleaned = re.sub(r"<[^>]+>", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
+
 
 def _meta_description(text: str, *, fallback: str, max_length: int = 180) -> str:
     cleaned = _clean_meta_text(text) or fallback
@@ -141,6 +149,7 @@ def _meta_description(text: str, *, fallback: str, max_length: int = 180) -> str
         return cleaned
     truncated = cleaned[: max_length - 1].rsplit(" ", 1)[0].strip()
     return (truncated or cleaned[: max_length - 1]).rstrip(".,;:") + "."
+
 
 def _first_markdown_paragraph(text: str) -> str:
     lines = text.splitlines()
@@ -168,6 +177,7 @@ def _first_markdown_paragraph(text: str) -> str:
         paragraph.append(stripped)
     return " ".join(paragraph)
 
+
 def _wiki_meta_description(source: WikiPageSource, markdown_text: str) -> str:
     fallback = (
         f"{source.title} documentation for Windows 11 Release Guard, Windows 11 release compliance, "
@@ -175,9 +185,11 @@ def _wiki_meta_description(source: WikiPageSource, markdown_text: str) -> str:
     )
     return _meta_description(_first_markdown_paragraph(markdown_text), fallback=fallback, max_length=280)
 
+
 def _wiki_document_title(title: str) -> str:
     suffix = "Windows 11 Release Guard Wiki"
     return title if title.strip().casefold() == suffix.casefold() else f"{title} | {suffix}"
+
 
 def _seo_meta_html(
     *,
@@ -203,8 +215,10 @@ def _seo_meta_html(
         f'  <meta name="twitter:description" content="{safe_description}">\n'
     )
 
+
 def _wiki_section_scrollspy_script_html() -> str:
     return render_asset("wiki-scrollspy.html")
+
 
 def _wiki_copy_button_script_html() -> str:
     """Client-side, dependency-free copy button for wiki/changelog code blocks.
@@ -217,12 +231,14 @@ def _wiki_copy_button_script_html() -> str:
     """
     return render_asset("wiki-copy-button.html")
 
+
 # Shared Pages visual scale. The wiki/changelog theme is fully rem-based, so a
 # single responsive root font-size lifts its typography, spacing, gutters, and
 # rem widths to the dashboard's reading size at normal (100%) browser zoom,
 # instead of relying on browser zoom or CSS zoom/transform/viewport hacks. The
 # clamp keeps it responsive: ~17px on small screens up to ~20px on wide desktops.
 _PAGES_WIKI_VISUAL_SCALE = "clamp(1.0625rem, 1rem + 0.45vw, 1.25rem)"
+
 
 def _wiki_page_html(
     source: WikiPageSource,
@@ -277,6 +293,7 @@ def _wiki_page_html(
         scrollspy_script=f'{scrollspy_script}',
         copy_button_script=f'{copy_button_script}',
     )
+
 
 def render_wiki_pages(
     *,
@@ -334,6 +351,7 @@ def render_wiki_pages(
         )
         rendered[_wiki_output_relative_path(source).as_posix()] = html
     return rendered
+
 
 def write_wiki_pages(
     output_dir: str | Path,

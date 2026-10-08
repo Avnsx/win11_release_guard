@@ -55,6 +55,7 @@ def _msrc_cvrf_payloads(
         }
     return payloads, statuses
 
+
 def _security_result_for_record(
     record: Mapping[str, Any],
     article: Mapping[str, Any] | None,
@@ -113,6 +114,7 @@ def _security_result_for_record(
             result["msrc_cvrf_error"] = msrc_status.get("error")
     return result
 
+
 def _support_articles_with_security(
     records: tuple[Mapping[str, Any], ...],
     support_articles: Mapping[str, Mapping[str, Any]],
@@ -153,6 +155,7 @@ def _support_articles_with_security(
             cleaned["is_security"] = article["is_security"]
         enriched[url] = cleaned
     return enriched
+
 
 def _msrc_cvrf_events(
     records: tuple[Mapping[str, Any], ...],

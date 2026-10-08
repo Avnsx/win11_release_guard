@@ -63,6 +63,7 @@ def _source_diagnostic_tag_items_html(tags: Any, *, row: Mapping[str, Any] | Non
         rendered.append(f"<span{class_attr}>{escape(text)}</span>")
     return "".join(rendered)
 
+
 def _source_diagnostic_issue_link_html(issue: Mapping[str, Any] | None) -> str:
     if not isinstance(issue, Mapping):
         return ""
@@ -81,6 +82,7 @@ def _source_diagnostic_issue_link_html(issue: Mapping[str, Any] | None) -> str:
         f"{_ui_icon_html('link', class_name='ui-icon diag-ticket-link-icon')}"
         f"<span>{escape(issue_text)}</span>{_github_icon_html()}</a>"
     )
+
 
 def _placeholder_rows_for_unexplained_counts(
     counts: Mapping[str, int],
@@ -107,6 +109,7 @@ def _placeholder_rows_for_unexplained_counts(
                 )
             )
     return tuple(placeholders)
+
 
 def _source_diagnostic_row_data_attrs(row: Mapping[str, Any]) -> str:
     attrs: list[str] = []
@@ -148,6 +151,7 @@ def _source_diagnostic_row_data_attrs(row: Mapping[str, Any]) -> str:
         attrs.append(f' data-is-security="{str(is_security).lower()}"')
     return "".join(attrs)
 
+
 def _source_diagnostic_read_more_html(row: Mapping[str, Any]) -> str:
     read_more_url = _source_diagnostic_read_more_url(row)
     if not read_more_url:
@@ -156,6 +160,7 @@ def _source_diagnostic_read_more_html(row: Mapping[str, Any]) -> str:
         f' <a class="diag-read-more-inline" href="{escape(read_more_url, quote=True)}" '
         'rel="noopener noreferrer">Read more</a>'
     )
+
 
 def _render_source_diagnostic_row(
     row: Mapping[str, Any],
@@ -201,6 +206,7 @@ def _render_source_diagnostic_row(
         "</article>"
     )
 
+
 def _diagnostic_filter_button_html(severity: str, count: int, label: str, icon_name: str) -> str:
     escaped_severity = escape(severity, quote=True)
     escaped_label = escape(label, quote=True)
@@ -214,6 +220,7 @@ def _diagnostic_filter_button_html(severity: str, count: int, label: str, icon_n
         f"{_ui_icon_html(icon_name, class_name='ui-icon diag-tile-icon')}</button>"
     )
 
+
 def _source_diagnostics_copy_button_html() -> str:
     return (
         '<button type="button" class="epoch-copy diag-export-copy" '
@@ -223,6 +230,7 @@ def _source_diagnostics_copy_button_html() -> str:
         f"{_epoch_copy_icon_html()}"
         "</button>"
     )
+
 
 def _source_diagnostic_icon_html(row: Mapping[str, Any]) -> str:
     severity = _source_diagnostic_event_severity(row.get("severity"))
@@ -243,6 +251,7 @@ def _source_diagnostic_icon_html(row: Mapping[str, Any]) -> str:
         f"<span class=\"diag-row-icon {severity}\" aria-hidden=\"true\">"
         f"{_ui_icon_html(icon, class_name='ui-icon')}</span>"
     )
+
 
 def _clear_source_diagnostic_row() -> dict[str, Any]:
     severity = "notice"
@@ -265,6 +274,7 @@ def _clear_source_diagnostic_row() -> dict[str, Any]:
         "tags": tags,
     }
 
+
 def _source_diagnostic_issue_sync_notice_html(source_diagnostics: Mapping[str, Any]) -> str:
     raw = source_diagnostics.get("issue_sync")
     if not isinstance(raw, Mapping):
@@ -285,6 +295,7 @@ def _source_diagnostic_issue_sync_notice_html(source_diagnostics: Mapping[str, A
         f"{_ui_icon_html('warning', class_name='ui-icon diag-issue-sync-icon')}"
         f"<strong>{escape(label)}</strong><span>{escape(message)}</span>{reason_html}</p>"
     )
+
 
 def _render_source_diagnostics_panel(
     policy: ReleasePolicy,

@@ -51,6 +51,7 @@ def _support_article_applies_to_compatibility(
         return "unknown"
     return "incompatible"
 
+
 def _support_article_validation_for_record(
     record: Mapping[str, Any],
     article: Mapping[str, Any] | None,
@@ -137,6 +138,7 @@ def _support_article_validation_for_record(
         ]
     return {key: value for key, value in validation.items() if value not in (None, "", [], ())}
 
+
 def _release_history_enrichment_record(
     target: ReleasePolicyEntry | None,
     release_history: tuple[ReleaseHistoryEntry, ...],
@@ -179,6 +181,7 @@ def _release_history_enrichment_record(
         if month_id:
             record["msrc_cvrf_month_fallback"] = month_id
     return {key: value for key, value in record.items() if value not in (None, "", [], ())}
+
 
 def _records_for_support_article_enrichment(
     *,
@@ -239,6 +242,7 @@ def _records_for_support_article_enrichment(
 
     return (*(records_by_url[url] for url in sorted(records_by_url)), *urlless_records)
 
+
 def _support_article_enrichments(
     records: tuple[Mapping[str, Any], ...],
     *,
@@ -260,6 +264,7 @@ def _support_article_enrichments(
         enrichment.update(_support_article_validation_for_record(record, enrichment))
         enrichments[url] = enrichment
     return enrichments
+
 
 def _support_article_enrichment_event(
     record: Mapping[str, Any],
@@ -326,6 +331,7 @@ def _support_article_enrichment_event(
         "atom_feed_url": record.get("atom_feed_url"),
     }
     return {key: value for key, value in event.items() if value not in (None, "")}
+
 
 def _support_article_enrichment_events(
     records: tuple[Mapping[str, Any], ...],

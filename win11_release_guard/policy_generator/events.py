@@ -15,6 +15,7 @@ def _event_key(item: Mapping[str, Any]) -> tuple[str | None, str | None, str | N
         str(item.get("kb_article")) if item.get("kb_article") is not None else None,
     )
 
+
 def _dedupe_source_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_key: dict[tuple[str | None, str | None, str | None, str | None, str | None], dict[str, Any]] = {}
     order: list[tuple[str | None, str | None, str | None, str | None, str | None]] = []
@@ -30,6 +31,7 @@ def _dedupe_source_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             by_key[key] = item
     return [by_key[key] for key in order]
 
+
 def _source_event_counts(events: list[dict[str, Any]]) -> dict[str, int]:
     counts = {"notice": 0, "warning": 0, "error": 0}
     for event in events:
@@ -37,6 +39,7 @@ def _source_event_counts(events: list[dict[str, Any]]) -> dict[str, int]:
         if severity in counts:
             counts[severity] += 1
     return counts
+
 
 def _human_join(items: Sequence[str]) -> str:
     values = [item for item in items if item]

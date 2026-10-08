@@ -21,11 +21,14 @@ def _newest_current_version_revision_date(entries: tuple[ReleasePolicyEntry, ...
         values.append(str(entry.metadata.get("latest_revision_date") or "") or None)
     return _newest_timestamp(values)
 
+
 def _newest_release_history_availability_date(rows: tuple[ReleaseHistoryEntry, ...]) -> str | None:
     return _newest_timestamp([row.availability_date for row in rows])
 
+
 def _newest_atom_timestamp(entries: tuple[AtomFeedEntry, ...], field: str) -> str | None:
     return _newest_timestamp([getattr(entry, field) for entry in entries])
+
 
 def _history_release_by_family(rows: tuple[ReleaseHistoryEntry, ...]) -> dict[int, str]:
     releases: dict[int, str] = {}
@@ -34,6 +37,7 @@ def _history_release_by_family(rows: tuple[ReleaseHistoryEntry, ...]) -> dict[in
         if current is None or _release_key(row.release) > _release_key(current):
             releases[row.build_family] = row.release
     return releases
+
 
 def _history_build_maps(rows: tuple[ReleaseHistoryEntry, ...]) -> tuple[dict[int, tuple[int, int]], set[str], set[str]]:
     newest_by_family: dict[int, tuple[int, int]] = {}
@@ -47,6 +51,7 @@ def _history_build_maps(rows: tuple[ReleaseHistoryEntry, ...]) -> tuple[dict[int
         current = newest_by_family.get(row.build_family, (-1, -1))
         newest_by_family[row.build_family] = max(current, _build_key(row.build))
     return newest_by_family, builds, kbs
+
 
 def _atom_newer_than_history(
     atom_entries: tuple[AtomFeedEntry, ...],
@@ -96,12 +101,14 @@ def _atom_newer_than_history(
         )
     )
 
+
 def _atom_observed_record_is_preferred(candidate: Mapping[str, Any], current: Mapping[str, Any]) -> bool:
     candidate_build = _build_key(str(candidate.get("build") or ""))
     current_build = _build_key(str(current.get("build") or ""))
     if candidate_build != current_build:
         return candidate_build > current_build
     return _atom_drift_record_is_preferred(candidate, current)
+
 
 def _atom_support_href_missing_event(
     *,
@@ -134,6 +141,7 @@ def _atom_support_href_missing_event(
         event["atom_feed_url"] = support_url
         event["support_url"] = support_url
     return {key: value for key, value in event.items() if value not in (None, "")}
+
 
 def _latest_observed_atom_support_record(
     target: ReleasePolicyEntry | None,
@@ -209,6 +217,7 @@ def _latest_observed_atom_support_record(
     )
     return selected, missing_events
 
+
 def _entry_with_latest_observed_evidence(
     entry: ReleasePolicyEntry,
     record: Mapping[str, Any],
@@ -230,6 +239,7 @@ def _entry_with_latest_observed_evidence(
         if value not in (None, ""):
             metadata[key] = value
     return replace(entry, latest_observed_build=build, metadata=metadata)
+
 
 def _atom_drift_record_is_preferred(candidate: Mapping[str, Any], current: Mapping[str, Any]) -> bool:
     candidate_updated = _source_timestamp_for_sort(str(candidate.get("updated") or "") or None)

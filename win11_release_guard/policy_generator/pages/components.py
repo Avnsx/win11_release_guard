@@ -22,6 +22,7 @@ def _site_brand_icon_html(class_name: str = "site-brand-icon") -> str:
         "</svg>"
     )
 
+
 def _epoch_copy_icon_html() -> str:
     return (
         '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
@@ -31,6 +32,7 @@ def _epoch_copy_icon_html() -> str:
         'fill="none" stroke="currentColor" stroke-width="1.8"/>'
         "</svg>"
     )
+
 
 def _ui_icon_html(name: str, *, class_name: str = "ui-icon") -> str:
     icons = {
@@ -73,6 +75,7 @@ def _ui_icon_html(name: str, *, class_name: str = "ui-icon") -> str:
         f'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{body}</svg>'
     )
 
+
 def _github_icon_html() -> str:
     return (
         '<svg class="github-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">'
@@ -85,6 +88,7 @@ def _github_icon_html() -> str:
         ' 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>'
         "</svg>"
     )
+
 
 def _footer_html() -> str:
     return (
@@ -99,6 +103,7 @@ def _footer_html() -> str:
         f'<a class="footer-license-basic" href="{escape(GITHUB_LICENSE_URL, quote=True)}">GPL-3.0 license</a></p>'
         "</footer>"
     )
+
 
 def _time_with_epoch_copy_html(value: str | None, *, label: str) -> str:
     utc_dt = parse_iso_utc_datetime(value)
@@ -120,8 +125,10 @@ def _time_with_epoch_copy_html(value: str | None, *, label: str) -> str:
         "</button></span>"
     )
 
+
 def _dashboard_wiki_help_href(page_slug: str, fragment: str, *, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     return f"{_pages_wiki_url(base_url=base_url)}{page_slug.strip('/')}/#{_heading_slug_base(fragment)}"
+
 
 def _dashboard_info_link_html(
     *,
@@ -139,6 +146,7 @@ def _dashboard_info_link_html(
         "</span>"
         f'<span class="sr-only">{escape(label)}</span></a>'
     )
+
 
 def _dashboard_info_topic_html(topic: str, *, base_url: str = DEFAULT_PAGES_BASE_URL) -> str:
     targets = {

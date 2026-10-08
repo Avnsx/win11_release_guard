@@ -28,6 +28,7 @@ def _signature_field(signature: Mapping[str, Any] | None, key: str) -> str | Non
     value = signature.get(key)
     return str(value) if value not in (None, "") else None
 
+
 def _signature_trust_class(*, signature_attached: bool, signature_status: str) -> str:
     normalized = signature_status.strip().lower()
     if normalized == "valid":
@@ -35,6 +36,7 @@ def _signature_trust_class(*, signature_attached: bool, signature_status: str) -
     if not signature_attached and normalized in {"unsigned", "unsigned local preview"}:
         return " warning"
     return " error"
+
 
 def _short_diagnostic_text(value: Any, *, max_length: int = 150) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip()
@@ -45,9 +47,11 @@ def _short_diagnostic_text(value: Any, *, max_length: int = 150) -> str:
         boundary = max_length - 1
     return text[:boundary].rstrip(" ,;:-.") + "."
 
+
 def _source_diagnostic_event_severity(value: Any) -> str:
     severity = str(value or "").strip().lower()
     return severity if severity in {"notice", "warning", "error"} else "warning"
+
 
 def _source_diagnostic_id_text(value: Any) -> str:
     try:
@@ -56,12 +60,14 @@ def _source_diagnostic_id_text(value: Any) -> str:
         return ""
     return re.sub(r"\s+", " ", text).strip()
 
+
 def _source_diagnostic_id_component(value: Any) -> dict[str, Any]:
     text = _source_diagnostic_id_text(value)
     return {
         "length": len(text),
         "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
     }
+
 
 def _source_diagnostic_id_tag_values(tags: Any) -> tuple[str, ...]:
     if tags in (None, ""):
@@ -85,9 +91,11 @@ def _source_diagnostic_id_tag_values(tags: Any) -> tuple[str, ...]:
             normalized.append(text)
     return tuple(normalized)
 
+
 def _source_diagnostic_id_field(value: Any) -> str | None:
     text = _source_diagnostic_id_text(value)
     return text or None
+
 
 def _source_diagnostic_id_kb(value: Any) -> str | None:
     text = _source_diagnostic_id_text(value)
@@ -96,6 +104,7 @@ def _source_diagnostic_id_kb(value: Any) -> str | None:
     compact = re.sub(r"\s+", "", text).upper()
     match = _SOURCE_DIAGNOSTIC_KB_TAG_RE.fullmatch(compact)
     return f"KB{match.group(1)}" if match else compact
+
 
 def _source_diagnostic_id_bool(value: Any) -> bool | None:
     if isinstance(value, bool):
@@ -109,6 +118,7 @@ def _source_diagnostic_id_bool(value: Any) -> bool | None:
         return False
     return None
 
+
 def _source_diagnostic_id_url_host_path(value: Any) -> str | None:
     text = _source_diagnostic_id_text(value)
     if not text:
@@ -120,6 +130,7 @@ def _source_diagnostic_id_url_host_path(value: Any) -> str | None:
     if path != "/":
         path = path.rstrip("/")
     return f"{parsed.netloc.lower()}{path}"
+
 
 def _source_diagnostic_id_tag_fields(tags: Any) -> dict[str, Any]:
     candidates: dict[str, list[Any]] = {}
@@ -158,11 +169,14 @@ def _source_diagnostic_id_tag_fields(tags: Any) -> dict[str, Any]:
         if values
     }
 
+
 def _source_diagnostic_has_id_value(value: Any) -> bool:
     return value not in (None, "")
 
+
 def _source_diagnostic_id_payload_field(value: Any) -> dict[str, Any]:
     return _source_diagnostic_id_component(_source_diagnostic_id_field(value) or "")
+
 
 def _source_diagnostic_id(
     *,
@@ -242,12 +256,14 @@ def _source_diagnostic_id(
     digest = hashlib.sha256(payload_bytes).hexdigest()[:SOURCE_DIAGNOSTIC_ID_HASH_LENGTH]
     return f"{SOURCE_DIAGNOSTIC_ID_PREFIX}:{digest}"
 
+
 def _source_diagnostic_event_label(kind: Any) -> str:
     text = re.sub(r"[_-]+", " ", str(kind or "source diagnostic")).strip()
     if not text:
         return "Source diagnostic"
     acronyms = {"kb", "oob", "esu", "lcu"}
     return " ".join(part.upper() if part.lower() in acronyms else part.capitalize() for part in text.split())
+
 
 def _source_diagnostic_display_title(event: Mapping[str, Any]) -> str:
     kind = str(event.get("kind") or "").strip().lower()
@@ -271,6 +287,7 @@ def _source_diagnostic_display_title(event: Mapping[str, Any]) -> str:
     if build and release:
         return f"{_source_diagnostic_event_label(kind)} for {release_text} build {build}"
     return _source_diagnostic_event_label(kind)
+
 
 def _source_diagnostic_source_label(kind: Any) -> str:
     text = str(kind or "").strip().lower()
@@ -297,12 +314,14 @@ def _source_diagnostic_source_label(kind: Any) -> str:
         return "Signature"
     return "Source"
 
+
 def _source_diagnostic_timestamp(event: Mapping[str, Any]) -> str | None:
     for key in ("occurred_at_utc", "fetched_at_utc", "published", "updated", "timestamp", "generated_at_utc"):
         value = event.get(key)
         if value not in (None, ""):
             return str(value)
     return None
+
 
 def _source_diagnostic_event_tags(event: Mapping[str, Any]) -> tuple[str, ...]:
     tags: list[str] = []
@@ -343,12 +362,14 @@ def _source_diagnostic_event_tags(event: Mapping[str, Any]) -> tuple[str, ...]:
         tags.append(_dual_zone_time_human(timestamp) or timestamp)
     return tuple(tags)
 
+
 def _source_diagnostic_id_hint_for_event(event: Mapping[str, Any]) -> str | None:
     for key in ("diagnostic_id_hint", "id"):
         diagnostic_id = _source_diagnostic_id_text(event.get(key))
         if _is_source_diagnostic_id(diagnostic_id):
             return diagnostic_id
     return None
+
 
 def _atom_diagnostic_id_from_event(event: Mapping[str, Any]) -> str | None:
     for key in ("diagnostic_id_hint", "id"):
@@ -367,6 +388,7 @@ def _atom_diagnostic_id_from_event(event: Mapping[str, Any]) -> str | None:
         ):
             return diagnostic_id
     return None
+
 
 def _source_diagnostic_hash_id_for_event(
     event: Mapping[str, Any],
@@ -394,11 +416,13 @@ def _source_diagnostic_hash_id_for_event(
         extra_identity_fields=extra_identity_fields,
     )
 
+
 def _source_diagnostic_id_for_event(event: Mapping[str, Any]) -> str:
     hint = _source_diagnostic_id_hint_for_event(event)
     if hint is not None:
         return hint
     return _source_diagnostic_hash_id_for_event(event)
+
 
 def _atom_canonical_event_key(index: int, event: Mapping[str, Any]) -> tuple[Any, ...]:
     severity = _source_diagnostic_event_severity(event.get("severity"))
@@ -415,6 +439,7 @@ def _atom_canonical_event_key(index: int, event: Mapping[str, Any]) -> tuple[Any
         index,
     )
 
+
 def _canonical_atom_event_indexes(events: Sequence[Mapping[str, Any]]) -> dict[int, str]:
     groups: dict[str, list[tuple[int, Mapping[str, Any]]]] = {}
     for index, event in enumerate(events):
@@ -428,6 +453,7 @@ def _canonical_atom_event_indexes(events: Sequence[Mapping[str, Any]]) -> dict[i
         canonical[index] = atom_diagnostic_id
     return canonical
 
+
 def _event_atom_entry_identity(event: Mapping[str, Any]) -> str | None:
     atom_entry_id = _source_diagnostic_id_text(event.get("atom_entry_id"))
     if atom_entry_id:
@@ -436,6 +462,7 @@ def _event_atom_entry_identity(event: Mapping[str, Any]) -> str | None:
     if atom_diagnostic_id:
         return atom_diagnostic_id.removeprefix(f"{SOURCE_DIAGNOSTIC_ID_PREFIX}:")
     return None
+
 
 def _source_diagnostic_collision_hash_id(
     event: Mapping[str, Any],
@@ -454,6 +481,7 @@ def _source_diagnostic_collision_hash_id(
             "diagnostic_id_hint": event.get("diagnostic_id_hint"),
         },
     )
+
 
 def _resolve_source_diagnostic_id_collisions(
     events: list[dict[str, Any]],
@@ -481,6 +509,7 @@ def _resolve_source_diagnostic_id_collisions(
                 )
     raise PolicyParseError("Could not assign unique source diagnostic IDs.")
 
+
 def _source_diagnostic_events_with_ids(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items = [dict(event) for event in events]
     canonical_atom_indexes = _canonical_atom_event_indexes(items)
@@ -499,6 +528,7 @@ def _source_diagnostic_events_with_ids(events: list[dict[str, Any]]) -> list[dic
         items,
         protected_indexes=set(canonical_atom_indexes),
     )
+
 
 def _is_source_diagnostic_id(value: str) -> bool:
     return is_source_diagnostic_id(value)

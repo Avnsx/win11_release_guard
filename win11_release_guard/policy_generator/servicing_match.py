@@ -18,6 +18,7 @@ def _catalog_url(kb_article: str | None) -> str | None:
         return None
     return f"https://www.catalog.update.microsoft.com/Search.aspx?q={kb}"
 
+
 def _atom_entry_preference_key(entry: AtomFeedEntry) -> tuple[float, float, str, str]:
     updated = _parse_source_timestamp(entry.updated)
     published = _parse_source_timestamp(entry.published)
@@ -28,18 +29,22 @@ def _atom_entry_preference_key(entry: AtomFeedEntry) -> tuple[float, float, str,
         str(entry.title or ""),
     )
 
+
 def _preferred_atom_entry(entries: Iterable[AtomFeedEntry]) -> AtomFeedEntry | None:
     candidates = tuple(entries)
     if not candidates:
         return None
     return max(candidates, key=_atom_entry_preference_key)
 
+
 def _release_matches(row: ReleaseHistoryEntry, entry: AtomFeedEntry) -> bool:
     return bool(entry.release) and str(entry.release).upper() == str(row.release or "").upper()
+
 
 def _atom_entry_build_families(entry: AtomFeedEntry) -> set[int]:
     families = {_build_key(build)[0] for build in entry.builds}
     return {family for family in families if family >= 0}
+
 
 def _is_contradictory_same_family_atom_entry(row: ReleaseHistoryEntry, entry: AtomFeedEntry) -> bool:
     """True if an explicit-build entry covers the row's build family but not its build."""
@@ -48,6 +53,7 @@ def _is_contradictory_same_family_atom_entry(row: ReleaseHistoryEntry, entry: At
         and row.build_family in _atom_entry_build_families(entry)
         and row.build not in entry.builds
     )
+
 
 def _unambiguous_kb_only_atom_entries(
     row: ReleaseHistoryEntry,
@@ -98,6 +104,7 @@ def _unambiguous_kb_only_atom_entries(
 
     return tuple(candidates)
 
+
 def _match_atom(row: ReleaseHistoryEntry, entries: tuple[AtomFeedEntry, ...]) -> AtomFeedEntry | None:
     row_kb = _extract_kb(row.kb_article)
     if row_kb:
@@ -127,6 +134,7 @@ def _match_atom(row: ReleaseHistoryEntry, entries: tuple[AtomFeedEntry, ...]) ->
         kb_matches = tuple(entry for entry in entries if entry.kb_article == row_kb)
         return _preferred_atom_entry(_unambiguous_kb_only_atom_entries(row, kb_matches))
     return None
+
 
 def _enrich_history(
     release_history: tuple[ReleaseHistoryEntry, ...],
@@ -177,11 +185,13 @@ def _enrich_history(
         )
     return tuple(enriched)
 
+
 def _entry_with_special_flag(entry: ReleasePolicyEntry) -> ReleasePolicyEntry:
     metadata = dict(entry.metadata)
     if metadata.get("not_broad_target"):
         metadata["not_broad_target_existing_devices"] = True
     return replace(entry, metadata=metadata)
+
 
 def _baseline_for(
     rows: tuple[ReleaseHistoryEntry, ...],
@@ -202,6 +212,7 @@ def _baseline_for(
     if not candidates:
         return None
     return max(candidates, key=_history_sort_key)
+
 
 def _quality_baselines(release_history: tuple[ReleaseHistoryEntry, ...]) -> dict[str, dict[str, dict[str, Any]]]:
     releases = sorted({row.release for row in release_history}, key=_release_key)

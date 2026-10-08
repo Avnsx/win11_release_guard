@@ -22,16 +22,19 @@ def _baseline_update_notice_for_policy(policy: ReleasePolicy) -> Mapping[str, An
         return notice
     return None
 
+
 def _baseline_update_security_label(notice: Mapping[str, Any]) -> str:
     return _security_evidence_display_label(
         is_security=notice.get("is_security"),
         evidence_source=notice.get("security_evidence_source"),
     ) or "Security evidence unknown"
 
+
 def _baseline_update_security_url(notice: Mapping[str, Any]) -> str | None:
     if str(notice.get("security_evidence_source") or "").strip().lower() == "msrc_cvrf":
         return MSRC_UPDATE_GUIDE_URL
     return None
+
 
 def _baseline_update_chip_html(
     label: str,
@@ -52,6 +55,7 @@ def _baseline_update_chip_html(
         )
     return f'<span class="{escape(class_attr, quote=True)}">{escape(content)}</span>'
 
+
 def _baseline_read_more_html(source_url: str | None) -> str:
     if not source_url:
         return ""
@@ -59,6 +63,7 @@ def _baseline_read_more_html(source_url: str | None) -> str:
         f' <a class="baseline-read-more" href="{escape(source_url, quote=True)}" '
         'rel="noopener noreferrer">Read more</a>'
     )
+
 
 def _baseline_review_html(notice: Mapping[str, Any], source_url: str | None) -> str:
     read_more_html = _baseline_read_more_html(source_url)
@@ -85,6 +90,7 @@ def _baseline_review_html(notice: Mapping[str, Any], source_url: str | None) -> 
         '<span class="baseline-review-label">Update highlights:</span>'
         f' {escape(review_text)}{read_more_html}</p>'
     )
+
 
 def _render_baseline_update_notice(policy: ReleasePolicy) -> str:
     notice = _baseline_update_notice_for_policy(policy)

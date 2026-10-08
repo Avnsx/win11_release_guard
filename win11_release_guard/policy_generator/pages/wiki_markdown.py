@@ -22,8 +22,10 @@ def _is_allowed_absolute_url(target: str) -> bool:
     lower = target.casefold()
     return lower.startswith(("https://", "http://", "mailto:"))
 
+
 def _has_url_scheme(target: str) -> bool:
     return bool(re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target))
+
 
 def _render_broken_wiki_link(label: str, target: str, broken_links: list[str]) -> str:
     clean_target = target.strip()
@@ -33,6 +35,7 @@ def _render_broken_wiki_link(label: str, target: str, broken_links: list[str]) -
         f'<span class="broken-link" data-broken-link="{escape(clean_target)}">'
         f"{escape(label.strip() or clean_target or 'broken link')}</span>"
     )
+
 
 def _render_wiki_link(
     value: str,
@@ -49,6 +52,7 @@ def _render_wiki_link(
     if missing:
         return _render_broken_wiki_link(label, missing, broken_links)
     return f'<a href="{escape(href or "#")}">{escape(label.strip() or target.strip())}</a>'
+
 
 def _render_markdown_link(
     label: str,
@@ -82,6 +86,7 @@ def _render_markdown_link(
         return _render_broken_wiki_link(clean_label, missing, broken_links)
     return f'<a href="{escape(href or "#")}">{escape(clean_label)}</a>'
 
+
 def _render_markdown_image(alt: str, target: str) -> str:
     clean_target = target.strip()
     if not _is_allowed_absolute_url(clean_target):
@@ -91,9 +96,11 @@ def _render_markdown_image(alt: str, target: str) -> str:
         'loading="lazy" decoding="async">'
     )
 
+
 def _is_image_only_html(value: str) -> bool:
     stripped = value.strip()
     return stripped.startswith("<img ") and stripped.endswith(">") and stripped.count("<img ") == 1
+
 
 _WIKI_MAX_SECTION_ICONS = 3
 
@@ -136,11 +143,13 @@ _WIKI_HEADING_ICON_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("help", ("faq", "troubleshooting", "question")),
 )
 
+
 def _wiki_icon_kind_for_page(page_slug: str | None) -> str:
     normalized = (page_slug or "home").strip("/").casefold()
     if normalized.startswith("changelog/"):
         return "changelog"
     return _WIKI_PAGE_ICON_BY_SLUG.get(normalized, "document")
+
 
 def _wiki_icon_kind_for_heading(
     *,
@@ -158,6 +167,7 @@ def _wiki_icon_kind_for_heading(
         if any(needle in lookup for needle in needles):
             return icon_kind
     return None
+
 
 def _wiki_icon_html(kind: str) -> str:
     icons = {
@@ -245,6 +255,7 @@ def _wiki_icon_html(kind: str) -> str:
         f"{body}</svg>"
     )
 
+
 def _render_wiki_heading_html(level: int, slug: str, inline_heading: str, icon_kind: str | None) -> str:
     safe_slug = escape(slug, quote=True)
     if not icon_kind:
@@ -253,6 +264,7 @@ def _render_wiki_heading_html(level: int, slug: str, inline_heading: str, icon_k
         f'<h{level} id="{safe_slug}" class="wiki-heading-with-icon">'
         f'{_wiki_icon_html(icon_kind)}<span class="wiki-heading-text">{inline_heading}</span></h{level}>'
     )
+
 
 def _render_wiki_inline(
     text: str,
@@ -314,6 +326,7 @@ def _render_wiki_inline(
         index = next_special
     return "".join(parts)
 
+
 def _split_markdown_table_row(line: str) -> list[str]:
     cells: list[str] = []
     current: list[str] = []
@@ -339,10 +352,12 @@ def _split_markdown_table_row(line: str) -> list[str]:
     cells.append("".join(current).strip())
     return cells
 
+
 def _is_table_start(lines: Sequence[str], index: int) -> bool:
     if index + 1 >= len(lines):
         return False
     return "|" in lines[index] and bool(_TABLE_SEPARATOR_RE.match(lines[index + 1]))
+
 
 def _render_wiki_table(
     rows: Sequence[str],
@@ -366,11 +381,14 @@ def _render_wiki_table(
         )
     return f"<table><thead><tr>{thead}</tr></thead><tbody>{''.join(tbody_lines)}</tbody></table>"
 
+
 def _list_indent_width(value: str) -> int:
     return len(value.replace("\t", "    "))
 
+
 def _list_tag(marker: str) -> str:
     return "ol" if marker.endswith(".") else "ul"
+
 
 def _render_wiki_list(
     lines: Sequence[str],
@@ -439,6 +457,7 @@ def _render_wiki_list(
         items.append(_render_wiki_inline(item_text, pages, broken_links, base_url=base_url))
     body = "".join(f"<li>{item}</li>" for item in items)
     return f"<{tag}>{body}</{tag}>", index
+
 
 def _render_wiki_markdown_fragment(
     text: str,
@@ -551,6 +570,7 @@ def _render_wiki_markdown_fragment(
         paragraph_class = ' class="wiki-image-block"' if _is_image_only_html(rendered_paragraph) else ""
         blocks.append(f"<p{paragraph_class}>{rendered_paragraph}</p>")
     return "\n".join(blocks), tuple(headings), tuple(dict.fromkeys(broken_links))
+
 
 def _render_wiki_toc(headings: Sequence[WikiHeading], *, page_title: str = "") -> str:
     title_key = _wiki_lookup_key(page_title) if page_title else ""

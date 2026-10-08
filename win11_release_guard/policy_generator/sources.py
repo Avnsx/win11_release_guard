@@ -20,7 +20,9 @@ class SourceText:
     text: str
     status: Mapping[str, Any]
 
+
 WindowsUpdateProbe = Callable[[], Sequence[WindowsUpdateOffer]]
+
 
 @dataclass(frozen=True)
 class AtomFeedEntry:
@@ -37,6 +39,7 @@ class AtomFeedEntry:
     preview: bool = False
     out_of_band: bool = False
     release: str | None = None
+
 
 def fetch_url(
     url: str,
@@ -57,6 +60,7 @@ def fetch_url(
     content_type = http_client.get_header(result.headers, "Content-Type")
     response_charset = charset or http_client.charset_from_content_type(content_type) or "utf-8"
     return result.content.decode(response_charset, errors="replace")
+
 
 def load_source_text(
     *,
@@ -125,6 +129,7 @@ def load_source_text(
             "fetched_at_utc": clock.utc_now(),
         },
     )
+
 
 def _feed_entries_from_servicing_toc(
     entries: tuple[ServicingTocEntry, ...],

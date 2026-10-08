@@ -21,10 +21,12 @@ def _format_bytes(value: Any) -> str:
         return f"{size / 1024:.1f} KiB"
     return f"{size / (1024 * 1024):.1f} MiB"
 
+
 def _hash_html(value: str | None) -> str:
     short = _short_hash(value)
     title = f' title="{escape(value, quote=True)}"' if value else ""
     return f'<span class="mono hash"{title}>{escape(short)}</span>'
+
 
 def _source_status_for_url(policy: ReleasePolicy, url: str, *, generated_at_utc: str) -> Mapping[str, Any]:
     label = _source_label(url)
@@ -44,6 +46,7 @@ def _source_status_for_url(policy: ReleasePolicy, url: str, *, generated_at_utc:
         }
     return source
 
+
 def _source_status_class(value: Any) -> str:
     text = str(value or "").strip().lower()
     if text in {"ok", "success", "valid", "healthy", "current"}:
@@ -53,6 +56,7 @@ def _source_status_class(value: Any) -> str:
     if any(token in text for token in ("error", "err", "fail", "invalid", "blocked", "unavailable")):
         return "error"
     return "unknown"
+
 
 def _render_source_tiles(policy: ReleasePolicy, *, generated_at_utc: str) -> str:
     if not policy.source_urls:

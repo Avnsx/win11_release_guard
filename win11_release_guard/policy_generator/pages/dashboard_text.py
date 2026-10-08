@@ -20,11 +20,13 @@ def _reason_summary(value: str | None, *, max_length: int = 150) -> str:
         boundary = max_length - 1
     return text[:boundary].rstrip(" ,;:-.") + "."
 
+
 def _excluded_release_summary(entry: ReleasePolicyEntry) -> str:
     curated = CURATED_EXCLUDED_RELEASE_SUMMARIES.get(entry.version.upper())
     if curated:
         return curated
     return _reason_summary(entry.reason)
+
 
 def _source_label(url: str) -> str:
     parsed = urlparse(url)
@@ -50,13 +52,16 @@ def _source_label(url: str) -> str:
         return "Microsoft servicing index"
     return url
 
+
 def _status_text(policy: ReleasePolicy) -> str:
     return "Warning state" if policy.validation_warnings else "Policy current"
+
 
 def _latest_observed_source_label(entry: ReleasePolicyEntry | None) -> str:
     if entry and str(entry.metadata.get("latest_observed_source") or "") == "atom_support_article":
         return "Microsoft Support article"
     return "Microsoft Current Versions table"
+
 
 def _latest_observed_evidence_metadata(entry: ReleasePolicyEntry | None) -> dict[str, Any]:
     if entry is None:
@@ -75,6 +80,7 @@ def _latest_observed_evidence_metadata(entry: ReleasePolicyEntry | None) -> dict
         if key in entry.metadata and entry.metadata[key] not in (None, "")
     }
 
+
 def _source_event_counts_for_policy(policy: ReleasePolicy) -> dict[str, int]:
     source_diagnostics = policy.source_diagnostics if isinstance(policy.source_diagnostics, Mapping) else {}
     raw_counts = source_diagnostics.get("event_counts") if isinstance(source_diagnostics, Mapping) else {}
@@ -86,6 +92,7 @@ def _source_event_counts_for_policy(policy: ReleasePolicy) -> dict[str, int]:
             except (TypeError, ValueError):
                 counts[key] = 0
     return counts
+
 
 def _source_diagnostics_for_policy(policy: ReleasePolicy) -> Mapping[str, Any]:
     source_diagnostics = policy.source_diagnostics if isinstance(policy.source_diagnostics, Mapping) else {}
