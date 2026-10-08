@@ -1,3 +1,4 @@
+from win11_release_guard import cli_diagnostics as _cli_diagnostics_module
 import json
 from dataclasses import replace
 
@@ -700,7 +701,7 @@ def test_cli_diagnose_config_does_not_check_source_by_default(monkeypatch, capsy
     def fail_source_check(config):
         raise AssertionError("source check should not run")
 
-    monkeypatch.setattr(cli, "_load_runtime_policy", fail_source_check)
+    monkeypatch.setattr(_cli_diagnostics_module, "_load_runtime_policy", fail_source_check)
 
     code = cli.main(["--diagnose-config"])
 

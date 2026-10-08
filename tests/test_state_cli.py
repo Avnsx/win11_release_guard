@@ -20,6 +20,7 @@ derived filename.
 
 from __future__ import annotations
 
+from win11_release_guard import cli_diagnostics as _cli_diagnostics_module
 import json
 from pathlib import Path
 
@@ -344,7 +345,7 @@ def test_diagnose_and_show_state_never_mutate_state_or_check_the_source(monkeypa
             name,
             lambda *args, _name=name, **kwargs: mutations.append((_name, args)),
         )
-    monkeypatch.setattr(cli, "_load_runtime_policy", lambda *args, **kwargs: source_checks.append(args))
+    monkeypatch.setattr(_cli_diagnostics_module, "_load_runtime_policy", lambda *args, **kwargs: source_checks.append(args))
 
     diagnose_code = cli.main(["--diagnose-config", "--state-dir", str(tmp_path)])
     diagnose_payload = json.loads(capsys.readouterr().out)

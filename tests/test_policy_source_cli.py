@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from win11_release_guard import cli_policy_source as _cli_policy_source_module
+from win11_release_guard import cli_public_pages as _cli_public_pages_module
 import json
 import hashlib
 from datetime import datetime, timedelta, timezone
@@ -352,11 +354,9 @@ def test_check_policy_source_malformed_policy_fails(tmp_path, capsys):
 
 
 def test_check_policy_source_network_unavailable_is_explicit(monkeypatch, capsys):
-    monkeypatch.setattr(
-        cli,
-        "fetch_policy_bytes",
-        lambda *args, **kwargs: (_ for _ in ()).throw(PolicyFetchError("network unavailable")),
-    )
+    _patched_fetch_policy_bytes = lambda *args, **kwargs: (_ for _ in ()).throw(PolicyFetchError("network unavailable"))
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
 
     code = cli.main([
         "--check-policy-source",
@@ -382,7 +382,8 @@ def test_check_policy_source_default_url_checks_manifest_without_local_probes(mo
         calls.append(str(url))
         return _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)(url, *args, **kwargs)
 
-    monkeypatch.setattr(cli, "fetch_policy_bytes", fake_fetch)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", fake_fetch)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", fake_fetch)
 
     code = cli.main([
         "--check-policy-source",
@@ -422,7 +423,8 @@ def test_check_policy_source_remote_missing_manifest_fails(monkeypatch, capsys):
             raise PolicyFetchError("manifest 404")
         raise PolicyFetchError(f"unexpected URL {url}")
 
-    monkeypatch.setattr(cli, "fetch_policy_bytes", fake_fetch)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", fake_fetch)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", fake_fetch)
 
     code = cli.main([
         "--check-policy-source",
@@ -452,7 +454,8 @@ def test_check_policy_source_allow_missing_manifest_escape_hatch(monkeypatch, ca
             raise PolicyFetchError("manifest temporarily unavailable")
         raise PolicyFetchError(f"unexpected URL {url}")
 
-    monkeypatch.setattr(cli, "fetch_policy_bytes", fake_fetch)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", fake_fetch)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", fake_fetch)
 
     code = cli.main([
         "--check-policy-source",
@@ -472,7 +475,9 @@ def test_check_policy_source_manifest_hash_mismatch_fails(monkeypatch, capsys):
     policy_bytes = _policy_bytes()
     signature_bytes = _signature_bytes(policy_bytes)
     bad_manifest = b'{"policy_sha256":"bad"}\n'
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, bad_manifest))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, bad_manifest)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
 
     code = cli.main([
         "--check-policy-source",
@@ -526,7 +531,7 @@ def _install_public_page_fetch(monkeypatch, page_bytes: dict[str, bytes]) -> Non
     def fake_public_url(url, *, timeout):
         return PublicResponse(str(url), 200, page_bytes[str(url)], {"Content-Type": "application/json"})
 
-    monkeypatch.setattr(cli, "_fetch_public_url", fake_public_url)
+    monkeypatch.setattr(_cli_public_pages_module, "_fetch_public_url", fake_public_url)
 
 
 def test_public_pages_urls_use_policy_published_urls_with_default_fallbacks():
@@ -553,8 +558,10 @@ def test_check_public_pages_validates_hashes_signatures_and_api_aliases(monkeypa
     policy_bytes = _policy_bytes()
     signature_bytes = _signature_bytes(policy_bytes)
     manifest_bytes = _manifest_bytes(policy_bytes)
-    monkeypatch.setattr(cli, "_utc_now_epoch_s", lambda: _epoch(datetime(2026, 6, 4, tzinfo=timezone.utc)))
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    monkeypatch.setattr(_cli_public_pages_module, "_utc_now_epoch_s", lambda: _epoch(datetime(2026, 6, 4, tzinfo=timezone.utc)))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
 
     _install_public_page_fetch(monkeypatch, _public_page_bytes(policy_bytes, signature_bytes, manifest_bytes))
 
@@ -587,8 +594,10 @@ def test_check_public_pages_fails_when_manifest_epoch_is_15_days_old(monkeypatch
     policy_bytes = _policy_bytes_generated_at(generated.isoformat())
     signature_bytes = _signature_bytes(policy_bytes)
     manifest_bytes = _manifest_bytes(policy_bytes, generated_at_epoch_s=_epoch(generated))
-    monkeypatch.setattr(cli, "_utc_now_epoch_s", lambda: _epoch(now))
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    monkeypatch.setattr(_cli_public_pages_module, "_utc_now_epoch_s", lambda: _epoch(now))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
     _install_public_page_fetch(monkeypatch, _public_page_bytes(policy_bytes, signature_bytes, manifest_bytes))
 
     code = cli.main([
@@ -611,8 +620,10 @@ def test_check_public_pages_fails_strict_stale_when_manifest_epoch_is_46_days_ol
     policy_bytes = _policy_bytes_generated_at(generated.isoformat())
     signature_bytes = _signature_bytes(policy_bytes)
     manifest_bytes = _manifest_bytes(policy_bytes, generated_at_epoch_s=_epoch(generated))
-    monkeypatch.setattr(cli, "_utc_now_epoch_s", lambda: _epoch(now))
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    monkeypatch.setattr(_cli_public_pages_module, "_utc_now_epoch_s", lambda: _epoch(now))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
     _install_public_page_fetch(monkeypatch, _public_page_bytes(policy_bytes, signature_bytes, manifest_bytes))
 
     code = cli.main([
@@ -634,8 +645,10 @@ def test_check_public_pages_freshness_falls_back_to_policy_generated_at(monkeypa
     policy_bytes = _policy_bytes_generated_at(generated.isoformat())
     signature_bytes = _signature_bytes(policy_bytes)
     manifest_bytes = _manifest_bytes(policy_bytes)
-    monkeypatch.setattr(cli, "_utc_now_epoch_s", lambda: _epoch(now))
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    monkeypatch.setattr(_cli_public_pages_module, "_utc_now_epoch_s", lambda: _epoch(now))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
     _install_public_page_fetch(monkeypatch, _public_page_bytes(policy_bytes, signature_bytes, manifest_bytes))
 
     code = cli.main([
@@ -655,8 +668,10 @@ def test_check_public_pages_invalid_manifest_epoch_fails_clearly(monkeypatch, ca
     policy_bytes = _policy_bytes_generated_at(now.isoformat())
     signature_bytes = _signature_bytes(policy_bytes)
     manifest_bytes = _manifest_bytes(policy_bytes, generated_at_epoch_s="not-an-epoch")
-    monkeypatch.setattr(cli, "_utc_now_epoch_s", lambda: _epoch(now))
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    monkeypatch.setattr(_cli_public_pages_module, "_utc_now_epoch_s", lambda: _epoch(now))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
     _install_public_page_fetch(monkeypatch, _public_page_bytes(policy_bytes, signature_bytes, manifest_bytes))
 
     code = cli.main([
@@ -675,8 +690,10 @@ def test_check_public_pages_accepts_legacy_raw_signature_aliases(monkeypatch, ca
     policy_bytes = _policy_bytes()
     signature_bytes = _raw_signature_bytes(policy_bytes)
     manifest_bytes = _manifest_bytes(policy_bytes)
-    monkeypatch.setattr(cli, "_utc_now_epoch_s", lambda: _epoch(datetime(2026, 6, 4, tzinfo=timezone.utc)))
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    monkeypatch.setattr(_cli_public_pages_module, "_utc_now_epoch_s", lambda: _epoch(datetime(2026, 6, 4, tzinfo=timezone.utc)))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
 
     _install_public_page_fetch(monkeypatch, _public_page_bytes(policy_bytes, signature_bytes, manifest_bytes))
 
@@ -706,7 +723,7 @@ def test_check_public_pages_uses_custom_policy_published_urls(monkeypatch, capsy
     policy_bytes = _policy_bytes_with_published_urls(custom_urls)
     signature_bytes = _signature_bytes(policy_bytes)
     manifest_bytes = _manifest_bytes(policy_bytes, published_urls=custom_urls)
-    monkeypatch.setattr(cli, "_utc_now_epoch_s", lambda: _epoch(datetime(2026, 6, 4, tzinfo=timezone.utc)))
+    monkeypatch.setattr(_cli_public_pages_module, "_utc_now_epoch_s", lambda: _epoch(datetime(2026, 6, 4, tzinfo=timezone.utc)))
 
     def fake_source_fetch(url, *args, **kwargs):
         url = str(url)
@@ -718,7 +735,8 @@ def test_check_public_pages_uses_custom_policy_published_urls(monkeypatch, capsy
             return manifest_bytes, "application/json"
         raise PolicyFetchError(f"unexpected URL {url}")
 
-    monkeypatch.setattr(cli, "fetch_policy_bytes", fake_source_fetch)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", fake_source_fetch)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", fake_source_fetch)
     page_bytes = {
         custom_urls["landing"]: b"<html><title>custom mirror</title></html>",
         custom_urls["policy"]: policy_bytes,
@@ -737,7 +755,7 @@ def test_check_public_pages_uses_custom_policy_published_urls(monkeypatch, capsy
         public_fetches.append(url)
         return PublicResponse(url, 200, page_bytes[url], {"Content-Type": "application/json"})
 
-    monkeypatch.setattr(cli, "_fetch_public_url", fake_public_url)
+    monkeypatch.setattr(_cli_public_pages_module, "_fetch_public_url", fake_public_url)
 
     code = cli.main([
         "--check-public-pages",
@@ -776,7 +794,9 @@ def test_check_public_pages_invalid_api_signature_fails(monkeypatch, capsys):
     invalid_api_signature = (
         b'{"algorithm":"ed25519","signature":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="}\n'
     )
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
     _install_public_page_fetch(
         monkeypatch,
         _public_page_bytes(
@@ -805,7 +825,9 @@ def test_check_public_pages_api_manifest_hash_mismatch_fails(monkeypatch, capsys
     signature_bytes = _signature_bytes(policy_bytes)
     manifest_bytes = _manifest_bytes(policy_bytes)
     api_manifest_bytes = _manifest_bytes(b"different policy bytes")
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
     _install_public_page_fetch(
         monkeypatch,
         _public_page_bytes(
@@ -837,7 +859,9 @@ def test_check_public_pages_api_policy_bytes_mismatch_fails_without_manifest_mar
     api_policy_bytes = (json.dumps(api_policy, indent=2, sort_keys=True) + "\n").encode("utf-8")
     api_signature_bytes = _signature_bytes(api_policy_bytes)
     api_manifest_bytes = _manifest_bytes(api_policy_bytes)
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
     _install_public_page_fetch(
         monkeypatch,
         _public_page_bytes(
@@ -881,8 +905,10 @@ def test_check_public_pages_manifest_documented_api_policy_difference_passes(mon
         api_policy_sha256=hashlib.sha256(api_policy_bytes).hexdigest(),
         api_signature_sha256=hashlib.sha256(api_signature_bytes).hexdigest(),
     )
-    monkeypatch.setattr(cli, "_utc_now_epoch_s", lambda: _epoch(datetime(2026, 6, 4, tzinfo=timezone.utc)))
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    monkeypatch.setattr(_cli_public_pages_module, "_utc_now_epoch_s", lambda: _epoch(datetime(2026, 6, 4, tzinfo=timezone.utc)))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
     _install_public_page_fetch(
         monkeypatch,
         _public_page_bytes(
@@ -918,11 +944,9 @@ def test_check_public_pages_policy_published_urls_mismatch_fails(monkeypatch, ca
     public_policy_bytes = (json.dumps(public_policy, indent=2, sort_keys=True) + "\n").encode("utf-8")
     public_signature_bytes = _signature_bytes(public_policy_bytes)
     public_manifest_bytes = _manifest_bytes(public_policy_bytes)
-    monkeypatch.setattr(
-        cli,
-        "fetch_policy_bytes",
-        _fake_source_fetch(source_policy_bytes, source_signature_bytes, source_manifest_bytes),
-    )
+    _patched_fetch_policy_bytes = _fake_source_fetch(source_policy_bytes, source_signature_bytes, source_manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
     _install_public_page_fetch(
         monkeypatch,
         _public_page_bytes(public_policy_bytes, public_signature_bytes, public_manifest_bytes),
@@ -944,14 +968,16 @@ def test_check_public_pages_auth_challenge_fails(monkeypatch, capsys):
     policy_bytes = _policy_bytes()
     signature_bytes = _signature_bytes(policy_bytes)
     manifest_bytes = _manifest_bytes(policy_bytes)
-    monkeypatch.setattr(cli, "fetch_policy_bytes", _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes))
+    _patched_fetch_policy_bytes = _fake_source_fetch(policy_bytes, signature_bytes, manifest_bytes)
+    monkeypatch.setattr(_cli_policy_source_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
+    monkeypatch.setattr(_cli_public_pages_module, "fetch_policy_bytes", _patched_fetch_policy_bytes)
 
     def fake_public_url(url, *, timeout):
         if str(url) == DEFAULT_PUBLISHED_POLICY_URLS["landing"]:
             return PublicResponse(str(url), 401, b"", {"WWW-Authenticate": "Basic"})
         return PublicResponse(str(url), 200, b"{}", {"Content-Type": "application/json"})
 
-    monkeypatch.setattr(cli, "_fetch_public_url", fake_public_url)
+    monkeypatch.setattr(_cli_public_pages_module, "_fetch_public_url", fake_public_url)
 
     code = cli.main([
         "--check-public-pages",
