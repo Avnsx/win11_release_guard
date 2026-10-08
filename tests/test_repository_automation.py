@@ -72,7 +72,7 @@ def test_pylint_workflow_exists_and_lints_package_and_tools() -> None:
     assert "workflow_dispatch:" in text
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in text
     assert "actions/checkout@v7" in text
-    assert "actions/setup-python@v6" in text
+    assert "actions/setup-python@v7" in text
     assert 'python-version: "3.12"' in text
     assert 'python -m pip install -e ".[test]" pylint' in text
     assert "pylint --fail-under=8.0 win11_release_guard tools" in text
@@ -87,7 +87,7 @@ def test_dependency_workflows_exist() -> None:
     assert "schedule:" in freshness
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in freshness
     assert "actions/checkout@v7" in freshness
-    assert "actions/setup-python@v6" in freshness
+    assert "actions/setup-python@v7" in freshness
     assert "python tools/check_dependency_freshness.py --output dependency-freshness.json" in freshness
 
     assert "name: Dependency audit" in audit
@@ -95,7 +95,7 @@ def test_dependency_workflows_exist() -> None:
     assert "schedule:" in audit
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in audit
     assert "actions/checkout@v7" in audit
-    assert "actions/setup-python@v6" in audit
+    assert "actions/setup-python@v7" in audit
     assert "pip-audit --local" in audit
 
 
@@ -324,7 +324,7 @@ def test_release_workflow_runs_required_gates_and_attaches_clean_archive() -> No
     text = _read(RELEASE_WORKFLOW)
 
     assert "actions/checkout@v7" in text
-    assert "actions/setup-python@v6" in text
+    assert "actions/setup-python@v7" in text
     assert 'python-version: "3.12"' in text
     assert 'python -m pip install -e ".[test]"' in text
     assert "python -m compileall -q win11_release_guard tools tests" in text

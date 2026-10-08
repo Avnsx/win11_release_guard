@@ -85,7 +85,7 @@ print credentialed URLs.
 | GitHub-owned first-party actions may use audited major tags. | `tools/check_github_action_versions.py` |
 | Third-party actions are forbidden unless explicitly allowlisted. | Audit tool plus tests. |
 | Allowlisted third-party actions must use a full 40-character commit SHA. | Audit tool plus tests. |
-| `pypa/gh-action-pypi-publish` is allowed only in `pypi-publish.yml`, pinned to `cef221092ed1bacb1cc03d23a2d87d1d172e277b`. | Narrow Trusted Publishing exception; no stored PyPI credentials. |
+| `pypa/gh-action-pypi-publish` is allowed only in `pypi-publish.yml`, pinned to `dc37677b2e1c63e2034f94d8a5b11f265b73ba33` (v1.14.2). | Narrow Trusted Publishing exception; no stored PyPI credentials. |
 | JavaScript actions opt into Node 24. | Workflow env and tests. |
 
 ## PyPI Trusted Publishing

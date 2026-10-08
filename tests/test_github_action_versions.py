@@ -209,10 +209,15 @@ def test_audit_rejects_pypa_publish_action_wrong_sha(tmp_path: Path, monkeypatch
 
 
 def test_audit_cli_returns_nonzero_for_stale_fixture(tmp_path: Path, capsys) -> None:
-    workflow = _write_workflow(tmp_path, _minimal_workflow("actions/setup-python@" + "v5"))
+    workflow = _write_workflow(tmp_path, _minimal_workflow("actions/setup-python@" + "v6"))
 
     code = check_github_action_versions.main([str(workflow)])
 
     captured = capsys.readouterr()
     assert code == 1
-    assert "actions/setup-python must use v6" in captured.err
+    assert "actions/setup-python must use v7" in captured.err
+
+
+def test_pypa_publish_action_is_pinned_to_reviewed_v1_14_2_commit() -> None:
+    # Tag v1.14.2 of pypa/gh-action-pypi-publish. Moving this pin requires reviewing the new release.
+    assert check_github_action_versions.PYPA_PUBLISH_ACTION_SHA == "dc37677b2e1c63e2034f94d8a5b11f265b73ba33"

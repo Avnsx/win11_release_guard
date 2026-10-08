@@ -17,7 +17,7 @@ FULL_LENGTH_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 REQUIRED_ACTIONS = {
     "actions/checkout": "v7",
-    "actions/setup-python": "v6",
+    "actions/setup-python": "v7",
     "actions/configure-pages": "v6",
     "actions/upload-pages-artifact": "v5",
     "actions/upload-artifact": "v7",
@@ -28,7 +28,7 @@ ALLOWED_ACTIONS = {
     "github/codeql-action/init": {"v4"},
     "github/codeql-action/analyze": {"v4"},
 }
-PYPA_PUBLISH_ACTION_SHA = "cef221092ed1bacb1cc03d23a2d87d1d172e277b"
+PYPA_PUBLISH_ACTION_SHA = "dc37677b2e1c63e2034f94d8a5b11f265b73ba33"
 ALLOWED_THIRD_PARTY_ACTIONS: dict[str, str | Mapping[str, object]] = {
     "pypa/gh-action-pypi-publish": {
         "sha": PYPA_PUBLISH_ACTION_SHA,
