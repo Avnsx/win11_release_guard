@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{escape_page_title}}</title>
+  <link rel="icon" href="{{wiki_favicon_data_url}}">
+{{seo_meta}}  <style>{{> wiki-page.css}}</style>
+</head>
+<body>
+  <a class="skip-link" href="#wiki-content">Skip to content</a>
+  <header class="wiki-topbar">
+    <a class="wiki-brand" href="{{escape_dashboard_url}}">{{site_brand_icon_html_wiki_brand_icon}}<span>Windows 11</span> Release Guard</a>
+    <nav aria-label="Site">
+      <a href="{{escape_dashboard_url_2}}">Dashboard</a>
+      <a href="{{escape_wiki_url}}">Wiki</a>
+      <a href="{{escape_changelog_pages_base_url_base_url_base_ur}}">Changelog</a>
+      <a href="{{escape_github_repository_url}}">Repository</a>
+    </nav>
+  </header>
+  <main class="wiki-layout">
+    <aside class="wiki-sidebar" aria-label="Wiki navigation" data-section-scrollspy="true">
+      <nav aria-label="Wiki pages">{{navigation_html}}</nav>
+    </aside>
+    <article id="wiki-content" class="{{content_class}}" tabindex="-1">
+      {{breadcrumbs_html}}
+      {{warning_html}}
+      {{body_html}}
+      {{broken_html}}
+    </article>
+  </main>
+  <footer class="wiki-footer">{{footer_html}}</footer>
+{{scrollspy_script}}{{copy_button_script}}</body>
+</html>
+
