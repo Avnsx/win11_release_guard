@@ -43,6 +43,7 @@ exclude = ["tests*"]
 
 [tool.setuptools.package-data]
 win11_release_guard = ["data/*.json", "data/*.sig"]
+"win11_release_guard.policy_generator.pages" = ["assets/*.css", "assets/*.html", "assets/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
