@@ -106,7 +106,9 @@ class SyncSummary:
 
 
 class GitHubApiError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class RestGitHubClient:
@@ -145,7 +147,10 @@ class RestGitHubClient:
                 body = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise GitHubApiError(f"GitHub API request failed: HTTP {exc.code} {exc.reason}: {detail}") from exc
+            raise GitHubApiError(
+                f"GitHub API request failed: HTTP {exc.code} {exc.reason}: {detail}",
+                status=exc.code,
+            ) from exc
         except urllib.error.URLError as exc:
             raise GitHubApiError(f"GitHub API request failed: {exc.reason}") from exc
         if not body:
@@ -186,6 +191,24 @@ class RestGitHubClient:
                     break
         return list(issues.values())
 
+    def list_open_issues_by_creator(self, repository: str, *, creator: str) -> list[dict[str, Any]]:
+        issues: list[dict[str, Any]] = []
+        for page in range(1, 11):
+            payload = self._request(
+                "GET",
+                f"/repos/{repository}/issues",
+                query={"state": "open", "creator": creator, "per_page": "100", "page": str(page)},
+            )
+            items = payload.get("items")
+            if not isinstance(items, list) or not items:
+                break
+            issues.extend(
+                dict(item) for item in items if isinstance(item, Mapping) and "pull_request" not in item
+            )
+            if len(items) < 100:
+                break
+        return issues
+
     def create_issue(self, repository: str, *, title: str, body: str, labels: list[str]) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -225,6 +248,25 @@ class RestGitHubClient:
             f"/repos/{repository}/issues/{issue_number}",
             payload={"state": "closed", "state_reason": state_reason},
         )
+
+    def ensure_label(self, repository: str, *, name: str, color: str, description: str) -> None:
+        """Create the label unless it exists; GitHub does not document creating labels on issue creation."""
+        try:
+            self._request("GET", f"/repos/{repository}/labels/{urllib.parse.quote(name, safe='')}")
+            return
+        except GitHubApiError as exc:
+            if exc.status != 404:
+                raise
+        try:
+            self._request(
+                "POST",
+                f"/repos/{repository}/labels",
+                payload={"name": name, "color": color, "description": description},
+            )
+        except GitHubApiError as exc:
+            # 422 means another run created the label first.
+            if exc.status != 422:
+                raise
 
 
 def _normalized_text(value: Any, *, fallback: str = "") -> str:

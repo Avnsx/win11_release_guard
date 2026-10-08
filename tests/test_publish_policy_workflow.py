@@ -219,3 +219,55 @@ def test_publish_policy_workflow_keeps_pages_lane_for_wiki_and_changelog() -> No
     assert "actions/deploy-pages@v5" in text
     assert "tools/sync_github_wiki.py" not in text
     assert "contents: write" not in text
+
+
+def _issue_sync_job() -> str:
+    return _workflow_text().split("sync-source-diagnostics-issues:", 1)[1].split("\n  build:", 1)[0]
+
+
+def _report_job() -> str:
+    text = _workflow_text()
+    assert "\n  report-publish-status:\n" in text
+    return text.split("\n  report-publish-status:\n", 1)[1]
+
+
+def test_publish_policy_workflow_captures_policy_generation_output() -> None:
+    issue_sync_job = _issue_sync_job()
+
+    assert "id: generate_preview" in issue_sync_job
+    generate_step = issue_sync_job.split("id: generate_preview", 1)[1].split("\n      - ", 1)[0]
+    assert "set -o pipefail" in generate_step
+    assert "2>&1 | tee .tmp/publish-status/policy-generation.log" in generate_step
+    upload_step = issue_sync_job.split("name: Upload policy generation log", 1)[1].split("\n      - ", 1)[0]
+    assert "if: ${{ failure() && steps.generate_preview.outcome == 'failure' }}" in upload_step
+    assert "actions/upload-artifact@v7" in upload_step
+    assert "name: publish-status-log" in upload_step
+    assert "if-no-files-found: ignore" in upload_step
+
+
+def test_publish_policy_workflow_reports_run_status_on_managed_issue() -> None:
+    report_job = _report_job()
+
+    assert "needs: [sync-source-diagnostics-issues, build, deploy, verify-live-pages]" in report_job
+    assert "if: ${{ !cancelled() }}" in report_job
+    assert "issues: write" in report_job
+    assert "contents: read" in report_job
+    for forbidden in ("pages: write", "id-token: write", "contents: write", SECRET_NAME):
+        assert forbidden not in report_job
+    assert "actions/download-artifact@v8" in report_job
+    download_step = report_job.split("actions/download-artifact@v8", 1)[1].split("\n      - ", 1)[0]
+    assert "continue-on-error: true" in download_step
+    assert "name: publish-status-log" in download_step
+    report_step = report_job.split("python tools/report_publish_status.py", 1)
+    assert len(report_step) == 2
+    assert "continue-on-error: true" in report_step[0].rsplit("\n      - ", 1)[1]
+    assert "NEEDS_JSON: ${{ toJSON(needs) }}" in report_job
+    assert "GITHUB_TOKEN: ${{ github.token }}" in report_job
+    assert "--generation-log .tmp/publish-status/policy-generation.log" in report_step[1]
+    assert '--run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"' in report_step[1]
+
+
+def test_publish_policy_workflow_runs_on_report_tool_changes() -> None:
+    text = _workflow_text()
+
+    assert '- "tools/report_publish_status.py"' in text.split("jobs:", 1)[0]

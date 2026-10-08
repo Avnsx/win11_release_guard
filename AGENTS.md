@@ -127,6 +127,13 @@ Canonical repository and feed:
   `warning` and `error` events from real `source_diagnostics.events`; the legacy
   `internals: notices` label may be searched only to close older managed Notice
   issues that contain the exact internal marker.
+- Failed `publish-policy.yml` runs are reported separately by the
+  `report-publish-status` job (`tools/report_publish_status.py`): one managed
+  `Publish policy is failing` issue, found by creator and the
+  `<!-- wrg-publish-policy-failure -->` marker, labelled
+  `internals: publish failure`, closed by the next successful run. Keep that
+  label out of the source-diagnostic managed labels and keep the report step
+  `continue-on-error`.
 - Baseline-update notices are dashboard-only. They use a 14-day source-date
   visibility window, must not fetch optional Support/MSRC enrichment solely for
   expired inactive notice data, and stale static pages must hide expired notices

@@ -36,6 +36,7 @@ Enable or verify CodeQL in repository settings via Settings -> Code security and
 | CI / checks | Read-only repository access. |
 | Pages publish | `contents: read`, `pages: write`, `id-token: write`. |
 | Source diagnostics issue sync | `contents: read`, `issues: write`; uses `GITHUB_TOKEN` / `${{ github.token }}` only. |
+| Publish failure report | `contents: read`, `issues: write` only in the `report-publish-status` job; uses `${{ github.token }}` only. |
 | GitHub internal Wiki sync | `contents: write` only in `sync-wiki.yml`; uses the built-in `github.token` only for the same repository's `.wiki.git` remote. |
 | Tagged releases | `contents: write` only in `release.yml`. |
 | PyPI publish | `id-token: write` only in the `publish-to-pypi` job; no PyPI API token. |
@@ -137,6 +138,28 @@ only to close older managed Notice issues whose body contains the exact internal
 marker; new Notice issues are not created, updated, reopened, or kept current.
 Labels help filtering in GitHub, but they are not sufficient to mark an issue as
 managed without the internal body marker.
+
+## Publish Failure Report
+
+Source-diagnostic issue sync only sees drift inside a policy that was generated.
+When a `publish-policy.yml` run fails before that point, for example because the
+generator cannot parse Release Health, the final `report-publish-status` job
+reports the run instead. It runs after every job unless the run was cancelled and
+calls `tools/report_publish_status.py` with the upstream job results:
+
+- Any failed job opens one `Publish policy is failing` issue, or updates the open
+  one with the latest failed run, the number of consecutive failed runs, the
+  failed jobs, and the captured `Policy generation failed:` line. A comment is
+  added only when the error changes.
+- A fully successful run comments and closes the open issue as completed.
+- Runs whose jobs were only cancelled or skipped change nothing.
+
+The issue is found by its creator (`github-actions[bot]`) and the
+`<!-- wrg-publish-policy-failure -->` body marker, never by label, so it is not
+duplicated when the `internals: publish failure` label cannot be created. That
+label is outside the source-diagnostic labels, so issue sync never updates or
+closes this issue. The report step is `continue-on-error`, so a GitHub Issues
+outage cannot turn a successful publish red.
 
 During `publish-policy.yml`, GitHub Issues API, label, or permission failures in
 the issue-sync mutation step are degraded rather than publish-blocking. The
