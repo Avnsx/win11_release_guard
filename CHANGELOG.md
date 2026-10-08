@@ -2,7 +2,41 @@
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Fixed
+
+* The policy feed publishes again after Microsoft lists a new annual Windows 11
+  release. Windows 11 26H2 appeared on 2026-09-29 with only an optional preview
+  (D) update, and every scheduled publish since then failed with `Could not
+  select B-release required baseline for broad_target_existing_devices
+  26H2/26300`. The previous release now stays the broad target until the new
+  release receives its first monthly security (B) release; the new release is
+  published in `current_versions` with `not_broad_target` and
+  `pending_first_b_release` metadata and a dashboard-only
+  `broad_target_pending_b_release` notice. A missing B release after a Patch
+  Tuesday, missing dates, or a newer fallback release still fail closed.
+* Generation refuses to publish a policy whose runtime target selection would
+  differ from `broad_target_existing_devices`, so the signed target and the
+  client verdict cannot split.
+* Under the B-release-only quality policy the client no longer uses a preview
+  or out-of-band build as the required baseline when the target has no B release
+  yet; it enforces no quality baseline and says so in the result warnings.
+* `remote_policy` no longer replaces its build sort key with the strict
+  validator helper of the same name.
+
+### Added
+
+* The client recognises build family 26300 as Windows 11 26H2 without a policy.
+* A failed `publish-policy.yml` run opens one managed `Publish policy is
+  failing` GitHub issue with the captured generator error; later failures update
+  it and the next successful run closes it.
+* CI also runs Python 3.12 on `ubuntu-26.04` ahead of the `ubuntu-latest`
+  migration.
+
+### Changed
+
+* GitHub Actions now use `actions/setup-python@v7` and
+  `pypa/gh-action-pypi-publish` v1.14.2
+  (`dc37677b2e1c63e2034f94d8a5b11f265b73ba33`).
 
 ## v0.5.0 - 2026-08-08
 
