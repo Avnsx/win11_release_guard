@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-_SOURCES = sorted([*Path("win11_release_guard").glob("*.py"), *Path("tools").glob("*.py")])
+_SOURCES = sorted([*Path("win11_release_guard").rglob("*.py"), *Path("tools").rglob("*.py")])
 
 
 @pytest.mark.parametrize("path", _SOURCES, ids=lambda path: path.as_posix())
