@@ -129,7 +129,7 @@ def test_program_version_identity_markers_are_current() -> None:
     )
     from win11_release_guard.wua_probe import CLIENT_APPLICATION_ID
 
-    expected_version = "0.5.0"
+    expected_version = "0.6.0"
     expected_identity = f"win11_release_guard/{expected_version}"
 
     assert __version__ == expected_version
@@ -160,6 +160,23 @@ def test_readme_advertises_the_current_release_version_and_notes() -> None:
     ]
     assert sorted(set(re.findall(r"docs/releases/(v\d+\.\d+\.\d+)\.md", readme))) == [f"v{version}"]
     assert f"[v{version} notes]" in readme
+
+
+def test_release_material_exists_for_the_current_version() -> None:
+    # release.yml refuses a tag whose CHANGELOG section, docs/releases page, or wiki release page is
+    # missing, but only after the tag is pushed. Derived from package_version() so a version bump
+    # without its release material fails here first.
+    from win11_release_guard.version import package_version
+
+    version = package_version()
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert re.search(rf"^## v{re.escape(version)} - \d{{4}}-\d{{2}}-\d{{2}}$", changelog, flags=re.MULTILINE)
+    before, section = changelog.split(f"\n## v{version} - ", 1)
+    assert "## [Unreleased]" in before
+    assert "### Summary" in section.split("\n## ", 1)[0]
+    assert (ROOT / f"docs/releases/v{version}.md").is_file()
+    assert (ROOT / f"wiki/Release-v{version}.md").is_file()
 
 
 def test_removed_prototype_entrypoint_is_absent() -> None:

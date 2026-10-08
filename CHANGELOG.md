@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## v0.6.0 - 2026-10-08
+
+### Summary
+
+Windows 11 Release Guard keeps its signed policy feed current when Microsoft
+releases a new annual Windows 11 version. The feed had stopped refreshing after
+Windows 11 26H2 arrived on 2026-09-29 with only a preview update; 25H2 now stays
+the target for existing devices until 26H2 receives its first monthly security
+update, and devices already on 26H2 are recognised and reported as above the
+target. A failed publish run now opens a GitHub issue automatically, so an outage
+like this one is visible right away.
+
 ### Fixed
 
 * The policy feed publishes again after Microsoft lists a new annual Windows 11
