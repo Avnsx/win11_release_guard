@@ -26,7 +26,7 @@ This repository is public software for Windows administrators. Future agents mus
 20. Signing key rotations require at least 24 months of verification overlap unless a documented last-resort trust break is required.
 21. Future agents must not delete historical `CHANGELOG.md` version sections when adding newer versions. Newer changelog entries are added at the top. Older changelog entries remain available for generated Pages changelog, release history, SEO, and auditability.
 22. Future agents must not add or reintroduce license badges in `README.md`, `docs/*.md`, `wiki/*.md`, generated Markdown, or other repository Markdown surfaces. License metadata may remain in package configuration and prose where it is materially relevant, but Markdown badge rows must not display license badges.
-23. `README.md` stays compact: it is the entry point, not the manual. Sections that would sprawl must summarize briefly and link to the relevant `wiki/*.md` page instead of inlining depth. Where a test pins `README.md` prose verbatim, change the prose and its asserting test together; do not silently reword pinned text or weaken its assertion just to make compaction easier.
+23. `README.md`, `CHANGELOG.md`, and `docs/releases/vX.Y.Z.md` stay compact: they carry key changes and key facts only, and link to the Pages wiki for depth; only `wiki/*.md` holds the full information. Each `CHANGELOG.md` version section is a `### Summary`, one-line bullets under standard headings, and a closing `Full notes:` link to `https://avnsx.github.io/win11_release_guard/wiki/Release-vX.Y.Z/`; that wiki release page carries the full detail and ends its notes with a `## Full Change Notes` section. `README.md` is the entry point, not the manual. Sections that would sprawl must summarize briefly and link to the relevant `wiki/*.md` page instead of inlining depth. Where a test pins `README.md` prose verbatim, change the prose and its asserting test together; do not silently reword pinned text or weaken its assertion just to make compaction easier.
 
 Canonical repository and feed:
 
@@ -215,17 +215,20 @@ Bad examples:
   human-facing, and visually scannable. `.github/workflows/release.yml` generates
   every release body in this fixed format, and future releases must keep it:
   - An `## Windows 11 Release Guard` heading.
-  - A short bullet list: `Version`, `Commit`, and a single
+  - A short bullet list: `Version`, `Commit`, a
     `Read the related changelog hosted here:` link to that version's Pages
-    changelog route `https://avnsx.github.io/win11_release_guard/wiki/changelog/vX.Y.Z/`.
+    changelog route `https://avnsx.github.io/win11_release_guard/wiki/changelog/vX.Y.Z/`,
+    and a `Full release notes:` link to the wiki release page
+    `https://avnsx.github.io/win11_release_guard/wiki/Release-vX.Y.Z/`.
   - A `### Download from PyPI ⬇️` section linking
     `https://pypi.org/project/win11-release-guard/`.
   - A `### Summary 📝` section containing the version's `### Summary` paragraph
     from `CHANGELOG.md`.
 - Keep the Summary to roughly two or three plain-language sentences that describe
   the release for administrators accurately without being overly technical. It is
-  not a change dump; deeper detail lives in `CHANGELOG.md`,
-  `docs/releases/vX.Y.Z.md`, and the Pages changelog that the notes link to.
+  not a change dump; full detail lives only in the wiki release page
+  `wiki/Release-vX.Y.Z.md`, which the notes, `CHANGELOG.md`, and
+  `docs/releases/vX.Y.Z.md` link to.
 - Because the release body reuses the changelog Summary, keep each
   `CHANGELOG.md` `### Summary` compact and human-readable as well.
 - Do not pad release notes with operational/workflow boilerplate, internal

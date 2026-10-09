@@ -363,6 +363,8 @@ def test_release_workflow_body_uses_compact_human_format() -> None:
         "Read the related changelog hosted here: "
         "https://avnsx.github.io/win11_release_guard/wiki/changelog/v${version}/"
     ) in text
+    # Full detail lives only in the wiki release page; the body links straight to it.
+    assert "- Full release notes: https://avnsx.github.io/win11_release_guard/wiki/Release-v${version}/" in text
     assert "### Download from PyPI ⬇️" in text
     assert "https://pypi.org/project/win11-release-guard/" in text
     assert "### Summary 📝" in text

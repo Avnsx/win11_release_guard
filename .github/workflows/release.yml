@@ -177,8 +177,8 @@ jobs:
           commit_sha="$(git rev-parse HEAD)"
           # Compact, human-facing release notes (see AGENTS.md "Release Notes Format").
           # The Summary is the version's "### Summary" paragraph from CHANGELOG.md, so
-          # release notes stay short and plain-language; deeper detail stays in the
-          # changelog and docs that the notes link to.
+          # release notes stay short and plain-language; full detail lives only in the
+          # wiki release page that the notes link to.
           summary="$(awk -v hdr="## v${version} -" '
             index($0, hdr) == 1 { found = 1; next }
             found && /^## v/ { exit }
@@ -195,6 +195,7 @@ jobs:
           - Version: ${version}
           - Commit: ${commit_sha}
           - Read the related changelog hosted here: https://avnsx.github.io/win11_release_guard/wiki/changelog/v${version}/
+          - Full release notes: https://avnsx.github.io/win11_release_guard/wiki/Release-v${version}/
 
           ### Download from PyPI ⬇️
 
