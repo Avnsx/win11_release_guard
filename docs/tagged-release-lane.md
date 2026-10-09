@@ -85,9 +85,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 `export_clean_archive.py --validate` runs its inner archive test gate with
 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` so ambient third-party pytest plugins cannot
 change, slow, or hang validation; the project declares no required pytest
-plugins, so coverage is unchanged. The validated clean archive requires the
-current `docs/releases/v0.3.4.md` and preserves the historical release notes
-`docs/releases/v0.3.1.md`, `docs/releases/v0.3.2.md`, and `docs/releases/v0.3.3.md`.
+plugins, so coverage is unchanged. The validated clean archive requires every
+release's notes in `docs/releases/` and `wiki/Release-v*.md`, including the
+current version's.
 
 ## Release Checklist
 

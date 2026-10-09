@@ -6,7 +6,7 @@ Key changes per release. Each version links to its full release notes in the [Pa
 
 No unreleased changes yet.
 
-## v0.6.0 - 2026-10-08
+## v0.6.0 - 2026-10-09
 
 ### Summary
 
