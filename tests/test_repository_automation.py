@@ -159,9 +159,12 @@ def test_readme_documents_branding_and_runtime_trust_model() -> None:
     assert "paid signing" in text
     assert "diagnostics never override the policy verdict" in text
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in ci_workflow
-    assert "python -m win11_release_guard --check-policy-source" in text
-    assert "python -m win11_release_guard --check-public-pages" in text
-    assert "python tools/export_clean_archive.py" in text
+    # The maintainer command list lives on the wiki build page; the README links to it.
+    assert "https://avnsx.github.io/win11_release_guard/wiki/Build-Test-and-Release/" in text
+    build_page = _read(ROOT / "wiki" / "Build-Test-and-Release.md")
+    assert "python -m win11_release_guard --check-policy-source" in build_page
+    assert "python -m win11_release_guard --check-public-pages" in build_page
+    assert "python tools/export_clean_archive.py" in build_page
 
 
 def test_readme_uses_pages_wiki_as_primary_public_documentation() -> None:
