@@ -34,7 +34,7 @@ No. Policy JSON, signatures, manifests, dashboard files, and public keys are non
 
 ## What license does the repository use?
 
-The repository uses GPL-3.0. The full license text lives in `LICENSE.txt` and is included in validated clean source archives.
+The project is MIT-licensed (since v0.6.0; earlier releases were GPL-3.0-only). The full license text lives in `LICENSE.txt` and is included in validated clean source archives.
 
 ## Do I need a PyPI API token?
 

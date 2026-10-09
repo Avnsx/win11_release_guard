@@ -29,7 +29,7 @@ python tools/export_clean_archive.py --validate dist/win11_release_guard-source.
 
 ## License Mapping
 
-`LICENSE.txt` is the repository GPL-3.0 license file and is part of the curated clean source archive. Keep this mapping aligned with `pyproject.toml`, `tools/export_clean_archive.py`, and `tests/test_export_clean_archive.py`.
+`LICENSE.txt` is the repository MIT license file and is part of the curated clean source archive. Keep this mapping aligned with `pyproject.toml`, `tools/export_clean_archive.py`, and `tests/test_export_clean_archive.py`.
 
 ## Do / Do Not
 
@@ -37,7 +37,7 @@ python tools/export_clean_archive.py --validate dist/win11_release_guard-source.
 | --- | --- |
 | Validate the archive before release. | Share raw local ZIPs. |
 | Keep signed bundled public policy artifacts. | Include private signing material. |
-| Keep `LICENSE.txt` with released source archives. | Replace the GPL-3.0 text with a vague license note. |
+| Keep `LICENSE.txt` with released source archives. | Replace the MIT text with a vague license note. |
 | Run identity and secret scans. | Ignore stale identity findings. |
 
 ## Verify

@@ -11,7 +11,7 @@ Related links: [maintainer guide](maintainer-guide.md) | [v0.3.4 release notes](
 | Tag format | `vX.Y.Z`, matching `pyproject.toml` and runtime identity. |
 | Workflow | `.github/workflows/release.yml`. |
 | Artifact | `dist/win11_release_guard-source.zip`. |
-| License | Repository `LICENSE.txt` is the GPL-3.0 license file and is included in the validated source archive. |
+| License | Repository `LICENSE.txt` is the MIT license file and is included in the validated source archive. |
 | Default release state | Draft unless explicitly changed by workflow input. |
 | Release body | Links `CHANGELOG.md`, matching `docs/releases/vX.Y.Z.md`, Pages dashboard, Pages Wiki, Pages changelog, public feed, and the separate PyPI lane. |
 | Token | Built-in `github.token`; no PAT. |

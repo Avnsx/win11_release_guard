@@ -49,7 +49,7 @@ Related links: [maintainer guide](maintainer-guide.md) | [wiki architecture](../
 
 | File | Responsibility |
 | --- | --- |
-| `LICENSE.txt` | GPL-3.0 license text for repository source distribution and validated clean archive consumers. |
+| `LICENSE.txt` | MIT license text for repository source distribution and validated clean archive consumers. |
 
 ## Test Layout
 

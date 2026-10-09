@@ -13,7 +13,7 @@ Use this when publishing a GitHub Release with a validated clean source archive.
 | Workflow | `.github/workflows/release.yml` |
 | Tag | `vX.Y.Z`, matching package/runtime version |
 | Artifact | `dist/win11_release_guard-source.zip` |
-| License | `LICENSE.txt` carries the repository GPL-3.0 text and is included in the clean source archive. |
+| License | `LICENSE.txt` carries the repository MIT license text and is included in the clean source archive. |
 | Default state | Draft release |
 | Release body | Links changelog, detailed release notes, Pages dashboard, Pages Wiki, Pages changelog, public feed, and the separate PyPI lane |
 | Token | Built-in GitHub token only |

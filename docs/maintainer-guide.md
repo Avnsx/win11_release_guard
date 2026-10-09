@@ -6,7 +6,7 @@ Related links: [root README](../README.md) | [local wiki home](../wiki/Home.md) 
 
 | Document | Audience | Contents |
 | --- | --- | --- |
-| [../LICENSE.txt](../LICENSE.txt) | Users, redistributors, release managers | GPL-3.0 license text for repository source distribution |
+| [../LICENSE.txt](../LICENSE.txt) | Users, redistributors, release managers | MIT license text for repository source distribution |
 | [../wiki/Build-Test-and-Release.md](../wiki/Build-Test-and-Release.md) | Maintainers, release managers | Editable install, smoke tests, package build checks, deployment-affecting gates |
 | [releases/v0.3.4.md](releases/v0.3.4.md) | Maintainers, release managers, future agents | Detailed v0.3.4 release notes, source-evidence and release-tooling hardening, validation map |
 | [releases/v0.3.3.md](releases/v0.3.3.md) | Maintainers, release managers, future agents | Historical v0.3.3 release notes, corrective source-evidence hardening, validation map |

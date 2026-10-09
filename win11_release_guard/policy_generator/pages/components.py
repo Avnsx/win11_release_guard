@@ -100,7 +100,7 @@ def _footer_html() -> str:
         f'<a class="footer-github" href="{escape(GITHUB_REPOSITORY_URL, quote=True)}">'
         f"{_github_icon_html()}<span>GitHub</span></a>"
         "<span>and provided under the</span>"
-        f'<a class="footer-license-basic" href="{escape(GITHUB_LICENSE_URL, quote=True)}">GPL-3.0 license</a></p>'
+        f'<a class="footer-license-basic" href="{escape(GITHUB_LICENSE_URL, quote=True)}">MIT license</a></p>'
         "</footer>"
     )
 

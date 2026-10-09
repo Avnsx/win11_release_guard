@@ -7,7 +7,7 @@ name = "win11_release_guard"
 version = "0.6.0"
 description = "Windows 11 broad-fleet release compliance guard."
 readme = "README.md"
-license = "GPL-3.0-only"
+license = "MIT"
 license-files = ["LICENSE.txt"]
 authors = [{ name = 'Mikail ("Avnsx") C.', email = "AvnDev@protonmail.com" }]
 requires-python = ">=3.10"

@@ -62,7 +62,7 @@ target, and the live public policy-source and Pages checks pass.
 | --- | --- |
 | PyPI project | [win11_release_guard](https://pypi.org/project/win11-release-guard/) |
 | End-user install | `python -m pip install win11_release_guard` |
-| Package metadata | `pyproject.toml` defines `win11_release_guard` version `0.6.0`, GPL-3.0-only license, console script, project URLs, and package data. |
+| Package metadata | `pyproject.toml` defines `win11_release_guard` version `0.6.0`, MIT license (previously GPL-3.0-only), console script, project URLs, and package data. |
 | Build artifacts | wheel and sdist are generated in `dist/`, checked with `python -m twine check dist/*`, and never committed. |
 | Publishing | `.github/workflows/pypi-publish.yml` uses PyPI Trusted Publishing / GitHub OIDC with environment `pypi`. |
 

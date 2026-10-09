@@ -398,8 +398,8 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
         'class="footer-license-basic" href="https://github.com/Avnsx/win11_release_guard/blob/main/LICENSE.txt"'
         in index
     )
-    assert "GPL-3.0 license" in index
-    assert "GPL-3.0 license</a>.</p>" not in index
+    assert "MIT license" in index
+    assert "MIT license</a>.</p>" not in index
     assert 'class="footer-license"' not in index
     assert "https://github.com/Avnsx/win11_release_guard/blob/main/LICENSE.txt" in index
     assert "github-icon" in index
