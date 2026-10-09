@@ -35,6 +35,14 @@ from tools.github_rest import (
     RestGitHubClient,
     _issue_number,
 )
+# Public names this module defined before the v0.6.0 split stay importable from it.
+# pylint: disable=unused-import
+from tools.diagnostic_issue_text import (
+    ATOM_DIAGNOSTIC_ID_PREFIX,
+    ATOM_PUBLIC_ID_RE,
+    issue_tip_markdown,
+)
+# pylint: enable=unused-import
 
 
 DIAGNOSTIC_ID_COMMENT_RE = re.compile(

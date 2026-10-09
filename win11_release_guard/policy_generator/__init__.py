@@ -61,6 +61,41 @@ from .support_validation import (
 from .pages.wiki_markdown import _render_wiki_markdown_fragment
 from .pages.wiki_page import _PAGES_WIKI_VISUAL_SCALE, render_wiki_pages, write_wiki_pages
 from .pages.wiki_sources import _read_markdown_source
+# Public names this module defined before the v0.6.0 split stay importable from it.
+from .constants import (
+    CHANGELOG_SOURCE_PATH,
+    CURATED_EXCLUDED_RELEASE_SUMMARIES,
+    DEFAULT_MAX_SERVICING_TOC_BYTES,
+    GITHUB_ISSUES_BASE_URL,
+    GITHUB_LICENSE_URL,
+    GITHUB_RELEASES_BASE_URL,
+    GITHUB_REPOSITORY_URL,
+    MSRC_CVRF_API_BASE_URL,
+    MSRC_CVRF_CVE_LIMIT,
+    MSRC_CVRF_PRODUCT_LIMIT,
+    MSRC_CVRF_SEVERITY_LIMIT,
+    MSRC_UPDATE_GUIDE_URL,
+    PAGES_TIMEZONE,
+    PROGRAMMING_ERROR_TYPES,
+    PYPI_DOWNLOAD_IMAGE_PATH,
+    PYPI_PROJECT_URL,
+    ROBOTS_TXT,
+    SOURCE_DIAGNOSTIC_ID_HASH_LENGTH,
+    WIKI_FAVICON_DATA_URL,
+    WIKI_HELPER_PAGE_NAMES,
+    WIKI_SOURCE_DIR,
+    WINDOWS_UPDATE_PROBE_CORROBORATION_KIND,
+    WINDOWS_UPDATE_PROBE_OFFER_LIMIT,
+    WINDOWS_UPDATE_PROBE_UNAVAILABLE_KIND,
+)
+from .msrc_cvrf import MsrcCvrfFetcher
+from .pages.wiki_model import (
+    ChangelogSection,
+    RenderedWikiPage,
+    WikiHeading,
+    WikiPageSource,
+)
+from .support_articles import SupportArticleFetcher
 
 
 __all__ = [

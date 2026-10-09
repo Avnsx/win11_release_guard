@@ -36,6 +36,12 @@ from .local_windows_probes import (
     _read_registry_current_version,
     _read_rtl_get_version,
 )
+# Public names this module defined before the v0.6.0 split stay importable from it.
+# pylint: disable=unused-import
+from .local_build_signals import BUILD_SIGNAL_TRUST
+from .local_edition import PRODUCT_INFO_EDITION_SCOPES, SERVER_PRODUCT_INFO_CODES
+from .local_windows_probes import CURRENT_VERSION_REGISTRY_PATH, KERNEL_IMAGE_PATH
+# pylint: enable=unused-import
 
 
 PANTHER_LOG_PATHS = (

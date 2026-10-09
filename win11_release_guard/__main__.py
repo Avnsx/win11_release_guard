@@ -35,6 +35,16 @@ from .cli_output import (
 )
 from .cli_policy_source import _check_policy_source_payload, _print_policy_source_payload
 from .cli_public_pages import _decode_json_bytes, _public_pages_urls
+# Public names this module defined before the v0.6.0 split stay importable from it.
+# pylint: disable=unused-import
+from .cli_output import (
+    EXIT_ABOVE_BROAD_TARGET,
+    EXIT_COMPLIANT,
+    EXIT_UPDATE_REQUIRED,
+    RELEVANT_WUA_CLASSIFICATIONS,
+)
+from .cli_public_pages import PublicFetchResult
+# pylint: enable=unused-import
 
 
 EXIT_ARGUMENT_ERROR = 10

@@ -7,6 +7,10 @@ from .policy_http import fetch_policy_bytes, fetch_release_policy
 from .policy_json import load_policy_bytes, load_policy_text
 from .release_health import parse_windows11_release_health_html
 from .release_health_tables import _build_key  # re-exported: tests read it through this module
+# Public names this module defined before the v0.6.0 split stay importable from it.
+# pylint: disable=unused-import
+from .policy_http import HttpGet
+# pylint: enable=unused-import
 
 
 def policy_from_dict(data: Mapping[str, Any]) -> ReleasePolicy:

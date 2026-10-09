@@ -14,6 +14,10 @@ from .evaluator_common import (
 )
 from .release_inference import derive_display_os_name, derive_local_consensus, infer_installed_release
 from .target_selection import _select_broad_fleet_target_for_scope, select_broad_fleet_target, select_quality_baseline
+# Public names this module defined before the v0.6.0 split stay importable from it.
+# pylint: disable=unused-import
+from .release_inference import local_signal_set
+# pylint: enable=unused-import
 
 
 def _local_full_build(local_state: LocalWindowsState) -> str | None:
