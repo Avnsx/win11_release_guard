@@ -168,13 +168,15 @@ jobs:
           WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64: ${{ secrets.WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64 }}
         run: |
           set -euo pipefail
+          BUILD_LOG=.tmp/publish-status/build.log
+          mkdir -p .tmp/publish-status
           if [ -z "${WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64:-}" ]; then
-            echo "::error::WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64 is required for production policy publishing."
+            echo "::error::WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64 is required for production policy publishing." | tee -a "$BUILD_LOG"
             exit 1
           fi
           mkdir -p .tmp/source-diagnostics-issue-status
           if [ ! -s ".tmp/source-diagnostics-issue-status/issue-status.json" ]; then
-            echo "::error::source diagnostics issue status artifact is missing."
+            echo "::error::source diagnostics issue status artifact is missing." | tee -a "$BUILD_LOG"
             exit 1
           fi
           python tools/generate_policy.py \
@@ -184,12 +186,15 @@ jobs:
             --write-sitemap \
             --write-manifest \
             --source-diagnostic-issue-status-file .tmp/source-diagnostics-issue-status/issue-status.json \
-            --signing-key-env WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64
+            --signing-key-env WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64 2>&1 | tee -a "$BUILD_LOG"
           touch site/.nojekyll
 
       - name: Validate policy and signature
         run: |
-          python - <<'PY'
+          set -euo pipefail
+          BUILD_LOG=.tmp/publish-status/build.log
+          mkdir -p .tmp/publish-status
+          python - <<'PY' 2>&1 | tee -a "$BUILD_LOG"
           import json
           from pathlib import Path
 
@@ -214,6 +219,15 @@ jobs:
               kinds = ", ".join(str(event.get("kind") or "unknown") for event in error_events)
               raise SystemExit(f"source diagnostics error events block publish: {kinds}")
           PY
+
+      - name: Upload build log
+        if: ${{ failure() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: publish-status-build-log
+          path: .tmp/publish-status/build.log
+          if-no-files-found: ignore
 
       - name: Check project identity
         run: python tools/check_project_identity.py
@@ -319,6 +333,12 @@ jobs:
           name: publish-status-log
           path: .tmp/publish-status
 
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: publish-status-build-log
+          path: .tmp/publish-status
+
       - name: Open, update, or close the publish failure issue
         continue-on-error: true
         env:
@@ -328,4 +348,5 @@ jobs:
           python tools/report_publish_status.py \
             --repository "${{ github.repository }}" \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --generation-log .tmp/publish-status/policy-generation.log
+            --generation-log .tmp/publish-status/policy-generation.log \
+            --generation-log .tmp/publish-status/build.log

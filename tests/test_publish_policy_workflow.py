@@ -252,6 +252,24 @@ def test_publish_policy_workflow_captures_policy_generation_output() -> None:
     assert "if-no-files-found: ignore" in upload_step
 
 
+def test_publish_policy_build_job_errors_reach_the_failure_issue() -> None:
+    text = _workflow_text()
+    build_job = text.split("\n  build:", 1)[1].split("\n  deploy:", 1)[0]
+    generate = build_job.split("- name: Generate signed policy", 1)[1].split("\n      - ", 1)[0]
+    validate = build_job.split("- name: Validate policy and signature", 1)[1].split("\n      - ", 1)[0]
+    upload = build_job.split("name: publish-status-build-log", 1)[0].rsplit("\n      - ", 1)[1]
+
+    for step in (generate, validate):
+        assert "set -euo pipefail" in step
+        assert 'tee -a "$BUILD_LOG"' in step
+    assert "actions/upload-artifact@v7" in upload
+    assert "if: ${{ failure() }}" in upload
+    assert "continue-on-error: true" in upload
+    report_job = _report_job()
+    assert "name: publish-status-build-log" in report_job
+    assert "--generation-log .tmp/publish-status/build.log" in report_job
+
+
 def test_publish_policy_report_job_cannot_fail_a_publish_run() -> None:
     steps = ("\n" + _report_job().split("\n    steps:\n", 1)[1]).split("\n      - ")[1:]
 

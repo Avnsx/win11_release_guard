@@ -261,7 +261,13 @@ def main(
     parser = argparse.ArgumentParser(description="Report the publish-policy run outcome on a managed GitHub issue.")
     parser.add_argument("--repository", help="GitHub repository in owner/name form. Defaults to GITHUB_REPOSITORY.")
     parser.add_argument("--run-url", required=True, help="URL of the workflow run being reported.")
-    parser.add_argument("--generation-log", type=Path, default=None, help="Captured policy generation output.")
+    parser.add_argument(
+        "--generation-log",
+        type=Path,
+        action="append",
+        default=[],
+        help="Captured generation or build output; repeat for each job log.",
+    )
     args = parser.parse_args(argv)
     env = os.environ if environ is None else environ
 
@@ -278,9 +284,8 @@ def main(
             print("GITHUB_TOKEN is required to report the publish status.", file=stderr)
             return 2
         client = RestGitHubClient(token)
-    generation_log = None
-    if args.generation_log is not None and args.generation_log.is_file():
-        generation_log = args.generation_log.read_text(encoding="utf-8", errors="replace")
+    logs = [path.read_text(encoding="utf-8", errors="replace") for path in args.generation_log if path.is_file()]
+    generation_log = "\n".join(logs) or None
 
     try:
         action = report_publish_status(

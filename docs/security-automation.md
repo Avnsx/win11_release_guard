@@ -149,8 +149,10 @@ calls `tools/report_publish_status.py` with the upstream job results:
 
 - Any failed job opens one `Publish policy is failing` issue, or updates the open
   one with the latest failed run, the number of consecutive failed runs, the
-  failed jobs, and the captured `Policy generation failed:` line. A comment is
-  added only when the error changes.
+  failed jobs, and the captured error: the `Policy generation failed:` line from
+  the preview or signed generation, or the tail of the signed build log when
+  policy and signature validation fails. A comment is added only when the error
+  changes.
 - A fully successful run comments and closes the open issue as completed.
 - Runs whose jobs were only cancelled or skipped change nothing.
 

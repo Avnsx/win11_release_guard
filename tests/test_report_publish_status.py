@@ -349,3 +349,27 @@ def test_rest_client_lists_open_issues_by_creator_and_skips_pull_requests() -> N
     assert client.requests == [("GET", f"/repos/{REPOSITORY}/issues")]
     assert client.queries[0]["creator"] == "github-actions[bot]"
     assert client.queries[0]["state"] == "open"
+
+
+def test_main_reports_errors_from_every_generation_log(tmp_path) -> None:
+    client = FakeClient()
+    preview_log = tmp_path / "policy-generation.log"
+    build_log = tmp_path / "build.log"
+    preview_log.write_text("Policy generation failed: preview boom\n", encoding="utf-8")
+    build_log.write_text("Policy generation failed: signed boom\n", encoding="utf-8")
+
+    exit_code = report_tool.main(
+        [
+            "--repository", REPOSITORY, "--run-url", RUN_URL,
+            "--generation-log", str(preview_log), "--generation-log", str(build_log),
+        ],
+        client=client,
+        environ={"NEEDS_JSON": json.dumps(FAILED_NEEDS)},
+        stdout=io.StringIO(),
+        now=NOW,
+    )
+
+    body = client.call("create")["body"]
+    assert exit_code == 0
+    assert "preview boom" in body
+    assert "signed boom" in body
