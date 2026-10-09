@@ -213,6 +213,54 @@ def _excluded_release_diagnostic_rows(policy: ReleasePolicy) -> tuple[dict[str, 
     return tuple(rows)
 
 
+_UPDATE_KIND_LABELS = {
+    "B": "monthly security update",
+    "D": "optional preview",
+    "OOB": "out-of-band update",
+}
+
+
+def _latest_update_article(policy: ReleasePolicy, build: str) -> tuple[str, str | None]:
+    """KB number and validated Microsoft support article URL for a release-history build."""
+    record = next((row for row in policy.release_history if row.build == build), None)
+    if record is None:
+        return "", None
+    return str(record.kb_article or "").strip(), _safe_support_article_url(record.kb_url)
+
+
+def _latest_update_diagnostic_rows(policy: ReleasePolicy) -> tuple[dict[str, Any], ...]:
+    """One dashboard notice per Release Health version: its latest update date and build."""
+    rows: list[dict[str, Any]] = []
+    for entry in policy.current_versions:
+        version = str(entry.version or "").strip().upper()
+        build = str(entry.latest_build or "").strip()
+        date = str(entry.metadata.get("latest_revision_date") or "").strip()
+        if not version or not build or not date:
+            continue
+        name = f"Windows 11 {version}"
+        if entry.servicing_channel.value == "ltsc":
+            name += " LTSC"
+        raw = entry.metadata.get("raw")
+        update = str(raw.get("Latest update") or "").strip() if isinstance(raw, Mapping) else ""
+        kind = _UPDATE_KIND_LABELS.get(update.rsplit(" ", 1)[-1].upper(), "")
+        detail = f" ({update}, {kind})" if kind else (f" ({update})" if update else "")
+        kb_article, article_url = _latest_update_article(policy, build)
+        row = {
+            "severity": "notice",
+            "title": f"{name} latest update",
+            "source": "Release Health",
+            "message": f"{name} received its latest update on {date}: build {build}{detail}.",
+            "tags": tuple(
+                tag for tag in (f"Release {version}", f"Build {build}", update, kb_article) if tag
+            ),
+        }
+        row_id = _source_diagnostic_id(**row, release=version, affects_broad_target=False)
+        rows.append(
+            {"id": row_id, **row, **({"update_details_url": article_url} if article_url else {})}
+        )
+    return tuple(rows)
+
+
 def _display_source_event_counts(rows: tuple[Mapping[str, Any], ...]) -> dict[str, int]:
     display_counts = {"notice": 0, "warning": 0, "error": 0}
     for row in rows:
@@ -415,6 +463,9 @@ def _source_diagnostic_security_url(row: Mapping[str, Any]) -> str | None:
 
 
 def _source_diagnostic_read_more_url(row: Mapping[str, Any]) -> str | None:
+    update_details_url = _safe_support_article_url(str(row.get("update_details_url") or "") or None)
+    if update_details_url:
+        return update_details_url
     support_url = _source_diagnostic_support_url(row)
     is_security = row.get("is_security") is True
     important_baseline = bool(row.get("affects_required_baseline")) or str(row.get("kind") or "") == (

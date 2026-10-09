@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from html import escape
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from ...config import DEFAULT_PAGES_BASE_URL
 from ...models import ReleasePolicy
 from .components import (
@@ -19,6 +19,7 @@ from .diagnostic_rows import (
     _canonical_source_diagnostic_issue_url,
     _display_source_event_counts,
     _excluded_release_diagnostic_rows,
+    _latest_update_diagnostic_rows,
     _source_diagnostic_attr_text,
     _source_diagnostic_counts_without_closed_issue_tickets,
     _source_diagnostic_display_text,
@@ -322,12 +323,27 @@ def _render_source_diagnostics_panel(
     rows = _source_diagnostic_rows_by_priority(
         (*visible_counted_rows, *_placeholder_rows_for_unexplained_counts(adjusted_counts, visible_counted_rows))
     )
+    # Routine per-version update rows only appear in the expanded view, after the real diagnostics.
+    latest_rows = _latest_update_diagnostic_rows(policy)
+
+    def overflow_html(hidden_rows: Sequence[Mapping[str, Any]]) -> str:
+        if not hidden_rows:
+            return ""
+        rendered_hidden = "".join(render_row(row) for row in hidden_rows)
+        return (
+            f"<details class=\"diag-more\"><summary>+{len(hidden_rows)} more</summary>"
+            f"<div class=\"diag-events\">{rendered_hidden}</div></details>"
+        )
+
     rendered_rows: tuple[Mapping[str, Any], ...]
     if not rows:
         clear_row = _clear_source_diagnostic_row()
-        rendered_rows = (clear_row,)
+        rendered_rows = (clear_row, *latest_rows)
         rendered_clear_row = render_row(clear_row)
-        details = f"<div class=\"diag-events diag-events-empty\">{rendered_clear_row}</div>"
+        details = (
+            f"<div class=\"diag-events diag-events-empty\">{rendered_clear_row}</div>"
+            f"{overflow_html(latest_rows)}"
+        )
     else:
         has_warning_or_error = any(
             _source_diagnostic_event_severity(row.get("severity")) in {"warning", "error"}
@@ -336,21 +352,13 @@ def _render_source_diagnostics_panel(
         lead_row: Mapping[str, Any] | None = None
         if not has_warning_or_error:
             lead_row = _clear_source_diagnostic_row()
-        rendered_rows = (lead_row, *rows) if lead_row is not None else rows
+        rendered_rows = (*((lead_row,) if lead_row is not None else ()), *rows, *latest_rows)
         visible_rows = rows[:5]
-        hidden_rows = rows[5:]
         rendered_visible = (
             (render_row(lead_row) if lead_row is not None else "")
             + "".join(render_row(row) for row in visible_rows)
         )
-        overflow = ""
-        if hidden_rows:
-            rendered_hidden = "".join(render_row(row) for row in hidden_rows)
-            overflow = (
-                f"<details class=\"diag-more\"><summary>+{len(hidden_rows)} more</summary>"
-                f"<div class=\"diag-events\">{rendered_hidden}</div></details>"
-            )
-        details = f"<div class=\"diag-events\">{rendered_visible}</div>{overflow}"
+        details = f"<div class=\"diag-events\">{rendered_visible}</div>{overflow_html((*rows[5:], *latest_rows))}"
     display_counts = _display_source_event_counts(rendered_rows)
     count_tiles = (
         "<div class=\"diag-summary\" aria-label=\"Source diagnostic counts\">"

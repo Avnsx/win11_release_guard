@@ -291,8 +291,9 @@ def test_pages_index_shows_generated_age_and_source_diagnostics_summary(tmp_path
     assert "Notices" in index
     assert "Warnings" in index
     assert "Errors" in index
-    _assert_diag_count_tile(index, "notice", 3, "Notices")
-    assert index.count(_diag_row_marker("notice")) == 3
+    # 3 source notices plus one latest-update notice for each of the 4 dated Release Health versions.
+    _assert_diag_count_tile(index, "notice", 7, "Notices")
+    assert index.count(_diag_row_marker("notice")) == 7
     diagnostic_ids = _diagnostic_ids(index)
     assert len(diagnostic_ids) >= 3
     assert len(set(diagnostic_ids)) == len(diagnostic_ids)
@@ -311,7 +312,7 @@ def test_pages_index_shows_generated_age_and_source_diagnostics_summary(tmp_path
     assert '<button type="button" class="panel-action" data-source-health' not in index
     assert ">Source health</button>" not in index
     assert 'id="source-diagnostics-filter-status" class="diag-filter-status" aria-live="polite"' in index
-    assert "Showing all 3 source diagnostic rows." in index
+    assert "Showing all 7 source diagnostic rows." in index
     assert 'id="source-diagnostics-empty" class="diag-filter-empty" hidden' in index
     assert "This category currently contains no entries." in index
     assert 'class="diag-feed-bar"' in index

@@ -74,6 +74,18 @@ workflow-generated issue metadata contains a canonical
 warning/error `source_diagnostics.events` row. Derived UI rows, clear-state
 rows, and Notice events remain visible and filterable without ticket links.
 
+`Expand View` opens the full feed. At its end, below the source events, one
+notice per Windows 11 version in Microsoft's Release Health table shows when that
+version last received an update and with which build, for example "Windows 11
+26H2 received its latest update on 2026-09-29: build 26300.9550 (2026-09 D,
+optional preview)". The update kind is spelled out: B is the monthly security
+update, D an optional preview, and OOB an out-of-band update. Each row also
+names the KB article and, when Microsoft lists a support article for that build,
+links it as "Read more". These rows are
+derived from the signed policy for display only; they count as notices, never
+become GitHub issues, and do not affect any verdict. The collapsed view keeps them
+inside the `+N more` group so the real diagnostics stay on top.
+
 Rows may show a concise administrator-facing summary above the technical
 message. The technical message, source chip, tags, diagnostic ID, issue metadata,
 and copy-to-clipboard data remain available for triage. Servicing-linked rows can

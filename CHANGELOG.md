@@ -4,7 +4,13 @@ Key changes per release. Each version links to its full release notes in the [Pa
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+
+* The expanded Source Diagnostics view ends with one notice per Windows 11 version: the date of its latest update, its build, and a link to Microsoft's support article for it.
+
+### Fixed
+
+* Expand View and the other dashboard controls no longer stop responding after a same-tab download link or a return through the browser's back/forward cache.
 
 ## v0.6.0 - 2026-10-09
 
