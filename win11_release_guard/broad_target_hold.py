@@ -82,8 +82,7 @@ def hold_reason(hold: BroadTargetHold) -> str:
     return (
         f"Windows 11 {hold.pending.version} has no B release yet "
         f"(available since {hold.available_since.isoformat()}), "
-        f"so {hold.target.version} stays the broad target with required baseline {hold.baseline.build} "
-        f"until {hold.pending.version} gets its first monthly security (B) release."
+        f"so {hold.target.version} stays the broad target with required baseline {hold.baseline.build}."
     )
 
 

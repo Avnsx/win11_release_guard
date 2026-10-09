@@ -356,6 +356,7 @@ def test_hold_reason_keeps_its_key_facts_in_the_dashboard_summary():
     ]
     summary = _short_diagnostic_text(reason)
 
+    assert summary == reason
     for fact in ("26H2", "2026-09-29", "25H2", "26200.9445"):
         assert fact in summary, summary
 
