@@ -22,7 +22,7 @@ from typing import Any, Mapping, Protocol, Sequence, TextIO
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tools.sync_source_diagnostics_issues import GitHubApiError, RestGitHubClient
+from tools.github_rest import GitHubApiError, RestGitHubClient
 from win11_release_guard.config import DEFAULT_POLICY_WARNING_AGE_DAYS
 
 ISSUE_TITLE = "Publish policy is failing"
