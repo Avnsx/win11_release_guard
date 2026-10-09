@@ -46,8 +46,12 @@ def test_publish_policy_workflow_uses_minimum_pages_permissions() -> None:
     assert SECRET_NAME not in issue_sync_job
     assert 'python -m pip install -e ".[test]"' in issue_sync_job
     assert "python -m compileall -q win11_release_guard tools" in issue_sync_job
-    assert "tests/test_source_diagnostics_issue_sync.py" in issue_sync_job
     assert "tests/test_source_diagnostics_issue_metadata.py" in issue_sync_job
+    for pattern in ("test_policy_generator*.py", "test_source_diagnostics_issue_sync*.py"):
+        test_files = sorted(path.as_posix() for path in Path("tests").glob(pattern))
+        assert test_files
+        for test_file in test_files:
+            assert test_file in issue_sync_job
     assert "contents: write" not in issue_sync_job
     assert "pages: write" not in issue_sync_job
     assert "id-token: write" not in issue_sync_job

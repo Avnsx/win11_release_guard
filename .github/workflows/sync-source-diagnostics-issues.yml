@@ -48,6 +48,18 @@ jobs:
           tests/test_source_diagnostics_issue_sync.py
           tests/test_source_diagnostics_issue_metadata.py
           tests/test_policy_generator.py
+          tests/test_policy_generator_assembly_baseline.py
+          tests/test_policy_generator_assembly_release.py
+          tests/test_policy_generator_assembly_source.py
+          tests/test_policy_generator_changelog.py
+          tests/test_policy_generator_diagnostic_ids.py
+          tests/test_policy_generator_diagnostic_rows.py
+          tests/test_policy_generator_msrc_cvrf.py
+          tests/test_policy_generator_notices_and_pages.py
+          tests/test_policy_generator_servicing_match.py
+          tests/test_policy_generator_sources.py
+          tests/test_policy_generator_support_articles.py
+          tests/test_policy_generator_support_validation.py
 
       - name: Sync source diagnostics issues
         env:

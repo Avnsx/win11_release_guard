@@ -238,9 +238,12 @@ def test_source_diagnostics_issue_sync_workflow_is_manual_and_minimal() -> None:
     assert "GITHUB_TOKEN: ${{ github.token }}" in text
     assert 'python -m pip install -e ".[test]"' in text
     assert "python -m compileall -q win11_release_guard tools" in text
-    assert "tests/test_source_diagnostics_issue_sync.py" in text
     assert "tests/test_source_diagnostics_issue_metadata.py" in text
-    assert "tests/test_policy_generator.py" in text
+    for pattern in ("test_policy_generator*.py", "test_source_diagnostics_issue_sync*.py"):
+        test_files = sorted(path.as_posix() for path in Path("tests").glob(pattern))
+        assert test_files
+        for test_file in test_files:
+            assert test_file in text
     assert "tools/sync_source_diagnostics_issues.py" in text
     assert "include_notices:" not in text
     assert "--include-notices" not in text
