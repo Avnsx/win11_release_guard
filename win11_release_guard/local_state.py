@@ -24,11 +24,11 @@ from .local_build_signals import (
 )
 from .local_edition import _edition_scope_from_signals, _servicing_channel_from_signals
 from .local_windows_probes import (
-    NATIVE_OS_INFO_KEYS,  # ponytail: re-exported for tests until Task 12
+    NATIVE_OS_INFO_KEYS,  # re-exported: tests read it through this module
     _native_os_info_is_complete,
     _normalize_dism_current_edition_info,
-    _os_architecture_from_processor_architecture,  # ponytail: re-exported for tests until Task 12
-    _parse_dism_current_edition_output,  # ponytail: re-exported for tests until Task 12
+    _os_architecture_from_processor_architecture,  # re-exported: tests read it through this module
+    _parse_dism_current_edition_output,  # re-exported: tests read it through this module
     _read_dism_current_edition,
     _read_kernel_file_version,
     _read_native_architecture,

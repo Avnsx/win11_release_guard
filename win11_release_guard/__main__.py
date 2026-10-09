@@ -7,8 +7,8 @@ from typing import Sequence
 from .api import check_current_system
 from . import state_store
 from .exceptions import WindowsReleaseCheckerError
-# ponytail: _cache_file_from_args, _state_dir_from_args, _stateless_from_args, _format_build_origin,
-# _output_payload, _decode_json_bytes, and _public_pages_urls are re-exported for tests until Task 12.
+# _cache_file_from_args, _state_dir_from_args, _stateless_from_args, _format_build_origin,
+# _output_payload, _decode_json_bytes, and _public_pages_urls are re-exported: tests read them through this module.
 from .cli_args import (
     _build_parser,
     _cache_file_from_args,

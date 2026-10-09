@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import win11_release_guard.policy_generator as policy_generator_module
-from win11_release_guard.policy_generator import _source_diagnostic_id
+from win11_release_guard.policy_generator.diagnostic_ids import _source_diagnostic_id
 
 
 def test_source_diagnostic_id_is_stable_for_equivalent_input():

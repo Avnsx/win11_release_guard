@@ -9,7 +9,8 @@ from win11_release_guard.exceptions import PolicyFetchError
 from win11_release_guard.freshness import epoch_milliseconds_from_iso
 import win11_release_guard.policy_generator as policy_generator_module
 from win11_release_guard.policy_generator import clock as generator_clock
-from win11_release_guard.policy_generator import _source_label, build_policy_from_sources, generate_policy, write_policy_outputs
+from win11_release_guard.policy_generator import build_policy_from_sources, generate_policy, write_policy_outputs
+from win11_release_guard.policy_generator.pages.dashboard_text import _source_label
 from win11_release_guard.policy_schema import GENERATOR_VERSION, is_source_diagnostic_id, validate_policy_document
 from tests.support.policy_generator_helpers import (
     ATOM_SOURCE_DIAGNOSTIC_ID,

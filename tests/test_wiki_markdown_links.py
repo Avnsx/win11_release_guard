@@ -4,7 +4,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from win11_release_guard.policy_generator import _wiki_sitemap_urls, render_wiki_pages, write_wiki_pages
+from win11_release_guard.policy_generator import render_wiki_pages, write_wiki_pages
+from win11_release_guard.policy_generator.pages.changelog import _wiki_sitemap_urls
 
 
 ROOT = Path(__file__).resolve().parents[1]

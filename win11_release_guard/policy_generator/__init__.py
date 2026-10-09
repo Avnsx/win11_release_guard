@@ -10,7 +10,7 @@ from .assembly import (
     generate_policy_json,
 )
 from .baseline_notice import _baseline_notice_is_active, _baseline_notice_summary, _baseline_notice_visibility_window
-from .pages.changelog import _wiki_sitemap_urls, render_changelog_pages, write_changelog_pages
+from .pages.changelog import render_changelog_pages, write_changelog_pages
 from .constants import (
     DEFAULT_MAX_MSRC_CVRF_BYTES,
     DEFAULT_MAX_SUPPORT_ARTICLE_BYTES,
@@ -18,8 +18,7 @@ from .constants import (
     SOURCE_DIAGNOSTIC_ID_PREFIX,
 )
 from .pages.dashboard import render_policy_index
-from .pages.dashboard_text import _source_label
-from .diagnostic_ids import _source_diagnostic_id, _source_diagnostic_id_for_event
+from .diagnostic_ids import _source_diagnostic_id_for_event
 from .pages.diagnostic_panel import _clear_source_diagnostic_row
 from .pages.diagnostic_rows import (
     _excluded_release_diagnostic_rows,

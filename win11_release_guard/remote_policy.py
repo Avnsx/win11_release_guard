@@ -6,7 +6,7 @@ from .models import ReleaseHistoryEntry, ReleasePolicy, ReleasePolicyEntry
 from .policy_http import fetch_policy_bytes, fetch_release_policy
 from .policy_json import load_policy_bytes, load_policy_text
 from .release_health import parse_windows11_release_health_html
-from .release_health_tables import _build_key  # ponytail: re-exported for tests until Task 12
+from .release_health_tables import _build_key  # re-exported: tests read it through this module
 
 
 def policy_from_dict(data: Mapping[str, Any]) -> ReleasePolicy:
