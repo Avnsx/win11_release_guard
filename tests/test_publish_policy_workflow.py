@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import re
 from pathlib import Path
 
 
@@ -276,3 +278,29 @@ def test_publish_policy_workflow_runs_on_report_tool_changes() -> None:
     text = _workflow_text()
 
     assert '- "tools/report_publish_status.py"' in text.split("jobs:", 1)[0]
+
+
+def _tools_imported_by(path: Path) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and node.module == "tools":
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("tools."):
+            names.add(node.module.split(".")[1])
+        elif isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[1] for alias in node.names if alias.name.startswith("tools."))
+    return {f"tools/{name}.py" for name in names if Path(f"tools/{name}.py").exists()}
+
+
+def test_publish_policy_workflow_runs_when_a_module_of_a_listed_tool_changes() -> None:
+    triggers = _workflow_text().split("jobs:", 1)[0]
+    listed = set(re.findall(r'- "(tools/\w+\.py)"', triggers))
+    pending, seen = sorted(listed), set()
+    while pending:
+        tool = pending.pop()
+        if tool not in seen:
+            seen.add(tool)
+            pending.extend(_tools_imported_by(Path(tool)))
+
+    assert "tools/github_rest.py" in seen
+    assert sorted(seen - listed) == []
