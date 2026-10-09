@@ -104,6 +104,53 @@ python -m twine check dist/*
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 ```
 
+## Full Change Notes
+
+The complete change list recorded for v0.3.6.
+
+### Summary
+
+Windows 11 Release Guard 0.3.6 keeps the dashboard's security classification
+working even when Microsoft's Update History feed lags Patch Tuesday: the
+baseline-update notice now checks MSRC security data directly using the Release
+Health date, so administrators see a confirmed security label instead of a
+neutral placeholder during Microsoft-side feed delays. Enrichment problems now
+surface as visible warnings instead of staying silent, and the audited GitHub
+Actions checkout pin moved to v7. Device compliance is unchanged: signed policy
+verdicts, baseline selection, and the public API behave exactly as before.
+
+### Fixed
+
+* Kept the active baseline-update notice's security classification working when
+  Microsoft's Update History Atom feed lags Patch Tuesday. When the feed has no
+  entry for the new baseline KB, the notice now derives the MSRC month from the
+  Release Health baseline date (for example `2026-06-09` to `2026-Jun`), fetches
+  MSRC CVRF for that month, and joins the baseline KB exactly, so security is
+  credited to MSRC without waiting for Microsoft's Atom entry. No Support article
+  is fetched or synthesized in that case, so support validation stays
+  `unavailable`, and the neutral "classification unavailable" wording now shows
+  only when MSRC is also unavailable.
+* Stopped silently swallowing baseline-record enrichment failures. If the MSRC
+  fallback fetch fails, the standard `msrc_cvrf_enrichment_unavailable` warning
+  now fires for that month, and a baseline record whose Atom-linked Support
+  article fetch fails now emits the standard support-enrichment event instead of
+  being suppressed. Baseline records with no support URL stay quiet as before.
+
+### Changed
+
+* Moved the audited first-party GitHub Actions pin for `actions/checkout` to
+  `v7` across all workflows, with the action-version audit tool, its tests, and
+  the AGENTS.md audited list updated in the same change (Dependabot PR #10).
+
+### Tests
+
+* Pinned the Atom-feed-lag baseline-notice behavior: MSRC month fallback with a
+  trusted classification when MSRC responds, honest `unavailable`/`unknown`
+  plus a `msrc_cvrf_enrichment_unavailable` warning when it fails, and no
+  Support article fetch in either case. Also pinned that a baseline record with
+  a real Atom-linked article whose fetch fails surfaces the standard
+  support-enrichment event.
+
 ## Related Pages
 
 [Home](Home) | [Architecture](Architecture) | [Source Diagnostics](Source-Diagnostics) | [Policy Feed and Trust Model](Policy-Feed-and-Trust-Model) | [Tagged Release Lane](Tagged-Release-Lane) | [Build, Test and Release](Build-Test-and-Release)

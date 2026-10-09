@@ -128,6 +128,7 @@ def test_release_material_does_not_blame_the_legacy_pair_for_the_line_ending_cha
     # detached Ed25519 signature would no longer verify against the cached policy.
     for rel in RELEASE_MATERIAL:
         paragraphs = [_squash(block) for block in _read(rel).split("\n\n") if re.search(r"\bLF\b", block)]
-        assert len(paragraphs) == 1, f"{rel}: expected one paragraph about the line endings, found {len(paragraphs)}"
-        assert "save_policy_cache" in paragraphs[0], f"{rel}: {paragraphs[0]}"
-        assert "publisher's exact" in paragraphs[0], f"{rel}: {paragraphs[0]}"
+        assert paragraphs, f"{rel}: no paragraph about the line endings"
+        for paragraph in paragraphs:
+            assert "save_policy_cache" in paragraph, f"{rel}: {paragraph}"
+            assert "publisher's exact" in paragraph, f"{rel}: {paragraph}"

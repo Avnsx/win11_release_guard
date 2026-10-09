@@ -232,8 +232,9 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
     assert changelog.index("[Unreleased]") < changelog.index("v0.3.3 - 2026-06-11")
     assert changelog.index("v0.3.3 - 2026-06-11") < changelog.index("v0.3.2 - 2026-06-10")
     assert changelog.index("v0.3.2 - 2026-06-10") < changelog.index("v0.3.1 - 2026-06-05")
-    assert "Version 0.3.3 is the corrective source-evidence hardening release" in changelog
-    assert "Version 0.3.2 is the compatibility and documentation-alignment release" in changelog
+    assert "Version 0.3.3 hardens how Microsoft source evidence is matched and validated" in changelog
+    assert "Version 0.3.2 adds the first-party Pages wiki and changelog" in changelog
+    assert "https://avnsx.github.io/win11_release_guard/wiki/Release-v0.3.3/" in changelog
     assert "Versions" in changelog
     assert ".changelog-content h2[id]" in changelog
     assert 'class="wiki-heading-icon wiki-icon-changelog"' in changelog
@@ -264,9 +265,9 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
         '<link rel="canonical" href="https://avnsx.github.io/win11_release_guard/wiki/changelog/v0.3.3/">'
         in changelog_version
     )
-    assert "unique multi-build Atom diagnostic IDs" in changelog_version
+    assert "Multi-build Atom entries get unique Source Diagnostic IDs." in changelog_version
     assert "<title>Changelog v0.3.2 | Windows 11 Release Guard Wiki</title>" in changelog_version_032
-    assert "extends declared and CI-tested Python support through 3.14" in changelog_version_032
+    assert "Python 3.13 and 3.14 support and CI coverage." in changelog_version_032
     assert "<title>Windows 11 Release Guard Wiki</title>" in wiki_home
     assert 'class="wiki-brand-icon"' in wiki_home
     assert '<a class="wiki-brand" href="https://avnsx.github.io/win11_release_guard/">' in wiki_home
