@@ -727,4 +727,4 @@ def test_generated_pending_b_release_notice_is_dashboard_only(tmp_path):
     assert "stays the broad target with required baseline 26200.9445" in event["user_message"]
     assert "ABOVE_BROAD_TARGET_OR_SPECIAL_RELEASE" in event["user_message"]
     assert "25H2 stays the broad target with required baseline 26200.9445" in index
-    assert "(available since 2026-09-29)" in index
+    assert "(available since Tuesday, 29 September 2026)" in index

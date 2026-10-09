@@ -295,8 +295,14 @@ def _source_diagnostic_display_text(value: Any, *, fallback: str = "") -> str:
         text,
         flags=re.IGNORECASE,
     )
-    return re.sub(
+    text = re.sub(
         rf"\b{iso_pattern}\b",
+        replace_iso,
+        text,
+    )
+    # Date-only values (Release Health dates) keep their date-only precision.
+    return re.sub(
+        r"(?<![\w/=.-])\d{4}-\d{2}-\d{2}(?![\w-])",
         replace_iso,
         text,
     )

@@ -63,8 +63,8 @@ def test_dashboard_lists_latest_updates_in_the_expanded_notices():
     index = render_policy_index(_fixture_policy(), policy_bytes=None, signature=None)
     expanded = index.split('<details class="diag-more">', 1)[1].split("</details>", 1)[0]
 
-    assert "Windows 11 26H2 received its latest update on 2026-09-29: build 26300.9550" in expanded
-    assert "Windows 11 23H2 received its latest update on 2026-09-14: build 22631.7584" in expanded
+    assert "Windows 11 26H2 received its latest update on Tuesday, 29 September 2026: build 26300.9550" in expanded
+    assert "Windows 11 23H2 received its latest update on Monday, 14 September 2026: build 22631.7584" in expanded
 
 
 def test_latest_update_rows_link_the_microsoft_article_for_that_build():

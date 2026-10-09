@@ -122,7 +122,7 @@ def _render_baseline_update_notice(policy: ReleasePolicy) -> str:
     official_label = ""
     if official_date:
         precision_text = " (Release Health date-only)" if precision == "date" else ""
-        official_label = f"{official_date}{precision_text}"
+        official_label = f"{_dual_zone_time_human(official_date) or official_date}{precision_text}"
     visible_until = str(notice.get("visible_until_utc") or "").strip()
     source_url = _safe_support_article_url(str(notice.get("source_url") or "") or None)
     security_url = _baseline_update_security_url(notice)

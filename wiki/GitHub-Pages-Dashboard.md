@@ -86,6 +86,11 @@ derived from the signed policy for display only; they count as notices, never
 become GitHub issues, and do not affect any verdict. The collapsed view keeps them
 inside the `+N more` group so the real diagnostics stay on top.
 
+Dates on the dashboard use one long format in Berlin time, for example "Friday,
+9 October 2026, 15:52:04 CEST" (CET in winter). Timestamps that state UTC, such as
+the source `Fetched` times, stay in UTC. Release Health dates have no time of day,
+so they show as a date only, for example "Tuesday, 29 September 2026".
+
 Rows may show a concise administrator-facing summary above the technical
 message. The technical message, source chip, tags, diagnostic ID, issue metadata,
 and copy-to-clipboard data remain available for triage. Servicing-linked rows can

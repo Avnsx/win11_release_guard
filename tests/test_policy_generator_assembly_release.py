@@ -755,9 +755,9 @@ def test_caught_up_kb5094126_renders_baseline_update_notice_before_operational_p
         f' <a class="baseline-read-more" href="{KB5094126_SUPPORT_URL}" '
         'rel="noopener noreferrer">Read more</a></div>'
     ) in index
-    assert "Atom first spotted June 9, 2026 at 02:00 CEST / 00:00 UTC" in index
-    assert "Support updated June 9, 2026 at 02:00 CEST / 00:00 UTC" in index
-    assert "Official baseline date: 2026-06-09 (Release Health date-only)" in index
+    assert "Atom first spotted Tuesday, 9 June 2026, 02:00:00 CEST / 00:00:00 UTC" in index
+    assert "Support updated Tuesday, 9 June 2026, 02:00:00 CEST / 00:00:00 UTC" in index
+    assert "Official baseline date: Tuesday, 9 June 2026 (Release Health date-only)" in index
     assert "Visible until" not in index
     assert "For broad-fleet 25H2 devices, this likely marks the stable rollout floor" in index
     assert "Security evidence:" not in index

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import re
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from ..freshness import parse_iso_utc_datetime
 from .clock import _parse_policy_datetime
@@ -27,56 +28,57 @@ def _berlin_offset_hours(utc_dt: datetime) -> tuple[int, str]:
     return 1, "CET"
 
 
-def _generated_at_human(value: str | None) -> str:
-    utc_dt = _parse_policy_datetime(value)
+_WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+_MONTHS = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+_DATE_ONLY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _long_date(day: datetime | date) -> str:
+    """The dashboard's date format: "Friday, 9 October 2026"."""
+    return f"{_WEEKDAYS[day.weekday()]}, {day.day} {_MONTHS[day.month - 1]} {day.year}"
+
+
+def _berlin_local(utc_dt: datetime) -> tuple[datetime, str]:
     offset_hours, label = _berlin_offset_hours(utc_dt)
-    local_dt = utc_dt.replace(tzinfo=None) + timedelta(hours=offset_hours)
-    weekdays = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-    months = (
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    )
-    return (
-        f"{weekdays[local_dt.weekday()]}, {local_dt.day} {months[local_dt.month - 1]} "
-        f"{local_dt.year}, {local_dt:%H:%M:%S} {label}"
-    )
+    return utc_dt.replace(tzinfo=None) + timedelta(hours=offset_hours), label
+
+
+def _human_date(value: str | None) -> str | None:
+    """A date-only ISO value as "Tuesday, 29 September 2026", without inventing a time of day."""
+    text = str(value or "").strip()
+    if not _DATE_ONLY_RE.fullmatch(text):
+        return None
+    try:
+        return _long_date(date.fromisoformat(text))
+    except ValueError:
+        return None
+
+
+def _generated_at_human(value: str | None) -> str:
+    local_dt, label = _berlin_local(_parse_policy_datetime(value))
+    return f"{_long_date(local_dt)}, {local_dt:%H:%M:%S} {label}"
 
 
 def _generated_at_local_date(value: str | None) -> str:
-    utc_dt = _parse_policy_datetime(value)
-    offset_hours, _label = _berlin_offset_hours(utc_dt)
-    local_dt = utc_dt.replace(tzinfo=None) + timedelta(hours=offset_hours)
-    months = (
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    )
-    return f"{months[local_dt.month - 1]} {local_dt.day}, {local_dt.year}"
+    local_dt, _label = _berlin_local(_parse_policy_datetime(value))
+    return _long_date(local_dt)
 
 
 def _generated_at_local_time(value: str | None) -> str:
-    utc_dt = _parse_policy_datetime(value)
-    offset_hours, label = _berlin_offset_hours(utc_dt)
-    local_dt = utc_dt.replace(tzinfo=None) + timedelta(hours=offset_hours)
+    local_dt, label = _berlin_local(_parse_policy_datetime(value))
     return f"{local_dt:%H:%M:%S} {label}"
 
 
@@ -84,51 +86,18 @@ def _utc_time_human(value: str | None) -> str:
     utc_dt = parse_iso_utc_datetime(value)
     if utc_dt is None:
         return "unavailable"
-    weekdays = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-    months = (
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    )
-    return (
-        f"{weekdays[utc_dt.weekday()]}, {utc_dt.day} {months[utc_dt.month - 1]} "
-        f"{utc_dt.year}, {utc_dt:%H:%M:%S} UTC"
-    )
+    return f"{_long_date(utc_dt)}, {utc_dt:%H:%M:%S} UTC"
 
 
 def _dual_zone_time_human(value: Any) -> str | None:
+    human_date = _human_date(value)
+    if human_date is not None:
+        return human_date
     utc_dt = parse_iso_utc_datetime(str(value or ""))
     if utc_dt is None:
         return None
-    offset_hours, label = _berlin_offset_hours(utc_dt)
-    local_dt = utc_dt.replace(tzinfo=None) + timedelta(hours=offset_hours)
-    months = (
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    )
-    return (
-        f"{months[local_dt.month - 1]} {local_dt.day}, {local_dt.year} "
-        f"at {local_dt:%H:%M} {label} / {utc_dt:%H:%M} UTC"
-    )
+    local_dt, label = _berlin_local(utc_dt)
+    return f"{_long_date(local_dt)}, {local_dt:%H:%M:%S} {label} / {utc_dt:%H:%M:%S} UTC"
 
 
 def _generated_age_days(value: str | None, *, reference: datetime | None = None) -> float:

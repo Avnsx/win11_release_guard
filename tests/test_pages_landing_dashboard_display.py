@@ -341,7 +341,7 @@ def test_pages_index_source_diagnostics_render_enriched_atom_summary_and_export_
     assert "<span>CVEs 2</span>" not in index
     assert "update-guide/vulnerability/CVE-2026-0001" not in index
     assert "This patch contains" not in index
-    assert "<span>June 10, 2026 at 19:20 CEST / 17:20 UTC</span>" in index
+    assert "<span>Wednesday, 10 June 2026, 19:20:31 CEST / 17:20:31 UTC</span>" in index
     assert "<span>2026-06-10T17:20:31Z</span>" not in index
     assert (
         "message:compactText(row.querySelector('.diag-technical-message'))"
