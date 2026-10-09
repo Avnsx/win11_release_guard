@@ -34,7 +34,7 @@ Windows 11 Release Guard tells administrators whether an existing Windows 11 dev
 | Fact | Value |
 | --- | --- |
 | Project / package | `win11_release_guard` |
-| Version | `0.6.0` |
+| Version | `0.6.1` |
 | Console script | `win11_release_guard` |
 | Python entry point | `python -m win11_release_guard` |
 | Repository | `https://github.com/Avnsx/win11_release_guard` |
@@ -98,7 +98,7 @@ Detail: [Policy Feed and Trust Model](https://avnsx.github.io/win11_release_guar
 | --- | --- |
 | Pages Wiki home | https://avnsx.github.io/win11_release_guard/wiki/ |
 | First run | [Quick Start](https://avnsx.github.io/win11_release_guard/wiki/Quick-Start/) |
-| What changed | [Pages changelog](https://avnsx.github.io/win11_release_guard/wiki/changelog/), [v0.6.0 notes](https://github.com/Avnsx/win11_release_guard/blob/main/docs/releases/v0.6.0.md), [CHANGELOG.md](https://github.com/Avnsx/win11_release_guard/blob/main/CHANGELOG.md) |
+| What changed | [Pages changelog](https://avnsx.github.io/win11_release_guard/wiki/changelog/), [v0.6.1 notes](https://github.com/Avnsx/win11_release_guard/blob/main/docs/releases/v0.6.1.md), [CHANGELOG.md](https://github.com/Avnsx/win11_release_guard/blob/main/CHANGELOG.md) |
 | Problems | [Troubleshooting](https://avnsx.github.io/win11_release_guard/wiki/Troubleshooting/) |
 | Maintainers | [Build, Test and Release](https://avnsx.github.io/win11_release_guard/wiki/Build-Test-and-Release/), [Tagged release lane](https://github.com/Avnsx/win11_release_guard/blob/main/docs/tagged-release-lane.md) |
 | Contributors | [Regression Chokepoints](https://avnsx.github.io/win11_release_guard/wiki/Regression-Chokepoints/) |

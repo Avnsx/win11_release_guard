@@ -282,7 +282,7 @@ def test_skip_test_run_skips_pytest_but_still_validates_contents(tmp_path: Path,
 
 
 def test_required_archive_entries_preserve_historical_release_docs() -> None:
-    for version in ("v0.3.1", "v0.3.2", "v0.3.3", "v0.3.4", "v0.3.5", "v0.3.6", "v0.4.0", "v0.5.0", "v0.6.0"):
+    for version in ("v0.3.1", "v0.3.2", "v0.3.3", "v0.3.4", "v0.3.5", "v0.3.6", "v0.4.0", "v0.5.0", "v0.6.0", "v0.6.1"):
         entry = f"docs/releases/{version}.md"
         assert entry in export_clean_archive.REQUIRED_ARCHIVE_ENTRIES
         assert (export_clean_archive.REPO_ROOT / entry).is_file()

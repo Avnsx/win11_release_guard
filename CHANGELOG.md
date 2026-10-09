@@ -4,6 +4,18 @@ Key changes per release. Each version links to its full release notes in the [Pa
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## v0.6.1 - 2026-10-09
+
+### Summary
+
+Windows 11 Release Guard 0.6.1 fixes dashboard controls that could stop
+responding, shows every dashboard date in one readable format, and lists each
+Windows 11 version's latest update with a link to Microsoft's notes. A failed
+signed publish run now reports its error text in the managed GitHub issue.
+Compliance verdicts are unchanged.
+
 ### Added
 
 * The expanded Source Diagnostics view ends with one notice per Windows 11 version: the date of its latest update, its build, and a link to Microsoft's support article for it.
@@ -11,6 +23,14 @@ Key changes per release. Each version links to its full release notes in the [Pa
 ### Fixed
 
 * Expand View and the other dashboard controls no longer stop responding after a same-tab download link or a return through the browser's back/forward cache.
+* A failed signed generation or policy validation now puts its error text in the managed `Publish policy is failing` issue.
+* The target hold reason is short enough to show in full on the dashboard.
+
+### Changed
+
+* Dashboard dates read like "Friday, 9 October 2026, 15:52:04 CEST"; date-only Release Health dates show no invented time, and explicit UTC timestamps stay in UTC.
+
+Full notes: [Release v0.6.1](https://avnsx.github.io/win11_release_guard/wiki/Release-v0.6.1/)
 
 ## v0.6.0 - 2026-10-09
 
