@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+from pathlib import Path, PurePosixPath
+
 import pytest
 
 from win11_release_guard.policy_generator.pages import assets
@@ -48,3 +51,17 @@ def test_one_trailing_newline_is_not_content(asset_dir) -> None:
 
     assert assets.render_asset("a.html") == "x"
     assert assets.render_asset("b.html") == "x\n"
+
+
+def test_every_page_asset_ships_as_package_data() -> None:
+    pages = Path(assets.__file__).parent
+    line = next(
+        line for line in Path("pyproject.toml").read_text(encoding="utf-8").splitlines()
+        if line.startswith('"win11_release_guard.policy_generator.pages" = ')
+    )
+    globs = [PurePosixPath(glob) for glob in re.findall(r'"([^"]+)"', line.split("=", 1)[1])]
+    files = [PurePosixPath(path.relative_to(pages).as_posix()) for path in (pages / "assets").rglob("*") if path.is_file()]
+
+    assert files
+    unshipped = [str(f) for f in files if not any(len(f.parts) == len(g.parts) and f.match(str(g)) for g in globs)]
+    assert unshipped == [], f"add a package-data glob in pyproject.toml for {unshipped}"
