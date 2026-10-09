@@ -45,7 +45,8 @@ Each notice carries the release, build, update label, and KB number as tags, and
 links "Read more" to Microsoft's support article for that build when release
 history lists one that passes the same safe-URL check as other support links. B
 means the monthly security update, D an optional preview, and OOB an out-of-band
-update. LTSC rows are labelled as such. The notices are derived from the signed
+update. LTSC and Hotpatch rows are labelled as such, and a version listed twice
+for the same channel and build is shown once. The notices are derived from the signed
 policy for display only: they count as notices, never become GitHub issues, and
 never affect a verdict. In the collapsed view they stay inside the `+N more` group,
 so real source diagnostics stay on top.
@@ -68,6 +69,10 @@ unsigned preview generation. The signed generation and the policy and signature
 validation in the `build` job now also write their output to a log that is
 uploaded when the job fails, and the report job passes both logs to
 `tools/report_publish_status.py`, which accepts `--generation-log` more than once.
+The log is quoted into a public issue and Actions log masking does not cover
+files, so before the upload the job drops the log if it contains the signing key
+or anything `tools/scan_for_secret_material.py` flags. Workflow command prefixes
+such as `::error::` are removed from the quoted excerpt.
 
 ## Target Hold Reason
 
@@ -137,7 +142,8 @@ The complete change list recorded for v0.6.1.
 * The `build` job of `publish-policy.yml` logs the signed generation and the
   policy and signature validation, uploads the log when it fails, and the report
   job passes it to `tools/report_publish_status.py`, so the managed issue quotes
-  the error.
+  the error. A log that contains the signing key or other secret material is
+  never uploaded.
 * The target hold reason fits the dashboard's 150-character summary.
 
 ### Changed

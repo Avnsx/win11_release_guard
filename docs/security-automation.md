@@ -152,7 +152,9 @@ calls `tools/report_publish_status.py` with the upstream job results:
   failed jobs, and the captured error: the `Policy generation failed:` line from
   the preview or signed generation, or the tail of the signed build log when
   policy and signature validation fails. A comment is added only when the error
-  changes.
+  changes. The build job drops its log before upload if it contains the signing
+  key or anything `tools/scan_for_secret_material.py` flags, because the issue is
+  public and Actions log masking does not cover files.
 - A fully successful run comments and closes the open issue as completed.
 - Runs whose jobs were only cancelled or skipped change nothing.
 

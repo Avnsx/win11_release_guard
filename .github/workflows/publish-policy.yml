@@ -220,8 +220,27 @@ jobs:
               raise SystemExit(f"source diagnostics error events block publish: {kinds}")
           PY
 
-      - name: Upload build log
+      - name: Check build log for secret material
+        id: check_build_log
         if: ${{ failure() }}
+        env:
+          WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64: ${{ secrets.WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64 }}
+        run: |
+          # The log is quoted into a public issue and is not covered by Actions log masking.
+          BUILD_LOG=.tmp/publish-status/build.log
+          if [ ! -f "$BUILD_LOG" ]; then exit 0; fi
+          if [ -n "${WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64:-}" ] && grep -qF -- "${WIN11_RELEASE_GUARD_POLICY_SIGNING_KEY_B64}" "$BUILD_LOG"; then
+            rm -f "$BUILD_LOG"
+            echo "::warning::The build log contained the signing key and is not uploaded."
+            exit 0
+          fi
+          if ! python tools/scan_for_secret_material.py .tmp/publish-status; then
+            rm -f "$BUILD_LOG"
+            echo "::warning::The build log contained secret-like material and is not uploaded."
+          fi
+
+      - name: Upload build log
+        if: ${{ failure() && steps.check_build_log.outcome == 'success' }}
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -328,12 +347,14 @@ jobs:
           python -m pip install -e .
 
       - uses: actions/download-artifact@v8
+        if: ${{ needs.sync-source-diagnostics-issues.result == 'failure' }}
         continue-on-error: true
         with:
           name: publish-status-log
           path: .tmp/publish-status
 
       - uses: actions/download-artifact@v8
+        if: ${{ needs.build.result == 'failure' }}
         continue-on-error: true
         with:
           name: publish-status-build-log

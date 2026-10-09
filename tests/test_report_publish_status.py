@@ -373,3 +373,9 @@ def test_main_reports_errors_from_every_generation_log(tmp_path) -> None:
     assert exit_code == 0
     assert "preview boom" in body
     assert "signed boom" in body
+
+
+def test_error_excerpt_drops_workflow_command_prefixes() -> None:
+    log = "::error::source diagnostics issue status artifact is missing.\n"
+
+    assert report_tool.error_excerpt(log) == "source diagnostics issue status artifact is missing."

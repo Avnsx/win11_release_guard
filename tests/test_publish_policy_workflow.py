@@ -262,11 +262,22 @@ def test_publish_policy_build_job_errors_reach_the_failure_issue() -> None:
     for step in (generate, validate):
         assert "set -euo pipefail" in step
         assert 'tee -a "$BUILD_LOG"' in step
+    # The log is quoted into a public issue, so it is dropped if it holds secret material,
+    # and it is only uploaded when that check itself succeeded.
+    check = build_job.split("- name: Check build log for secret material", 1)[1].split("\n      - ", 1)[0]
+    assert "id: check_build_log" in check
+    assert "if: ${{ failure() }}" in check
+    assert f'grep -qF -- "${{{SECRET_NAME}}}" "$BUILD_LOG"' in check
+    assert "python tools/scan_for_secret_material.py .tmp/publish-status" in check
+    assert 'rm -f "$BUILD_LOG"' in check
     assert "actions/upload-artifact@v7" in upload
-    assert "if: ${{ failure() }}" in upload
+    assert "if: ${{ failure() && steps.check_build_log.outcome == 'success' }}" in upload
     assert "continue-on-error: true" in upload
     report_job = _report_job()
-    assert "name: publish-status-build-log" in report_job
+    build_download = report_job.split("name: publish-status-build-log", 1)[0].rsplit("\n      - ", 1)[1]
+    preview_download = report_job.split("name: publish-status-log", 1)[0].rsplit("\n      - ", 1)[1]
+    assert "if: ${{ needs.build.result == 'failure' }}" in build_download
+    assert "if: ${{ needs.sync-source-diagnostics-issues.result == 'failure' }}" in preview_download
     assert "--generation-log .tmp/publish-status/build.log" in report_job
 
 

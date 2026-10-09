@@ -37,6 +37,7 @@ MAX_EXCERPT_CHARS = 4000
 
 _STATE_RE = re.compile(r"<!-- wrg-publish-policy-failure-state (\{.*?\}) -->")
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_WORKFLOW_COMMAND_RE = re.compile(r"^::(?:error|warning|notice|debug)[^:]*::")
 
 
 class PublishIssueClient(Protocol):
@@ -94,7 +95,9 @@ def failed_jobs(needs: Mapping[str, Any]) -> list[str]:
 
 
 def error_excerpt(log_text: str | None) -> str:
-    lines = [_ANSI_RE.sub("", line).rstrip() for line in str(log_text or "").splitlines()]
+    lines = [
+        _WORKFLOW_COMMAND_RE.sub("", _ANSI_RE.sub("", line)).rstrip() for line in str(log_text or "").splitlines()
+    ]
     lines = [line for line in lines if line.strip()]
     failure_lines = [line for line in lines if GENERATION_FAILURE_PREFIX in line]
     selected = failure_lines[-3:] if failure_lines else lines[-MAX_LOG_TAIL_LINES:]
