@@ -252,6 +252,14 @@ def test_publish_policy_workflow_captures_policy_generation_output() -> None:
     assert "if-no-files-found: ignore" in upload_step
 
 
+def test_publish_policy_report_job_cannot_fail_a_publish_run() -> None:
+    steps = ("\n" + _report_job().split("\n    steps:\n", 1)[1]).split("\n      - ")[1:]
+
+    assert len(steps) >= 4
+    for step in steps:
+        assert "continue-on-error: true" in step, step
+
+
 def test_publish_policy_workflow_reports_run_status_on_managed_issue() -> None:
     report_job = _report_job()
 

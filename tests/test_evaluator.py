@@ -103,6 +103,17 @@ def test_explicit_target_without_b_release_does_not_require_a_preview_build():
     assert any("no monthly security (B) release" in warning for warning in result.warnings)
 
 
+def test_preview_device_on_explicit_target_without_b_release_gets_no_b_baseline_claim():
+    result = evaluate_windows_update_state(
+        _client_device(26300, 9550, "26H2"),
+        _pending_26h2_policy(),
+        explicit_target_release="26H2",
+    )
+
+    assert result.baseline_build is None
+    assert not any("based on the B baseline" in warning for warning in result.warnings), result.warnings
+
+
 def test_device_on_held_target_september_b_release_is_compliant():
     result = evaluate_windows_update_state(_client_device(26200, 9445, "25H2"), _pending_26h2_policy())
 

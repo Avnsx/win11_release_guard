@@ -334,6 +334,11 @@ def evaluate_windows_update_state(
         elif warn_on_preview_installed:
             origin_warnings.append(
                 "Installed build is classified as a preview update; policy verdict remains based on the B baseline."
+                if baseline_build
+                else (
+                    "Installed build is classified as a preview update; "
+                    "no B baseline is enforced for this target yet."
+                )
             )
     wua_warnings = _wua_probe_warnings(wua_secondary)
 

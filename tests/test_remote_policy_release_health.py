@@ -348,6 +348,18 @@ def test_release_health_parser_marks_pending_release_not_broad_target_without_sp
     assert policy.supported_build_families[26300] == "26H2"
 
 
+def test_hold_reason_keeps_its_key_facts_in_the_dashboard_summary():
+    from win11_release_guard.policy_generator.diagnostic_ids import _short_diagnostic_text
+
+    reason = _current_entry(parse_windows11_release_health_html(_pending_26h2_html()), "26H2").metadata[
+        "broad_target_hold_reason"
+    ]
+    summary = _short_diagnostic_text(reason)
+
+    for fact in ("26H2", "2026-09-29", "25H2", "26200.9445"):
+        assert fact in summary, summary
+
+
 def test_release_health_parser_hold_leaves_older_releases_without_b_rows_unflagged():
     html = _pending_26h2_html().replace(_history_row("2026-09 B", "2026-09-08", "22631.7582", "KB5122880"), "", 1)
     policy = parse_windows11_release_health_html(html)

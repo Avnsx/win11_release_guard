@@ -6,11 +6,11 @@ receives its first monthly security (B) update on the next Patch Tuesday. The
 B-release-only quality policy cannot select a required baseline for it until
 then, so the previous release stays the broad target in the meantime.
 
-Patch Tuesday ships a B release for every supported version on the same day.
-A release may therefore lack a B row only while no Patch Tuesday has passed
-since it became available. When the held release has a B row dated on or after
-the pending release's availability date, Release Health is inconsistent and
-the caller must fail closed instead.
+Patch Tuesday ships a B release for every supported version on the same day,
+so the hold is accepted only while the held release's newest B release is dated
+before the pending release's availability date. When the held release has a B
+row dated on or after that date, Release Health is inconsistent and the caller
+must fail closed instead.
 """
 
 from __future__ import annotations
@@ -78,11 +78,12 @@ def prove_broad_target_hold(
 
 
 def hold_reason(hold: BroadTargetHold) -> str:
+    # Key facts first: the dashboard shortens this text to 150 characters.
     return (
-        f"No B release for Windows 11 {hold.pending.version} yet, so the broad target stays on "
-        f"{hold.target.version} (required baseline {hold.baseline.build}). "
-        f"Release Health lists {hold.pending.version} as available since {hold.available_since.isoformat()}; "
-        "it becomes the broad target with its first monthly security (B) release."
+        f"Windows 11 {hold.pending.version} has no B release yet "
+        f"(available since {hold.available_since.isoformat()}), "
+        f"so {hold.target.version} stays the broad target with required baseline {hold.baseline.build} "
+        f"until {hold.pending.version} gets its first monthly security (B) release."
     )
 
 
