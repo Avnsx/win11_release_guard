@@ -69,7 +69,7 @@ def test_pypi_publish_workflow_builds_and_uploads_dist_artifact() -> None:
     text = _workflow_text()
 
     assert "actions/checkout@v7" in text
-    assert "actions/setup-python@v6" in text
+    assert "actions/setup-python@v7" in text
     assert 'python-version: "3.12"' in text
     assert 'python -m pip install -e ".[test]"' in text
     assert "python -m pip install --upgrade build twine" in text

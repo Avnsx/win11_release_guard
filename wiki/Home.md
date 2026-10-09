@@ -17,7 +17,7 @@ README is the quick entry. This wiki is the deep dive. Code, tests, workflows, a
 | Maintainer | [Build, Test and Release](Build-Test-and-Release) | Local gates, CI, public feed checks. |
 | Release manager | [Tagged Release Lane](Tagged-Release-Lane) | Clean archive release path. |
 | Package maintainer | [Tagged Release Lane](Tagged-Release-Lane) | PyPI Trusted Publishing values and tag-gated publish path. |
-| Future agent | [Agent Chokepoints](Agent-Chokepoints) | Regression traps and required smoke tests. |
+| Contributor | [Regression Chokepoints](Regression-Chokepoints) | Regression traps and required smoke tests. |
 
 ## What This Solves
 

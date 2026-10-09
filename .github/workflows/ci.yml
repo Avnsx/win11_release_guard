@@ -24,11 +24,16 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14"
+        # ubuntu-latest moves to Ubuntu 26.04 between 2026-10-19 and 2026-11-19
+        # (actions/runner-images#14748). Run the publish lane's Python there first.
+        include:
+          - os: ubuntu-26.04
+            python-version: "3.12"
 
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 

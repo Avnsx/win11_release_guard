@@ -1,6 +1,6 @@
 # Panther Support
 
-Purpose: explain how Windows 11 Release Guard uses Windows Panther/setup logs, how operators and maintainers can use the feature, and where to extend it without turning Panther data into verdict authority.
+How Windows 11 Release Guard uses Windows Panther/setup logs, how operators and maintainers can use them, and how to extend the feature without turning Panther data into verdict authority.
 
 Related links: [maintainer guide](maintainer-guide.md) | [architecture insight](architecture-insight.md) | [live Panther JSON regression](live-panther-json-regression.md) | [source module map](source-modules.md)
 
@@ -227,10 +227,10 @@ Default JSON is the upload-safer output. Raw opt-in JSON is intentionally more u
 | `win11_release_guard/diagnostic_tail.py` | Bounded tail reads, encoding detection, privacy-marker summaries. |
 | `win11_release_guard/local_state.py` | Main local Panther log collection under `local.raw.panther_logs`. |
 | `win11_release_guard/audit_probes.py` | Read-only audit diagnostics and setup evidence extraction. |
-| `win11_release_guard/__main__.py` | Default JSON compaction and `--include-raw-local-diagnostics`. |
+| `win11_release_guard/__main__.py`, `win11_release_guard/cli_output.py` | Default JSON compaction and `--include-raw-local-diagnostics`. |
 | `tools/live_panther_json_regression.py` | Windows live regression proving default compaction and raw opt-in restoration. |
 | `tools/debug_panther_json_leaks.py` | Developer debugger for future raw Panther JSON leaks. |
-| `tests/test_local_state.py` | Tail decoding, path coverage, privacy metadata, read-error continuation. |
+| `tests/test_local_state*.py` | Tail decoding, path coverage, privacy metadata, read-error continuation. |
 | `tests/test_output_encoding.py` | Default compaction, raw opt-in, nested JSON paths, privacy metadata safety. |
 | `tests/test_live_panther_json_regression.py` | Harness logic and redirection command construction. |
 | `tests/test_debug_panther_json_leaks.py` | Leak path reporting and minimal-fix recommendations. |
@@ -295,7 +295,7 @@ Use this checklist when adding Panther compatibility:
 Recommended scoped tests:
 
 ```powershell
-pytest -q tests/test_local_state.py tests/test_output_encoding.py tests/test_debug_panther_json_leaks.py tests/test_live_panther_json_regression.py
+pytest -q tests/test_local_state*.py tests/test_output_encoding.py tests/test_debug_panther_json_leaks.py tests/test_live_panther_json_regression.py
 ```
 
 Recommended full gate:

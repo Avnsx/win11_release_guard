@@ -72,7 +72,7 @@ def test_pylint_workflow_exists_and_lints_package_and_tools() -> None:
     assert "workflow_dispatch:" in text
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in text
     assert "actions/checkout@v7" in text
-    assert "actions/setup-python@v6" in text
+    assert "actions/setup-python@v7" in text
     assert 'python-version: "3.12"' in text
     assert 'python -m pip install -e ".[test]" pylint' in text
     assert "pylint --fail-under=8.0 win11_release_guard tools" in text
@@ -87,7 +87,7 @@ def test_dependency_workflows_exist() -> None:
     assert "schedule:" in freshness
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in freshness
     assert "actions/checkout@v7" in freshness
-    assert "actions/setup-python@v6" in freshness
+    assert "actions/setup-python@v7" in freshness
     assert "python tools/check_dependency_freshness.py --output dependency-freshness.json" in freshness
 
     assert "name: Dependency audit" in audit
@@ -95,7 +95,7 @@ def test_dependency_workflows_exist() -> None:
     assert "schedule:" in audit
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in audit
     assert "actions/checkout@v7" in audit
-    assert "actions/setup-python@v6" in audit
+    assert "actions/setup-python@v7" in audit
     assert "pip-audit --local" in audit
 
 
@@ -159,9 +159,12 @@ def test_readme_documents_branding_and_runtime_trust_model() -> None:
     assert "paid signing" in text
     assert "diagnostics never override the policy verdict" in text
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in ci_workflow
-    assert "python -m win11_release_guard --check-policy-source" in text
-    assert "python -m win11_release_guard --check-public-pages" in text
-    assert "python tools/export_clean_archive.py" in text
+    # The maintainer command list lives on the wiki build page; the README links to it.
+    assert "https://avnsx.github.io/win11_release_guard/wiki/Build-Test-and-Release/" in text
+    build_page = _read(ROOT / "wiki" / "Build-Test-and-Release.md")
+    assert "python -m win11_release_guard --check-policy-source" in build_page
+    assert "python -m win11_release_guard --check-public-pages" in build_page
+    assert "python tools/export_clean_archive.py" in build_page
 
 
 def test_readme_uses_pages_wiki_as_primary_public_documentation() -> None:
@@ -238,9 +241,12 @@ def test_source_diagnostics_issue_sync_workflow_is_manual_and_minimal() -> None:
     assert "GITHUB_TOKEN: ${{ github.token }}" in text
     assert 'python -m pip install -e ".[test]"' in text
     assert "python -m compileall -q win11_release_guard tools" in text
-    assert "tests/test_source_diagnostics_issue_sync.py" in text
     assert "tests/test_source_diagnostics_issue_metadata.py" in text
-    assert "tests/test_policy_generator.py" in text
+    for pattern in ("test_policy_generator*.py", "test_source_diagnostics_issue_sync*.py"):
+        test_files = sorted(path.as_posix() for path in Path("tests").glob(pattern))
+        assert test_files
+        for test_file in test_files:
+            assert test_file in text
     assert "tools/sync_source_diagnostics_issues.py" in text
     assert "include_notices:" not in text
     assert "--include-notices" not in text
@@ -324,7 +330,7 @@ def test_release_workflow_runs_required_gates_and_attaches_clean_archive() -> No
     text = _read(RELEASE_WORKFLOW)
 
     assert "actions/checkout@v7" in text
-    assert "actions/setup-python@v6" in text
+    assert "actions/setup-python@v7" in text
     assert 'python-version: "3.12"' in text
     assert 'python -m pip install -e ".[test]"' in text
     assert "python -m compileall -q win11_release_guard tools tests" in text
@@ -357,6 +363,8 @@ def test_release_workflow_body_uses_compact_human_format() -> None:
         "Read the related changelog hosted here: "
         "https://avnsx.github.io/win11_release_guard/wiki/changelog/v${version}/"
     ) in text
+    # Full detail lives only in the wiki release page; the body links straight to it.
+    assert "- Full release notes: https://avnsx.github.io/win11_release_guard/wiki/Release-v${version}/" in text
     assert "### Download from PyPI ⬇️" in text
     assert "https://pypi.org/project/win11-release-guard/" in text
     assert "### Summary 📝" in text

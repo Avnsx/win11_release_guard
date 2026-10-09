@@ -34,15 +34,22 @@ def test_ci_workflow_runs_ubuntu_windows_and_supported_python_versions() -> None
     assert "continue-on-error" not in text
 
 
+def test_ci_workflow_runs_publish_python_on_ubuntu_26_04_before_ubuntu_latest_moves() -> None:
+    matrix = _workflow_text().split("matrix:", 1)[1].split("\n    steps:", 1)[0]
+
+    assert "        include:\n          - os: ubuntu-26.04\n            python-version: \"3.12\"\n" in matrix
+
+
 def test_ci_workflow_uses_node24_ready_actions() -> None:
     text = _workflow_text()
     insecure_node_opt_out = "ACTIONS_ALLOW_USE_" + "UNSECURE_NODE_VERSION"
 
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in text
     assert "actions/checkout@v7" in text
-    assert "actions/setup-python@v6" in text
+    assert "actions/setup-python@v7" in text
     assert "actions/checkout@" + "v4" not in text
     assert "actions/setup-python@" + "v5" not in text
+    assert "actions/setup-python@" + "v6" not in text
     assert insecure_node_opt_out not in text
 
 

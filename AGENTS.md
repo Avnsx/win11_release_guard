@@ -26,7 +26,7 @@ This repository is public software for Windows administrators. Future agents mus
 20. Signing key rotations require at least 24 months of verification overlap unless a documented last-resort trust break is required.
 21. Future agents must not delete historical `CHANGELOG.md` version sections when adding newer versions. Newer changelog entries are added at the top. Older changelog entries remain available for generated Pages changelog, release history, SEO, and auditability.
 22. Future agents must not add or reintroduce license badges in `README.md`, `docs/*.md`, `wiki/*.md`, generated Markdown, or other repository Markdown surfaces. License metadata may remain in package configuration and prose where it is materially relevant, but Markdown badge rows must not display license badges.
-23. `README.md` stays compact: it is the entry point, not the manual. Sections that would sprawl must summarize briefly and link to the relevant `wiki/*.md` page instead of inlining depth. Where a test pins `README.md` prose verbatim, change the prose and its asserting test together; do not silently reword pinned text or weaken its assertion just to make compaction easier.
+23. `README.md`, `CHANGELOG.md`, and `docs/releases/vX.Y.Z.md` stay compact: they carry key changes and key facts only, and link to the Pages wiki for depth; only `wiki/*.md` holds the full information. Each `CHANGELOG.md` version section is a `### Summary`, one-line bullets under standard headings, and a closing `Full notes:` link to `https://avnsx.github.io/win11_release_guard/wiki/Release-vX.Y.Z/`; that wiki release page carries the full detail and ends its notes with a `## Full Change Notes` section. `README.md` is the entry point, not the manual. Sections that would sprawl must summarize briefly and link to the relevant `wiki/*.md` page instead of inlining depth. Where a test pins `README.md` prose verbatim, change the prose and its asserting test together; do not silently reword pinned text or weaken its assertion just to make compaction easier.
 
 Canonical repository and feed:
 
@@ -80,6 +80,7 @@ Canonical repository and feed:
   make `cmd.exe` misparse quoted executable paths; PowerShell 5 plain `>` can
   write UTF-16LE, so prefer `cmd.exe` redirection or `Out-File -Encoding utf8`
   for JSON captures.
+- Pages HTML/CSS/JS live in `win11_release_guard/policy_generator/pages/assets/` and are rendered with `pages.assets.render_asset`; Python modules stay under 800 lines and the package import graph acyclic (both enforced by tests). Tests patch seams where callers look them up: `policy_generator.clock.utc_now`, `policy_generator.sources.fetch_url`, `policy_generator.support_articles.default_support_article_fetcher`, `policy_generator.msrc_cvrf.default_msrc_cvrf_fetcher`.
 - CodeQL code scanning is configured by `.github/workflows/codeql.yml`. If GitHub code scanning is disabled in repository settings, enable it under Settings, Code security and analysis.
 - Handover files are temporary local artifacts. Do not commit or publish `*handover*.md`; they are ignored and excluded from clean archives.
 - `.tmp/prompt-chain/*.patch` files are local hints only. A task is
@@ -127,6 +128,13 @@ Canonical repository and feed:
   `warning` and `error` events from real `source_diagnostics.events`; the legacy
   `internals: notices` label may be searched only to close older managed Notice
   issues that contain the exact internal marker.
+- Failed `publish-policy.yml` runs are reported separately by the
+  `report-publish-status` job (`tools/report_publish_status.py`): one managed
+  `Publish policy is failing` issue, found by creator and the
+  `<!-- wrg-publish-policy-failure -->` marker, labelled
+  `internals: publish failure`, closed by the next successful run. Keep that
+  label out of the source-diagnostic managed labels and keep the report step
+  `continue-on-error`.
 - Baseline-update notices are dashboard-only. They use a 14-day source-date
   visibility window, must not fetch optional Support/MSRC enrichment solely for
   expired inactive notice data, and stale static pages must hide expired notices
@@ -135,9 +143,9 @@ Canonical repository and feed:
 ## GitHub Actions Pinning Policy
 
 - GitHub-owned first-party actions may use audited major tags only when listed in `tools/check_github_action_versions.py`.
-- Current audited first-party actions are `actions/checkout@v7`, `actions/setup-python@v6`, `actions/configure-pages@v6`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, and `github/codeql-action/*@v4`.
+- Current audited first-party actions are `actions/checkout@v7`, `actions/setup-python@v7`, `actions/configure-pages@v6`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`, and `github/codeql-action/*@v4`.
 - Third-party actions are forbidden unless explicitly allowlisted in the audit tool and pinned to a full 40-character commit SHA.
-- The only current third-party exception is `pypa/gh-action-pypi-publish` in `.github/workflows/pypi-publish.yml`, pinned to `cef221092ed1bacb1cc03d23a2d87d1d172e277b` for PyPI Trusted Publishing via GitHub OIDC without stored PyPI credentials.
+- The only current third-party exception is `pypa/gh-action-pypi-publish` in `.github/workflows/pypi-publish.yml`, pinned to `dc37677b2e1c63e2034f94d8a5b11f265b73ba33` for PyPI Trusted Publishing via GitHub OIDC without stored PyPI credentials.
 - Do not add third-party actions without updating the audit tool, tests, and security automation docs with the reason.
 - Keep workflow token permissions minimal; the publish workflow must not request `contents: write`.
 - Only `.github/workflows/release.yml` and `.github/workflows/sync-wiki.yml`
@@ -207,17 +215,20 @@ Bad examples:
   human-facing, and visually scannable. `.github/workflows/release.yml` generates
   every release body in this fixed format, and future releases must keep it:
   - An `## Windows 11 Release Guard` heading.
-  - A short bullet list: `Version`, `Commit`, and a single
+  - A short bullet list: `Version`, `Commit`, a
     `Read the related changelog hosted here:` link to that version's Pages
-    changelog route `https://avnsx.github.io/win11_release_guard/wiki/changelog/vX.Y.Z/`.
+    changelog route `https://avnsx.github.io/win11_release_guard/wiki/changelog/vX.Y.Z/`,
+    and a `Full release notes:` link to the wiki release page
+    `https://avnsx.github.io/win11_release_guard/wiki/Release-vX.Y.Z/`.
   - A `### Download from PyPI ⬇️` section linking
     `https://pypi.org/project/win11-release-guard/`.
   - A `### Summary 📝` section containing the version's `### Summary` paragraph
     from `CHANGELOG.md`.
 - Keep the Summary to roughly two or three plain-language sentences that describe
   the release for administrators accurately without being overly technical. It is
-  not a change dump; deeper detail lives in `CHANGELOG.md`,
-  `docs/releases/vX.Y.Z.md`, and the Pages changelog that the notes link to.
+  not a change dump; full detail lives only in the wiki release page
+  `wiki/Release-vX.Y.Z.md`, which the notes, `CHANGELOG.md`, and
+  `docs/releases/vX.Y.Z.md` link to.
 - Because the release body reuses the changelog Summary, keep each
   `CHANGELOG.md` `### Summary` compact and human-readable as well.
 - Do not pad release notes with operational/workflow boilerplate, internal

@@ -10,13 +10,13 @@ Use this to understand the current codebase shape before changing runtime behavi
 
 | Stage | Modules | Output |
 | --- | --- | --- |
-| Config | `__main__.py`, `config.py` | `ReleaseCheckerConfig` from CLI/env/defaults. |
+| Config | `__main__.py`, `cli_args.py`, `config.py` | `ReleaseCheckerConfig` from CLI/env/defaults. |
 | Policy source | `api.py`, `remote_policy.py`, `cache.py`, `bundled_policy.py` | Trusted or degraded policy source with structured source status. |
 | Trust/schema | `signing.py`, `json_utils.py`, `policy_schema.py` | Verified signature, strict JSON, schema-safe model. |
 | Local state | `local_state.py` | Build-first Windows evidence and raw diagnostics. |
 | Evaluation | `evaluator.py`, `models.py` | `EvaluationResult` with status, target, warnings, source fields. |
 | Diagnostics | `wua_probe.py`, `audit_probes.py`, `policy_diagnostics.py` | Optional read-only explanatory evidence. |
-| Generation | `policy_generator.py`, `tools/generate_policy.py` | Static signed feed, dashboard, manifest, aliases. |
+| Generation | `policy_generator/` (HTML only in `pages/`, static HTML/CSS/JS in `pages/assets/`), `tools/generate_policy.py` | Static signed feed, dashboard, manifest, aliases. |
 
 ## Source Hierarchy
 
@@ -82,7 +82,7 @@ does not affect verdicts, issue sync, runtime clients, or `/api/v1`.
 
 ```powershell
 python -m compileall -q win11_release_guard tools
-pytest -q tests/test_runtime_policy_sources.py tests/test_evaluator.py tests/test_remote_policy.py
+pytest -q tests/test_runtime_policy_sources*.py tests/test_evaluator*.py tests/test_remote_policy*.py
 python tools/check_project_identity.py
 ```
 

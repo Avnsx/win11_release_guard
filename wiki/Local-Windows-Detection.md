@@ -53,7 +53,7 @@ WUA is read-only, optional, bounded, and explanatory.
 ## Verify
 
 ```powershell
-pytest -q tests/test_local_state.py tests/test_evaluator.py tests/test_edge_cases.py
+pytest -q tests/test_local_state*.py tests/test_evaluator*.py tests/test_edge_cases.py
 pytest -q tests/test_wua_probe.py tests/test_wua_diagnostics.py
 ```
 

@@ -1,6 +1,6 @@
 # Tagged Release Lane
 
-Purpose: document the explicit GitHub Release path for clean source archives. These are distribution checkpoints for Windows 11 Release Guard source archives, separate from the twice-daily public policy feed publish workflow.
+The GitHub Release path for clean source archives. These are distribution checkpoints for Windows 11 Release Guard source archives, separate from the twice-daily public policy feed publish workflow.
 
 Related links: [maintainer guide](maintainer-guide.md) | [v0.3.4 release notes](releases/v0.3.4.md) | [wiki tagged release lane](../wiki/Tagged-Release-Lane.md) | [safe exports](../wiki/Safe-Exports-and-Clean-Archives.md)
 
@@ -11,7 +11,7 @@ Related links: [maintainer guide](maintainer-guide.md) | [v0.3.4 release notes](
 | Tag format | `vX.Y.Z`, matching `pyproject.toml` and runtime identity. |
 | Workflow | `.github/workflows/release.yml`. |
 | Artifact | `dist/win11_release_guard-source.zip`. |
-| License | Repository `LICENSE.txt` is the GPL-3.0 license file and is included in the validated source archive. |
+| License | Repository `LICENSE.txt` is the MIT license file and is included in the validated source archive. |
 | Default release state | Draft unless explicitly changed by workflow input. |
 | Release body | Links `CHANGELOG.md`, matching `docs/releases/vX.Y.Z.md`, Pages dashboard, Pages Wiki, Pages changelog, public feed, and the separate PyPI lane. |
 | Token | Built-in `github.token`; no PAT. |
@@ -85,9 +85,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 `export_clean_archive.py --validate` runs its inner archive test gate with
 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` so ambient third-party pytest plugins cannot
 change, slow, or hang validation; the project declares no required pytest
-plugins, so coverage is unchanged. The validated clean archive requires the
-current `docs/releases/v0.3.4.md` and preserves the historical release notes
-`docs/releases/v0.3.1.md`, `docs/releases/v0.3.2.md`, and `docs/releases/v0.3.3.md`.
+plugins, so coverage is unchanged. The validated clean archive requires every
+release's notes in `docs/releases/` and `wiki/Release-v*.md`, including the
+current version's.
 
 ## Release Checklist
 
@@ -110,7 +110,7 @@ current `docs/releases/v0.3.4.md` and preserves the historical release notes
 | Keep GitHub internal Wiki sync in `sync-wiki.yml`. | Push Wiki changes directly from `release.yml`. |
 | Keep PyPI publishing in `pypi-publish.yml` with Trusted Publishing. | Add long-lived PyPI credentials to Actions. |
 | Document failed live checks honestly. | Claim live verification when network or endpoint checks failed. |
-| Keep commit messages descriptive. | Use prompt/checkpoint/final-final style commit messages. |
+| Keep commit messages descriptive. | Use "checkpoint" or "final final" style commit messages. |
 
 ## Rollback Notes
 

@@ -72,6 +72,16 @@ articles linked from the servicing table-of-contents JSON. It is useful
 context when a device is ahead of the normal fleet baseline, but it does not
 decide compliance by itself.
 
+`broad_target_existing_devices` is the newest supported General Availability
+H2 release that is not new-devices-only and has a monthly security (B) release
+in Release Health. A newer release that has not reached its first Patch Tuesday
+yet stays in `current_versions` with `not_broad_target` and
+`pending_first_b_release` metadata, which runtime clients honour, and the
+previous release remains the target. Generation fails closed when Release Health
+lists a B release for the previous release dated on or after the new release's
+availability date but none for the new release, and it refuses to publish a feed
+whose runtime target selection would differ from `broad_target_existing_devices`.
+
 `required_baseline_build` is the minimum signed build this policy currently
 requires for existing Windows 11 fleet devices. Devices below that build need a
 quality update. A newer servicing/support observed build can appear as
@@ -120,7 +130,7 @@ unknown when CVRF data is malformed or unavailable.
 python -m win11_release_guard --self-test
 python -m win11_release_guard --check-policy-source
 python -m win11_release_guard --check-public-pages
-pytest -q tests/test_signing.py tests/test_json_hardening.py tests/test_policy_source_cli.py
+pytest -q tests/test_signing.py tests/test_json_hardening.py tests/test_policy_source_cli*.py
 ```
 
 ## Common Mistakes

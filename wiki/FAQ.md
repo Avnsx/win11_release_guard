@@ -1,6 +1,6 @@
 # FAQ
 
-Short answers for common administrator, maintainer, and agent questions.
+Short answers to common administrator and maintainer questions.
 
 ---
 
@@ -8,9 +8,13 @@ Short answers for common administrator, maintainer, and agent questions.
 
 No. It evaluates state and emits diagnostics. It does not install, hide, schedule, download, or trigger Windows updates.
 
-## Why is 25H2 the current target for existing devices?
+## Which release is the target for existing devices?
 
-The policy selects the supported broad-fleet existing-device target. Current code/tests treat 25H2 as that target and keep 26H1 out of existing-device target selection because it is new-devices-only.
+The policy selects the newest supported General Availability H2 release that has a monthly security (B) release in Release Health. 26H1 stays out of existing-device target selection because Microsoft scopes it to new devices. The dashboard's Broad target card and `broad_target_existing_devices` in the feed show the current choice.
+
+## Why is a new Windows 11 release not the broad target yet?
+
+Microsoft lists a new annual release as General Availability during the optional preview (D) week, so its first monthly security (B) release arrives on the next Patch Tuesday. Until then there is no B-release baseline to require, so the previous release stays the broad target. The new release still appears in `current_versions` with `not_broad_target` and `pending_first_b_release` metadata, devices already on it report `ABOVE_BROAD_TARGET_OR_SPECIAL_RELEASE` (exit code `3`), and the dashboard shows an "awaits its first B release" notice. The next publish run after its first B release promotes it automatically. If a Patch Tuesday passes and Release Health still lists no B release for it, generation fails closed instead of guessing.
 
 ## What if the local machine shows a stale Windows label?
 
@@ -30,7 +34,7 @@ No. Policy JSON, signatures, manifests, dashboard files, and public keys are non
 
 ## What license does the repository use?
 
-The repository uses GPL-3.0. The full license text lives in `LICENSE.txt` and is included in validated clean source archives.
+The project is MIT-licensed (since v0.6.0; earlier releases were GPL-3.0-only). The full license text lives in `LICENSE.txt` and is included in validated clean source archives.
 
 ## Do I need a PyPI API token?
 

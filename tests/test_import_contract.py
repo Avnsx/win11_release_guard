@@ -38,8 +38,11 @@ def test_distribution_metadata_maps_author_license_and_project_urls():
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert 'authors = [{ name = \'Mikail ("Avnsx") C.\', email = "AvnDev@protonmail.com" }]' in pyproject
-    assert 'license = "GPL-3.0-only"' in pyproject
+    assert 'license = "MIT"' in pyproject
     assert 'license-files = ["LICENSE.txt"]' in pyproject
+    assert Path("LICENSE.txt").read_text(encoding="utf-8").startswith(
+        'MIT License\n\nCopyright (c) 2026 Mikail ("Avnsx") C.\n\nPermission is hereby granted, free of charge,'
+    )
     assert 'dependencies = ["cryptography>=41"]' in pyproject
     assert 'test = ["packaging>=24", "pytest>=8", "tomli>=2; python_version < \'3.11\'"]' in pyproject
     assert '"Programming Language :: Python :: 3.10"' in pyproject
@@ -67,7 +70,7 @@ def test_package_version_prefers_source_tree_pyproject_over_external_metadata(mo
     external_location = Path(__file__).resolve().parents[2] / "external-site-packages"
     monkeypatch.setattr(version_module, "_metadata_version", lambda: ("0.3.1", external_location))
 
-    assert package_version() == "0.5.0"
+    assert package_version() == "0.6.0"
 
 
 def test_import_has_no_side_effects(monkeypatch):

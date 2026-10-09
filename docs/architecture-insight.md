@@ -1,6 +1,6 @@
 # Architecture Insight
 
-Purpose: document the current implementation boundaries that future maintainers must preserve. This is technical context, not a substitute for code, tests, workflows, and `AGENTS.md`.
+The implementation boundaries that have to hold when the code changes. Code, tests, and workflows stay the authority; this page explains them.
 
 Related links: [maintainer guide](maintainer-guide.md) | [wiki architecture](../wiki/Architecture.md) | [local detection](../wiki/Local-Windows-Detection.md) | [policy trust](../wiki/Policy-Feed-and-Trust-Model.md)
 
@@ -8,7 +8,7 @@ Related links: [maintainer guide](maintainer-guide.md) | [wiki architecture](../
 
 | Step | Module | Contract |
 | --- | --- | --- |
-| Build config and CLI options | `__main__.py`, `config.py` | CLI flags and env vars become `ReleaseCheckerConfig`. |
+| Build config and CLI options | `__main__.py`, `cli_args.py`, `config.py` | CLI flags and env vars become `ReleaseCheckerConfig`. |
 | Fetch policy source | `api.py`, `remote_policy.py`, `cache.py` | Prefer live signed JSON; degrade visibly to cache or bundled policy. |
 | Verify trust | `signing.py`, `json_utils.py`, `policy_schema.py` | Verify Ed25519 signature, strict JSON, schema, size bounds. |
 | Probe local state | `local_state.py` | Build-first evidence with raw admin-facing diagnostics preserved. |
@@ -101,7 +101,7 @@ issue sync, runtime behavior, or `/api/v1` compatibility.
 
 ```powershell
 python -m compileall -q win11_release_guard tools
-pytest -q tests/test_evaluator.py tests/test_runtime_policy_sources.py tests/test_remote_policy.py
-pytest -q tests/test_local_state.py tests/test_policy_generator.py
+pytest -q tests/test_evaluator*.py tests/test_runtime_policy_sources*.py tests/test_remote_policy*.py
+pytest -q tests/test_local_state*.py tests/test_policy_generator*.py
 python tools/check_project_identity.py
 ```

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import re
 from pathlib import Path
 
 
@@ -46,8 +48,12 @@ def test_publish_policy_workflow_uses_minimum_pages_permissions() -> None:
     assert SECRET_NAME not in issue_sync_job
     assert 'python -m pip install -e ".[test]"' in issue_sync_job
     assert "python -m compileall -q win11_release_guard tools" in issue_sync_job
-    assert "tests/test_source_diagnostics_issue_sync.py" in issue_sync_job
     assert "tests/test_source_diagnostics_issue_metadata.py" in issue_sync_job
+    for pattern in ("test_policy_generator*.py", "test_source_diagnostics_issue_sync*.py"):
+        test_files = sorted(path.as_posix() for path in Path("tests").glob(pattern))
+        assert test_files
+        for test_file in test_files:
+            assert test_file in issue_sync_job
     assert "contents: write" not in issue_sync_job
     assert "pages: write" not in issue_sync_job
     assert "id-token: write" not in issue_sync_job
@@ -168,13 +174,14 @@ def test_publish_policy_workflow_uses_pages_artifact_deployment_actions() -> Non
     text = _workflow_text()
 
     assert "actions/checkout@v7" in text
-    assert "actions/setup-python@v6" in text
+    assert "actions/setup-python@v7" in text
     assert "actions/configure-pages@v6" in text
     assert "actions/upload-pages-artifact@v5" in text
     assert "actions/upload-pages-artifact@" + "v3" not in text
     assert "actions/deploy-pages@v5" in text
     assert "actions/checkout@" + "v4" not in text
     assert "actions/setup-python@" + "v5" not in text
+    assert "actions/setup-python@" + "v6" not in text
     assert "actions/configure-pages@" + "v5" not in text
     assert "actions/upload-pages-artifact@" + "v4" not in text
     assert "actions/deploy-pages@" + "v4" not in text
@@ -219,3 +226,81 @@ def test_publish_policy_workflow_keeps_pages_lane_for_wiki_and_changelog() -> No
     assert "actions/deploy-pages@v5" in text
     assert "tools/sync_github_wiki.py" not in text
     assert "contents: write" not in text
+
+
+def _issue_sync_job() -> str:
+    return _workflow_text().split("sync-source-diagnostics-issues:", 1)[1].split("\n  build:", 1)[0]
+
+
+def _report_job() -> str:
+    text = _workflow_text()
+    assert "\n  report-publish-status:\n" in text
+    return text.split("\n  report-publish-status:\n", 1)[1]
+
+
+def test_publish_policy_workflow_captures_policy_generation_output() -> None:
+    issue_sync_job = _issue_sync_job()
+
+    assert "id: generate_preview" in issue_sync_job
+    generate_step = issue_sync_job.split("id: generate_preview", 1)[1].split("\n      - ", 1)[0]
+    assert "set -o pipefail" in generate_step
+    assert "2>&1 | tee .tmp/publish-status/policy-generation.log" in generate_step
+    upload_step = issue_sync_job.split("name: Upload policy generation log", 1)[1].split("\n      - ", 1)[0]
+    assert "if: ${{ failure() && steps.generate_preview.outcome == 'failure' }}" in upload_step
+    assert "actions/upload-artifact@v7" in upload_step
+    assert "name: publish-status-log" in upload_step
+    assert "if-no-files-found: ignore" in upload_step
+
+
+def test_publish_policy_workflow_reports_run_status_on_managed_issue() -> None:
+    report_job = _report_job()
+
+    assert "needs: [sync-source-diagnostics-issues, build, deploy, verify-live-pages]" in report_job
+    assert "if: ${{ !cancelled() }}" in report_job
+    assert "issues: write" in report_job
+    assert "contents: read" in report_job
+    for forbidden in ("pages: write", "id-token: write", "contents: write", SECRET_NAME):
+        assert forbidden not in report_job
+    assert "actions/download-artifact@v8" in report_job
+    download_step = report_job.split("actions/download-artifact@v8", 1)[1].split("\n      - ", 1)[0]
+    assert "continue-on-error: true" in download_step
+    assert "name: publish-status-log" in download_step
+    report_step = report_job.split("python tools/report_publish_status.py", 1)
+    assert len(report_step) == 2
+    assert "continue-on-error: true" in report_step[0].rsplit("\n      - ", 1)[1]
+    assert "NEEDS_JSON: ${{ toJSON(needs) }}" in report_job
+    assert "GITHUB_TOKEN: ${{ github.token }}" in report_job
+    assert "--generation-log .tmp/publish-status/policy-generation.log" in report_step[1]
+    assert '--run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"' in report_step[1]
+
+
+def test_publish_policy_workflow_runs_on_report_tool_changes() -> None:
+    text = _workflow_text()
+
+    assert '- "tools/report_publish_status.py"' in text.split("jobs:", 1)[0]
+
+
+def _tools_imported_by(path: Path) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and node.module == "tools":
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("tools."):
+            names.add(node.module.split(".")[1])
+        elif isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[1] for alias in node.names if alias.name.startswith("tools."))
+    return {f"tools/{name}.py" for name in names if Path(f"tools/{name}.py").exists()}
+
+
+def test_publish_policy_workflow_runs_when_a_module_of_a_listed_tool_changes() -> None:
+    triggers = _workflow_text().split("jobs:", 1)[0]
+    listed = set(re.findall(r'- "(tools/\w+\.py)"', triggers))
+    pending, seen = sorted(listed), set()
+    while pending:
+        tool = pending.pop()
+        if tool not in seen:
+            seen.add(tool)
+            pending.extend(_tools_imported_by(Path(tool)))
+
+    assert "tools/github_rest.py" in seen
+    assert sorted(seen - listed) == []

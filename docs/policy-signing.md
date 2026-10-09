@@ -1,6 +1,6 @@
 # Policy Signing
 
-Purpose: define how public policy JSON becomes trusted by runtime clients. The feed is public static data; trust comes from Ed25519 verification with committed public keys.
+How public policy JSON becomes trusted by runtime clients. The feed is public static data; trust comes from Ed25519 verification with committed public keys.
 
 Related links: [maintainer guide](maintainer-guide.md) | [wiki trust model](../wiki/Policy-Feed-and-Trust-Model.md) | [security automation](security-automation.md)
 
@@ -67,6 +67,6 @@ python tools/generate_signing_key.py --out-dir .tmp/signing-key
 python -m win11_release_guard --self-test
 python -m win11_release_guard --check-policy-source
 python -m win11_release_guard --check-public-pages
-pytest -q tests/test_signing.py tests/test_signing_key_management.py tests/test_policy_source_cli.py
+pytest -q tests/test_signing.py tests/test_signing_key_management.py tests/test_policy_source_cli*.py
 python tools/scan_for_secret_material.py site win11_release_guard tests tools docs wiki README.md CHANGELOG.md AGENTS.md pyproject.toml .github
 ```

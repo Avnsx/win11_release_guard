@@ -29,7 +29,7 @@ Use this when integrating Windows 11 Release Guard into scripts, RMM tools, dash
 | `0` | `COMPLIANT` or source check passed. |
 | `1` | `FEATURE_UPDATE_REQUIRED`, `QUALITY_UPDATE_REQUIRED`, or preview remediation when configured. |
 | `2` | `UNKNOWN_LOCAL_RELEASE`, `CHECK_INCOMPLETE`, or policy/source problem. |
-| `3` | `ABOVE_BROAD_TARGET_OR_SPECIAL_RELEASE`. |
+| `3` | `ABOVE_BROAD_TARGET_OR_SPECIAL_RELEASE`, including devices on a new release that awaits its first B release. |
 | `10` | CLI argument error. |
 
 ## RMM Defaults
@@ -70,7 +70,7 @@ normal trusted troubleshooting.
 ```powershell
 python -m win11_release_guard --json-pretty --no-wua
 python -m win11_release_guard --diagnose-config
-pytest -q tests/test_cli.py tests/test_output_encoding.py
+pytest -q tests/test_cli*.py tests/test_output_encoding.py
 ```
 
 ## Related Pages

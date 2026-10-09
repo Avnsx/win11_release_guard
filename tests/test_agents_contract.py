@@ -44,7 +44,7 @@ def test_agents_contract_documents_product_display_name_boundary() -> None:
 def test_human_facing_markdown_and_pages_headings_use_display_name() -> None:
     readme = _repo_text("README.md")
     release_lane = _repo_text("docs/tagged-release-lane.md")
-    generator = _repo_text("win11_release_guard/policy_generator.py")
+    generator = _repo_text("win11_release_guard/policy_generator/pages/assets/dashboard.html")
     release_lane_text = " ".join(release_lane.split())
     hero_line = (
         "![Windows 11 Release Guard dashboard preview]"

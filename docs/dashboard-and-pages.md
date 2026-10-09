@@ -1,6 +1,6 @@
 # Dashboard And Pages
 
-Purpose: document the generated static Pages surface and the public endpoint contract that maintainers must preserve.
+The generated static Pages site and the public endpoint contract it has to keep.
 
 Related links: [maintainer guide](maintainer-guide.md) | [wiki dashboard](../wiki/GitHub-Pages-Dashboard.md) | [anti-static freshness](anti-static-freshness.md)
 
@@ -227,6 +227,6 @@ as static HTML so missing ticket links are visible without client-side API calls
 
 ```powershell
 python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --servicing-toc tests/fixtures/windows11-servicing-toc.json --output-dir site --write-index --write-robots --write-sitemap --write-manifest
-pytest -q tests/test_pages_landing.py tests/test_policy_generator.py tests/test_wiki_markdown_links.py tests/test_source_diagnostics_issue_metadata.py tests/test_policy_source_cli.py
+pytest -q tests/test_pages_landing*.py tests/test_policy_generator*.py tests/test_wiki_markdown_links.py tests/test_source_diagnostics_issue_metadata.py tests/test_policy_source_cli*.py
 python -m win11_release_guard --check-public-pages
 ```

@@ -13,9 +13,9 @@ Use this when publishing a GitHub Release with a validated clean source archive.
 | Workflow | `.github/workflows/release.yml` |
 | Tag | `vX.Y.Z`, matching package/runtime version |
 | Artifact | `dist/win11_release_guard-source.zip` |
-| License | `LICENSE.txt` carries the repository GPL-3.0 text and is included in the clean source archive. |
+| License | `LICENSE.txt` carries the repository MIT license text and is included in the clean source archive. |
 | Default state | Draft release |
-| Release body | Links changelog, detailed release notes, Pages dashboard, Pages Wiki, Pages changelog, public feed, and the separate PyPI lane |
+| Release body | Version, commit, links to the version's Pages changelog, full wiki release notes, and PyPI, plus the changelog Summary |
 | Token | Built-in GitHub token only |
 | Pages / Wiki | Tag pushes trigger the separate GitHub internal Wiki sync lane only. `release.yml` does not deploy Pages or mutate the Wiki. Pages refresh stays in `publish-policy.yml` from `main`, schedule, or manual dispatch. |
 | PyPI | Separate `.github/workflows/pypi-publish.yml` lane; no normal push or pull request publishing |

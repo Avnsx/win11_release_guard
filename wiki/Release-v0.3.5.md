@@ -1,6 +1,6 @@
 # Release v0.3.5
 
-Compact human summary of the `0.3.5` client-experience release. Code, tests, workflows, `pyproject.toml`, README, docs, local wiki source, and `AGENTS.md` remain source truth.
+Release notes for `0.3.5`, the client-experience release.
 
 ---
 
@@ -12,7 +12,7 @@ Compact human summary of the `0.3.5` client-experience release. Code, tests, wor
 | Admin / RMM owner | [CLI and RMM Usage](CLI-and-RMM-Usage) | Integrate JSON output and strict-production checks. |
 | Maintainer | [Build, Test and Release](Build-Test-and-Release) | Reproduce local gates and release checks. |
 | Release manager | [Tagged Release Lane](Tagged-Release-Lane) | Publish a validated source archive and understand the separate PyPI lane. |
-| Future agent | [Agent Chokepoints](Agent-Chokepoints) | Avoid known regression traps. |
+| Contributor | [Regression Chokepoints](Regression-Chokepoints) | Avoid known regression traps. |
 
 ## Highlights
 
@@ -105,6 +105,56 @@ python -m twine check dist/*
 ```bash
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 ```
+
+## Full Change Notes
+
+The complete change list recorded for v0.3.5.
+
+### Summary
+
+Windows 11 Release Guard 0.3.5 hides the short-lived console helper windows the
+library spawns on Windows, so GUI consumers such as a PySide6 admin app no longer
+see PowerShell and DISM windows flash on screen when a system check runs. It also
+folds in the earlier dashboard tooltip and Pages freshness-fixture fixes. Device
+compliance is unchanged: the same commands run with the same timeouts and parsing,
+and the signed policy verdict behaves exactly as before.
+
+### Fixed
+
+* Hid the internal console helper windows on Windows. When a GUI process (for
+  example a PySide6 admin app) called `check_current_system(...)`, the library's
+  short-lived `powershell.exe` and `dism.exe` helper processes each briefly
+  popped a black console window and stole focus. The library now creates those
+  children with `CREATE_NO_WINDOW` and a hidden `STARTUPINFO` (`SW_HIDE`) by
+  default on Windows, so no console windows appear. This is a window-visibility
+  change only: the commands, criteria, timeouts, encodings, parsed output, exit
+  codes, and the resulting verdict are unchanged, and non-Windows platforms get a
+  no-op so Linux/macOS behavior is unaffected. There is no opt-out flag.
+* Restored the dashboard info-icon hover tooltips. The bubble that holds the
+  explanation text was `position: fixed`, but the dashboard `<main>` uses
+  `backdrop-filter`, which makes a fixed descendant resolve against `<main>`
+  instead of the viewport; its `bottom` offset then landed far below the fold, so
+  only the small caret showed on hover. The tooltip is now `position: absolute`,
+  anchored directly under its icon (connected to the caret) and contained within
+  the viewport, so the full explanation panel shows again on hover/focus.
+* Stabilized generated Pages freshness rendering in fixed-date tests. The
+  polished dashboard fixture used `2026-05-31T14:11:50+00:00`; once scheduled CI
+  reached June 14, 2026, that fixture crossed the 14-day refresh threshold and
+  correctly rendered `Policy feed refresh due` instead of the expected
+  `No source issues reported` notice. `render_policy_index()` and
+  `write_policy_outputs()` now accept an optional render-age reference used only
+  by tests and fixture helpers, while production output still computes freshness
+  from the real current UTC time.
+
+### Tests
+
+* Pinned the fixed-date Pages and policy-generator fixture renders to a stable
+  fresh reference time so the Unreleased dashboard expectations keep testing the
+  intended notice-only path. The regression was reproduced from the failed
+  `publish-policy` `sync-source-diagnostics-issues` job and verified locally with
+  the exact failing test, the workflow's source-diagnostics test selection, the
+  Pages landing tests, the full pytest suite, fixture Pages generation, secret
+  scanning, clean archive validation, and live public Pages checks.
 
 ## Related Pages
 
