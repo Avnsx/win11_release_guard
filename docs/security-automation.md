@@ -1,6 +1,6 @@
 # Security Automation
 
-Purpose: document repository automation that protects public feed generation, release publication, dependency posture, and GitHub Actions execution.
+The repository automation that protects public feed generation, release publication, dependency posture, and GitHub Actions execution.
 
 Related links: [maintainer guide](maintainer-guide.md) | [docs/tagged-release-lane.md](tagged-release-lane.md) | [wiki build/test/release](../wiki/Build-Test-and-Release.md) | [wiki tagged release lane](../wiki/Tagged-Release-Lane.md)
 

@@ -49,6 +49,6 @@
 
 - [[Troubleshooting|Troubleshooting]]
 
-**Agent Chokepoints**
+**Regression Chokepoints**
 
-- [[Agent Chokepoints|Agent-Chokepoints]]
+- [[Regression Chokepoints|Regression-Chokepoints]]

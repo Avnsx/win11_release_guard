@@ -101,12 +101,12 @@ Detail: [Policy Feed and Trust Model](https://avnsx.github.io/win11_release_guar
 | What changed | [Pages changelog](https://avnsx.github.io/win11_release_guard/wiki/changelog/), [v0.6.0 notes](https://github.com/Avnsx/win11_release_guard/blob/main/docs/releases/v0.6.0.md), [CHANGELOG.md](https://github.com/Avnsx/win11_release_guard/blob/main/CHANGELOG.md) |
 | Problems | [Troubleshooting](https://avnsx.github.io/win11_release_guard/wiki/Troubleshooting/) |
 | Maintainers | [Build, Test and Release](https://avnsx.github.io/win11_release_guard/wiki/Build-Test-and-Release/), [Tagged release lane](https://github.com/Avnsx/win11_release_guard/blob/main/docs/tagged-release-lane.md) |
-| Future agents | [Agent Chokepoints](https://avnsx.github.io/win11_release_guard/wiki/Agent-Chokepoints/) |
+| Contributors | [Regression Chokepoints](https://avnsx.github.io/win11_release_guard/wiki/Regression-Chokepoints/) |
 | GitHub internal Wiki (Markdown mirror) | https://github.com/Avnsx/win11_release_guard/wiki |
 
 The generated Pages Wiki is the primary public, indexed documentation surface. The GitHub Wiki mirrors the same `wiki/*.md` source.
 
-Deployment-affecting changes require the live Pages gate before handover. Use the full gate in [AGENTS.md](https://github.com/Avnsx/win11_release_guard/blob/main/AGENTS.md#deployment-affecting-live-verification-gate) and [Build, Test and Release](https://avnsx.github.io/win11_release_guard/wiki/Build-Test-and-Release/) when changing workflows, the policy generator, signing, Pages, manifest/API aliases, source URLs, or public-check CLI behavior.
+Deployment-affecting changes require the live Pages gate before merging. Use the full gate in [AGENTS.md](https://github.com/Avnsx/win11_release_guard/blob/main/AGENTS.md#deployment-affecting-live-verification-gate) and [Build, Test and Release](https://avnsx.github.io/win11_release_guard/wiki/Build-Test-and-Release/) when changing workflows, the policy generator, signing, Pages, manifest/API aliases, source URLs, or public-check CLI behavior.
 
 ## Support The Project
 

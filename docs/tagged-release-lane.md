@@ -1,6 +1,6 @@
 # Tagged Release Lane
 
-Purpose: document the explicit GitHub Release path for clean source archives. These are distribution checkpoints for Windows 11 Release Guard source archives, separate from the twice-daily public policy feed publish workflow.
+The GitHub Release path for clean source archives. These are distribution checkpoints for Windows 11 Release Guard source archives, separate from the twice-daily public policy feed publish workflow.
 
 Related links: [maintainer guide](maintainer-guide.md) | [v0.3.4 release notes](releases/v0.3.4.md) | [wiki tagged release lane](../wiki/Tagged-Release-Lane.md) | [safe exports](../wiki/Safe-Exports-and-Clean-Archives.md)
 
@@ -110,7 +110,7 @@ current `docs/releases/v0.3.4.md` and preserves the historical release notes
 | Keep GitHub internal Wiki sync in `sync-wiki.yml`. | Push Wiki changes directly from `release.yml`. |
 | Keep PyPI publishing in `pypi-publish.yml` with Trusted Publishing. | Add long-lived PyPI credentials to Actions. |
 | Document failed live checks honestly. | Claim live verification when network or endpoint checks failed. |
-| Keep commit messages descriptive. | Use prompt/checkpoint/final-final style commit messages. |
+| Keep commit messages descriptive. | Use "checkpoint" or "final final" style commit messages. |
 
 ## Rollback Notes
 

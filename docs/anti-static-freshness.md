@@ -1,6 +1,6 @@
 # Anti-Static Freshness
 
-Purpose: define how runtime and Pages avoid treating old static feed output as current production evidence.
+How the runtime and the Pages dashboard avoid treating an old static feed as current production evidence.
 
 Related links: [maintainer guide](maintainer-guide.md) | [wiki freshness](../wiki/Anti-Static-Freshness.md) | [dashboard docs](dashboard-and-pages.md)
 

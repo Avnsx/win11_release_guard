@@ -124,7 +124,7 @@ _WIKI_PAGE_ICON_BY_SLUG = {
     "release-v0.3.1": "release",
     "tagged-release-lane": "tag",
     "troubleshooting": "troubleshooting",
-    "agent-chokepoints": "guardrail",
+    "regression-chokepoints": "guardrail",
     "changelog": "changelog",
 }
 

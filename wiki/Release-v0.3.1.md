@@ -1,6 +1,6 @@
 # Release v0.3.1
 
-Compact human summary of the `0.3.1` hardening and packaging release. Code, tests, workflows, `pyproject.toml`, README, docs, local wiki source, and `AGENTS.md` remain source truth.
+Release notes for `0.3.1`, the hardening and packaging release.
 
 ---
 
@@ -12,7 +12,7 @@ Compact human summary of the `0.3.1` hardening and packaging release. Code, test
 | Admin / RMM owner | [CLI and RMM Usage](CLI-and-RMM-Usage) | Integrate JSON output and strict-production checks. |
 | Maintainer | [Build, Test and Release](Build-Test-and-Release) | Reproduce local gates and release checks. |
 | Release manager | [Tagged Release Lane](Tagged-Release-Lane) | Publish a validated source archive and understand the separate PyPI lane. |
-| Future agent | [Agent Chokepoints](Agent-Chokepoints) | Avoid known regression traps. |
+| Contributor | [Regression Chokepoints](Regression-Chokepoints) | Avoid known regression traps. |
 
 ## Highlights
 
@@ -128,7 +128,7 @@ The complete change list recorded for v0.3.1.
 
 Version 0.3.1 documents and hardens the current `win11_release_guard` worktree: package/runtime version identity, signed public policy feed handling, static GitHub Pages output, strict JSON trust boundaries, tagged source releases, and the PyPI Trusted Publishing lane. Windows release semantics are unchanged: existing broad-fleet devices target Windows 11 `25H2`; `26H1` remains excluded for existing-device targeting; local build evidence outranks display labels; WUA remains optional secondary evidence; policy `schema_version` and public `api_version` are not program versions.
 
-Comparison basis: no local `v*` tags are present in this checkout. These notes are based on the current worktree at `main` `56915c9` plus uncommitted worktree files, not on earlier handover text or old release-note drafts.
+These notes describe the code at `main` `56915c9`; there was no earlier release tag to compare against.
 
 ### Added
 
@@ -198,7 +198,7 @@ Comparison basis: no local `v*` tags are present in this checkout. These notes a
 ### Tests
 
 * Added or updated tests for PyPI publishing workflow guarantees, action pinning, project/package identity, version consistency, clean archive contents, release workflow gates, publish-policy path filters, no-secret scanning, and documentation contracts.
-* Prompt-specific verification commands and results are reported in the final task handoff; release notes avoid claiming live or destructive validation that was not rerun in the current context.
+* These notes claim only validation that was actually run for the release.
 
 ## Related Pages
 

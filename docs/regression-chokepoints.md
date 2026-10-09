@@ -1,8 +1,8 @@
-# Agent Chokepoints
+# Regression Chokepoints
 
-Purpose: list the narrow areas where future documentation or implementation agents most often regress product safety or project identity.
+The few areas where changes most often break product safety or project identity.
 
-Related links: [maintainer guide](maintainer-guide.md) | [wiki agent chokepoints](../wiki/Agent-Chokepoints.md)
+Related links: [maintainer guide](maintainer-guide.md) | [wiki regression chokepoints](../wiki/Regression-Chokepoints.md)
 
 ## Chokepoints
 

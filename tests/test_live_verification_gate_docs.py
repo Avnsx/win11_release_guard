@@ -19,7 +19,7 @@ REQUIRED_GATE_COMMANDS = (
 def test_readme_links_deployment_affecting_live_gate() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "Deployment-affecting changes require the live Pages gate before handover." in text
+    assert "Deployment-affecting changes require the live Pages gate before merging." in text
     assert "AGENTS.md#deployment-affecting-live-verification-gate" in text
     assert "Build, Test and Release" in text
     assert "changing workflows" in text

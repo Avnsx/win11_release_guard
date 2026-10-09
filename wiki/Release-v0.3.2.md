@@ -1,6 +1,6 @@
 # Release v0.3.2
 
-Compact human summary of the `0.3.2` compatibility and documentation-alignment release. Code, tests, workflows, `pyproject.toml`, README, docs, local wiki source, and `AGENTS.md` remain source truth.
+Release notes for `0.3.2`, the compatibility and documentation-alignment release.
 
 ---
 
@@ -12,7 +12,7 @@ Compact human summary of the `0.3.2` compatibility and documentation-alignment r
 | Admin / RMM owner | [CLI and RMM Usage](CLI-and-RMM-Usage) | Integrate JSON output and strict-production checks. |
 | Maintainer | [Build, Test and Release](Build-Test-and-Release) | Reproduce local gates and release checks. |
 | Release manager | [Tagged Release Lane](Tagged-Release-Lane) | Publish a validated source archive and understand the separate PyPI lane. |
-| Future agent | [Agent Chokepoints](Agent-Chokepoints) | Avoid known regression traps. |
+| Contributor | [Regression Chokepoints](Regression-Chokepoints) | Avoid known regression traps. |
 
 ## Highlights
 
@@ -139,7 +139,7 @@ Version 0.3.2 is the compatibility and documentation-alignment release for the c
 ### Documentation
 
 * Documented that `sync-wiki.yml` is the only non-release workflow allowed to request `contents: write`, scoped only to GitHub internal Wiki Markdown sync.
-* Added the AGENTS.md rule that future agents must keep historical `CHANGELOG.md` version sections and add newer entries at the top.
+* Added the contributor rule to keep historical `CHANGELOG.md` version sections and add newer entries at the top.
 * Added AGENTS.md guardrails that preserve the README dashboard-first layout, right-aligned 96x96 PyPI image button, no-license-badge Markdown policy, and dashboard-only Notice issue-sync rule.
 * Clarified Source Diagnostics wording for Microsoft Release Health vs Atom/Update-History drift, including missing-KB Atom rows as notices until reliable required-baseline evidence exists.
 * Updated README, `docs/dashboard-and-pages.md`, `docs/security-automation.md`, `docs/tagged-release-lane.md`, `docs/releases/v0.3.2.md`, `docs/maintainer-guide.md`, and Wiki pages so the text reflects current code, tests, workflows, package metadata, Pages generation, changelog routes, and Wiki sync behavior.

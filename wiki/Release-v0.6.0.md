@@ -1,6 +1,6 @@
 # Release v0.6.0
 
-Full release notes for the `0.6.0` release-transition release. Code, tests, workflows, `pyproject.toml`, README, docs, local wiki source, and `AGENTS.md` remain source truth.
+Release notes for `0.6.0`, the release-transition release.
 
 ---
 
@@ -13,7 +13,7 @@ Full release notes for the `0.6.0` release-transition release. Code, tests, work
 | Anyone asking "why not 26H2 yet?" | [FAQ](FAQ) | How the broad target is chosen and when a new release is promoted. |
 | Maintainer | [Troubleshooting](Troubleshooting) | Read a held target and the publish failure issue. |
 | Release manager | [Tagged Release Lane](Tagged-Release-Lane) | Publish a validated source archive and understand the separate PyPI lane. |
-| Future agent | [Agent Chokepoints](Agent-Chokepoints) | Avoid known regression traps. |
+| Contributor | [Regression Chokepoints](Regression-Chokepoints) | Avoid known regression traps. |
 
 ## Highlights
 

@@ -1,6 +1,6 @@
 # Panther Support
 
-Purpose: explain how Windows 11 Release Guard uses Windows Panther/setup logs, how operators and maintainers can use the feature, and where to extend it without turning Panther data into verdict authority.
+How Windows 11 Release Guard uses Windows Panther/setup logs, how operators and maintainers can use them, and how to extend the feature without turning Panther data into verdict authority.
 
 Related links: [maintainer guide](maintainer-guide.md) | [architecture insight](architecture-insight.md) | [live Panther JSON regression](live-panther-json-regression.md) | [source module map](source-modules.md)
 

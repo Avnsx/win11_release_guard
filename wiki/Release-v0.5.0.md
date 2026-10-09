@@ -1,6 +1,6 @@
 # Release v0.5.0
 
-Compact human summary of the `0.5.0` portable-state release. Code, tests, workflows, `pyproject.toml`, README, docs, local wiki source, and `AGENTS.md` remain source truth.
+Release notes for `0.5.0`, the portable-state release.
 
 ---
 
@@ -13,7 +13,7 @@ Compact human summary of the `0.5.0` portable-state release. Code, tests, workfl
 | Operator tuning state | [Configuration](Configuration) | Choose where on-disk state lives, or turn it off. |
 | Maintainer | [Build, Test and Release](Build-Test-and-Release) | Reproduce local gates and release checks. |
 | Release manager | [Tagged Release Lane](Tagged-Release-Lane) | Publish a validated source archive and understand the separate PyPI lane. |
-| Future agent | [Agent Chokepoints](Agent-Chokepoints) | Avoid known regression traps. |
+| Contributor | [Regression Chokepoints](Regression-Chokepoints) | Avoid known regression traps. |
 
 ## Highlights
 

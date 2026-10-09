@@ -1,6 +1,6 @@
 # FAQ
 
-Short answers for common administrator, maintainer, and agent questions.
+Short answers to common administrator and maintainer questions.
 
 ---
 

@@ -125,4 +125,4 @@ required-baseline selection, runtime client behavior, or `/api/v1` aliases.
 
 ## Related Pages
 
-[Home](Home) | [Source Diagnostics](Source-Diagnostics) | [Agent Chokepoints](Agent-Chokepoints)
+[Home](Home) | [Source Diagnostics](Source-Diagnostics) | [Regression Chokepoints](Regression-Chokepoints)

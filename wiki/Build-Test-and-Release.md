@@ -72,7 +72,7 @@ If live network is unavailable, say so and do not claim live success.
 git diff --name-only
 ```
 
-Also run the prompt-specific Markdown stale-wording scans before handoff and resolve every hit instead of explaining it away.
+Before merging, search the Markdown for stale wording and fix every hit instead of explaining it away.
 
 For `wiki/*.md`, `CHANGELOG.md`, or Pages documentation changes, regenerate the static Pages output and run the focused Wiki/generator tests:
 

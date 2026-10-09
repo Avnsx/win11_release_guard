@@ -1,6 +1,6 @@
 # Architecture Insight
 
-Purpose: document the current implementation boundaries that future maintainers must preserve. This is technical context, not a substitute for code, tests, workflows, and `AGENTS.md`.
+The implementation boundaries that have to hold when the code changes. Code, tests, and workflows stay the authority; this page explains them.
 
 Related links: [maintainer guide](maintainer-guide.md) | [wiki architecture](../wiki/Architecture.md) | [local detection](../wiki/Local-Windows-Detection.md) | [policy trust](../wiki/Policy-Feed-and-Trust-Model.md)
 

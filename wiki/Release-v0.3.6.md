@@ -1,6 +1,6 @@
 # Release v0.3.6
 
-Compact human summary of the `0.3.6` source-evidence resilience release. Code, tests, workflows, `pyproject.toml`, README, docs, local wiki source, and `AGENTS.md` remain source truth.
+Release notes for `0.3.6`, the source-evidence resilience release.
 
 ---
 
@@ -12,7 +12,7 @@ Compact human summary of the `0.3.6` source-evidence resilience release. Code, t
 | Admin / RMM owner | [CLI and RMM Usage](CLI-and-RMM-Usage) | Integrate JSON output and strict-production checks. |
 | Maintainer | [Build, Test and Release](Build-Test-and-Release) | Reproduce local gates and release checks. |
 | Release manager | [Tagged Release Lane](Tagged-Release-Lane) | Publish a validated source archive and understand the separate PyPI lane. |
-| Future agent | [Agent Chokepoints](Agent-Chokepoints) | Avoid known regression traps. |
+| Contributor | [Regression Chokepoints](Regression-Chokepoints) | Avoid known regression traps. |
 
 ## Highlights
 

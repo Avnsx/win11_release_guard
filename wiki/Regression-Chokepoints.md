@@ -1,6 +1,6 @@
-# Agent Chokepoints
+# Regression Chokepoints
 
-Use this before future agents change docs, runtime, generator, signing, workflow, or release behavior.
+Check this before changing docs, runtime, generator, signing, workflow, or release behavior.
 
 ---
 
@@ -64,12 +64,12 @@ Use this before future agents change docs, runtime, generator, signing, workflow
 | Do not | Remove v1 aliases without documented last-resort trust break. |
 | Verify | `python -m win11_release_guard --check-public-pages` |
 
-## Common Agent Mistakes Checklist
+## Common Mistakes Checklist
 
 | Check |
 | --- |
-| Did not edit code when asked for docs only. |
-| Did not use handover files as source truth. |
+| Did not mix code changes into a docs-only change. |
+| Did not treat old notes as the source of truth. |
 | Did not hide raw admin diagnostic values. |
 | Did not weaken tests to match a preferred narrative. |
 | Did not add external dashboard dependencies. |

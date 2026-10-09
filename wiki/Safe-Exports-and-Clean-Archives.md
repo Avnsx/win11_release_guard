@@ -6,7 +6,7 @@ Use this when sharing source outside the repository or attaching release artifac
 
 ## Why This Exists
 
-Raw worktree ZIPs can include `.git/`, `.tmp/`, generated Pages output, caches, build output, handover notes, and private key scratch files. The project uses a curated export script instead.
+Raw worktree ZIPs can include `.git/`, `.tmp/`, generated Pages output, caches, build output, local notes, and private key scratch files. The project uses a curated export script instead.
 
 ## Clean Archive Command
 
@@ -24,8 +24,8 @@ python tools/export_clean_archive.py --validate dist/win11_release_guard-source.
 | `tools/` | `site/` |
 | `docs/` | `dist/` except selected output target |
 | `README.md`, `AGENTS.md`, `pyproject.toml` | caches, pycache, build output |
-| `LICENSE.txt` | private key files, handover notes |
-| `.github/` automation files | private key files, handover notes |
+| `LICENSE.txt` | private key files, local notes |
+| `.github/` automation files | private key files, local notes |
 
 ## License Mapping
 
@@ -50,4 +50,4 @@ python tools/scan_for_secret_material.py site win11_release_guard tests tools do
 
 ## Related Pages
 
-[Home](Home) | [Tagged Release Lane](Tagged-Release-Lane) | [Agent Chokepoints](Agent-Chokepoints)
+[Home](Home) | [Tagged Release Lane](Tagged-Release-Lane) | [Regression Chokepoints](Regression-Chokepoints)

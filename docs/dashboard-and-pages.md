@@ -1,6 +1,6 @@
 # Dashboard And Pages
 
-Purpose: document the generated static Pages surface and the public endpoint contract that maintainers must preserve.
+The generated static Pages site and the public endpoint contract it has to keep.
 
 Related links: [maintainer guide](maintainer-guide.md) | [wiki dashboard](../wiki/GitHub-Pages-Dashboard.md) | [anti-static freshness](anti-static-freshness.md)
 

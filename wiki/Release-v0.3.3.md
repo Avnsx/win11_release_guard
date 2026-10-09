@@ -1,6 +1,6 @@
 # Release v0.3.3
 
-Compact human summary of the `0.3.3` corrective source-evidence hardening release. Code, tests, workflows, `pyproject.toml`, README, docs, local wiki source, and `AGENTS.md` remain source truth.
+Release notes for `0.3.3`, the corrective source-evidence hardening release.
 
 ---
 
@@ -12,7 +12,7 @@ Compact human summary of the `0.3.3` corrective source-evidence hardening releas
 | Admin / RMM owner | [CLI and RMM Usage](CLI-and-RMM-Usage) | Integrate JSON output and strict-production checks. |
 | Maintainer | [Build, Test and Release](Build-Test-and-Release) | Reproduce local gates and release checks. |
 | Release manager | [Tagged Release Lane](Tagged-Release-Lane) | Publish a validated source archive and understand the separate PyPI lane. |
-| Future agent | [Agent Chokepoints](Agent-Chokepoints) | Avoid known regression traps. |
+| Contributor | [Regression Chokepoints](Regression-Chokepoints) | Avoid known regression traps. |
 
 ## Highlights
 
@@ -25,7 +25,7 @@ Compact human summary of the `0.3.3` corrective source-evidence hardening releas
 | MSRC joins | CVRF matching requires exact KB tokens; unavailable or malformed CVRF stays unknown/unavailable, and context lists are capped. |
 | Baseline notice | Caught-up real B-release baselines can show a 14-day dashboard-only notice without changing verdicts or issue sync. |
 | Dashboard | Static Pages keeps unique row IDs, visible validation status, copy/export JSON, no raw Support HTML, no tokens, no CDN, and no external JS/CSS/fonts. |
-| Handoff | `.tmp/prompt-chain/*.patch` files are local hints only; tracked edits, tests, docs where needed, and logical commits are required. |
+| Change rules | Local patch files are only hints; a change counts once it is committed with its tests and docs. |
 | PyPI lane | `pypi-publish.yml` builds wheel/sdist and publishes through Trusted Publishing / GitHub OIDC only after tag or published-release gates. |
 
 ## Source Evidence Semantics
@@ -158,7 +158,7 @@ Version 0.3.3 is the corrective source-evidence hardening release. It bumps the 
 * Added a dashboard-only required-baseline catch-up notice for the case where a real Release Health B-release baseline now matches the broad target's latest observed Microsoft build. The notice is informational, expires after the 14-day source-date window, labels date-only Release Health precision honestly, and does not change signed verdicts, baseline selection, issue sync, or runtime client behavior.
 * Documented the split between Release Health `latest_build`, informational `latest_observed_build`, and signed `required_baseline_build`; Atom-linked Support article evidence can advance latest-observed context without changing the required fleet baseline.
 * Documented Source Diagnostics enrichment from Atom-linked Microsoft Support articles and unauthenticated MSRC CVRF data, including no `/help/<KB>` fallback when Atom lacks a support href, Atom-form diagnostic IDs, and GitHub Issue title suffixes such as `[id=968480]`.
-* Aligned repository docs and Wiki pages with the caught-up build case, validated Support/MSRC enrichment, unique hash-form or Atom-form Source Diagnostic IDs, dashboard-only notices, static dashboard constraints, and anti patch-only handoff rules.
+* Aligned repository docs and Wiki pages with the caught-up build case, validated Support/MSRC enrichment, unique hash-form or Atom-form Source Diagnostic IDs, dashboard-only notices, static dashboard constraints, and the rule that local patch files are not finished changes.
 * Updated current release navigation and generated Pages changelog expectations for `/wiki/changelog/v0.3.3/` while preserving historical `v0.3.2` and `v0.3.1` sections and routes.
 
 ### Fixed
@@ -175,7 +175,7 @@ Version 0.3.3 is the corrective source-evidence hardening release. It bumps the 
 * Validated Atom-linked Microsoft Support article URL, KB, build, and applicability evidence before using article facts for Source Diagnostics summaries or Support-derived security labels; mismatches now remain visible as compact validation metadata without trusting the mismatched article text.
 * Hardened Microsoft source matching so Atom enrichment uses only safe alternate Support article links, Support URLs reject unsafe hosts, paths, ports, and traversal while stripping tracking queries and fragments from otherwise safe article URLs, MSRC CVRF joins require exact KB tokens, and unknown applies-to evidence degrades instead of silently passing.
 * Kept security classification honest when enrichment is incomplete: exact MSRC CVRF KB-token evidence can still classify a KB as security, malformed or unavailable CVRF remains unknown/unavailable, and title-only `OS Build(s)` wording or mismatched Support article text is not treated as security proof.
-* Added AGENTS.md and archive-handoff guardrails that `.tmp/prompt-chain/*.patch` files are local hints only; implementation requires tracked edits, passing tests, required documentation updates, and logical commits. Raw worktree ZIPs remain disallowed release artifacts.
+* Added contributor and archive rules: local patch files are hints only, and a change needs committed code, passing tests, and updated docs. Raw worktree ZIPs remain disallowed release artifacts.
 
 ### Tests
 

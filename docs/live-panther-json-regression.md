@@ -1,6 +1,6 @@
 # Live Panther JSON Regression
 
-Purpose: run a repeatable Windows-only live output check proving that default JSON suppresses raw Panther/setup log tails while `--include-raw-local-diagnostics` restores them.
+A repeatable, Windows-only live check that default JSON hides raw Panther/setup log tails and that `--include-raw-local-diagnostics` brings them back.
 
 This harness is output validation only. It must not change evaluator verdict logic, signing, policy trust, WUA verdict behavior, boot configuration, BCD, BitLocker, WinRE, recovery settings, or Windows setup state.
 

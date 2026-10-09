@@ -1,6 +1,6 @@
 # Source Module Map
 
-Purpose: provide a compact maintainer map of source modules, scripts, and tests without duplicating implementation details.
+A short map of the source modules, scripts, and tests. It points at the code instead of repeating it.
 
 Related links: [maintainer guide](maintainer-guide.md) | [wiki architecture](../wiki/Architecture.md)
 
