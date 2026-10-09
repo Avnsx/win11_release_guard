@@ -227,5 +227,5 @@ python -m win11_release_guard --check-policy-source
 python -m win11_release_guard --check-public-pages
 pytest -q tests/test_repository_automation.py tests/test_publish_policy_workflow.py tests/test_workflow_node24.py
 pytest -q tests/test_pypi_publish_workflow.py tests/test_github_action_versions.py
-pytest -q tests/test_source_diagnostics_issue_sync.py tests/test_source_diagnostics_issue_metadata.py
+pytest -q tests/test_source_diagnostics_issue_sync*.py tests/test_source_diagnostics_issue_metadata.py
 ```

@@ -30,6 +30,6 @@ The generated dashboard embeds freshness JSON and recalculates age in the browse
 ## Verify
 
 ```powershell
-pytest -q tests/test_pages_landing.py tests/test_policy_source_cli.py tests/test_runtime_policy_sources.py
+pytest -q tests/test_pages_landing*.py tests/test_policy_source_cli*.py tests/test_runtime_policy_sources*.py
 python -m win11_release_guard --check-public-pages
 ```

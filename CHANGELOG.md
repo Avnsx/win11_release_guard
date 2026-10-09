@@ -51,6 +51,11 @@ like this one is visible right away.
 * GitHub Actions now use `actions/setup-python@v7` and
   `pypa/gh-action-pypi-publish` v1.14.2
   (`dc37677b2e1c63e2034f94d8a5b11f265b73ba33`).
+* The source code is split into smaller single-purpose modules, and the Pages
+  dashboard and wiki HTML, CSS, and JavaScript now live in static asset files
+  shipped with the package. Behaviour and generated output are unchanged; tests
+  guard the 800-line module limit, the acyclic import graph, and the absence of
+  inline web code.
 
 ## v0.5.0 - 2026-08-08
 

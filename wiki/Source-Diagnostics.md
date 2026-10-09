@@ -242,8 +242,8 @@ Issues or writing tokens.
 ## Verify
 
 ```powershell
-pytest -q tests/test_remote_policy.py tests/test_policy_generator.py tests/test_publish_policy_workflow.py
-pytest -q tests/test_source_diagnostics_issue_sync.py tests/test_source_diagnostics_issue_metadata.py
+pytest -q tests/test_remote_policy*.py tests/test_policy_generator*.py tests/test_publish_policy_workflow.py
+pytest -q tests/test_source_diagnostics_issue_sync*.py tests/test_source_diagnostics_issue_metadata.py
 python tools/generate_policy.py --release-health-html tests/fixtures/windows11-release-health.html --servicing-toc tests/fixtures/windows11-servicing-toc.json --output-dir site --write-index --write-manifest
 ```
 

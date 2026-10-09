@@ -78,7 +78,7 @@ python -m win11_release_guard --json-pretty --wua --include-raw-local-diagnostic
 | Security classification | Use exact MSRC CVRF KB-token evidence or validated explicit Support article wording; do not infer security status from generic servicing entry title text or KB substrings embedded in larger tokens. Exact-KB remediations count even when optional CVE/severity/product fields are absent. |
 
 ```powershell
-pytest -q tests/test_remote_policy.py tests/test_policy_generator.py
+pytest -q tests/test_remote_policy*.py tests/test_policy_generator*.py
 ```
 
 ## Latest Observed Is Newer Than Latest Build

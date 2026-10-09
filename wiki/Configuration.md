@@ -120,7 +120,7 @@ they return without raising when the destination cannot be written.
 ```powershell
 python -m win11_release_guard --diagnose-config
 python -m win11_release_guard --show-state
-pytest -q tests/test_cache.py tests/test_cli.py tests/test_state_cli.py
+pytest -q tests/test_cache.py tests/test_cli*.py tests/test_state_cli.py
 ```
 
 ## Related Pages

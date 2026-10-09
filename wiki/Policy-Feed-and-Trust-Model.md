@@ -130,7 +130,7 @@ unknown when CVRF data is malformed or unavailable.
 python -m win11_release_guard --self-test
 python -m win11_release_guard --check-policy-source
 python -m win11_release_guard --check-public-pages
-pytest -q tests/test_signing.py tests/test_json_hardening.py tests/test_policy_source_cli.py
+pytest -q tests/test_signing.py tests/test_json_hardening.py tests/test_policy_source_cli*.py
 ```
 
 ## Common Mistakes

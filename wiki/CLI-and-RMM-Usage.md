@@ -70,7 +70,7 @@ normal trusted troubleshooting.
 ```powershell
 python -m win11_release_guard --json-pretty --no-wua
 python -m win11_release_guard --diagnose-config
-pytest -q tests/test_cli.py tests/test_output_encoding.py
+pytest -q tests/test_cli*.py tests/test_output_encoding.py
 ```
 
 ## Related Pages

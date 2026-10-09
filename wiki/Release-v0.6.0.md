@@ -26,6 +26,7 @@ Compact human summary of the `0.6.0` release-transition release. Code, tests, wo
 | 26H2 devices | Recognised by build family `26300`; reported as `ABOVE_BROAD_TARGET_OR_SPECIAL_RELEASE` while 26H2 waits for its first B release. |
 | Failure visibility | A failed publish run opens one managed `Publish policy is failing` GitHub issue that closes itself after the next successful run. |
 | Workflows | `actions/setup-python@v7`, `pypa/gh-action-pypi-publish` v1.14.2, and a CI run on `ubuntu-26.04`. |
+| Code layout | Smaller single-purpose modules; dashboard and wiki HTML/CSS/JS in static asset files; output unchanged. |
 
 ## What Administrators Get
 

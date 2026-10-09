@@ -80,6 +80,7 @@ Canonical repository and feed:
   make `cmd.exe` misparse quoted executable paths; PowerShell 5 plain `>` can
   write UTF-16LE, so prefer `cmd.exe` redirection or `Out-File -Encoding utf8`
   for JSON captures.
+- Pages HTML/CSS/JS live in `win11_release_guard/policy_generator/pages/assets/` and are rendered with `pages.assets.render_asset`; Python modules stay under 800 lines and the package import graph acyclic (both enforced by tests). Tests patch seams where callers look them up: `policy_generator.clock.utc_now`, `policy_generator.sources.fetch_url`, `policy_generator.support_articles.default_support_article_fetcher`, `policy_generator.msrc_cvrf.default_msrc_cvrf_fetcher`.
 - CodeQL code scanning is configured by `.github/workflows/codeql.yml`. If GitHub code scanning is disabled in repository settings, enable it under Settings, Code security and analysis.
 - Handover files are temporary local artifacts. Do not commit or publish `*handover*.md`; they are ignored and excluded from clean archives.
 - `.tmp/prompt-chain/*.patch` files are local hints only. A task is
