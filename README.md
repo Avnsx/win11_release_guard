@@ -84,7 +84,7 @@ Detail: [GitHub Pages Dashboard](https://avnsx.github.io/win11_release_guard/wik
 ## Safety And Trust Model
 
 - Runtime clients do not authenticate to GitHub and do not need GitHub tokens, private repository access, or a paid signing certificate. The private signing key lives only in a GitHub Actions secret.
-- The generator reads only public, unauthenticated Microsoft sources.
+- The production generator may use public Microsoft Release Health HTML, the public Microsoft servicing table-of-contents JSON, public Microsoft servicing support articles, and unauthenticated public MSRC CVRF data for source diagnostics and informational enrichment; it does not use Microsoft Graph or token-authenticated Microsoft APIs.
 - Badges are signals, not proof. Dependency freshness is checked by a scheduled workflow. `Dependency freshness` is a scheduled direct-dependency check over direct dependency specifiers, not an always-current dependency guarantee. The Pylint badge reports the workflow for the current `--fail-under=8.0` gate, not a permanent quality certificate.
 
 > [!WARNING]
