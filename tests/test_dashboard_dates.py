@@ -53,3 +53,14 @@ def test_rendered_dashboard_text_has_no_iso_or_us_style_dates():
     assert re.findall(r"\b\d{4}-\d{2}-\d{2}\b", text) == []
     assert re.findall(rf"\b(?:{MONTHS}) \d{{1,2}}, \d{{4}}\b", text) == []
     assert "Tuesday, 29 September 2026" in text
+
+
+def test_date_rewrite_leaves_urls_ids_files_and_ranges_alone():
+    for text in (
+        "https://x/a?2026-09-29",
+        "see a#2026-09-29",
+        "id:2026-09-29",
+        "file 2026-09-29.json",
+        "range 2026-09-29/2026-10-01",
+    ):
+        assert _source_diagnostic_display_text(text) == text

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Sequence
 from ...config import DEFAULT_POLICY_STRICT_STALE_AGE_DAYS, DEFAULT_POLICY_WARNING_AGE_DAYS
-from ...models import ReleasePolicy
+from ...models import ReleasePolicy, ReleasePolicyEntry
 from ..constants import GITHUB_ISSUES_BASE_URL, MSRC_UPDATE_GUIDE_URL, _SOURCE_DIAGNOSTIC_SEVERITY_PRIORITY
 from .dashboard_text import _excluded_release_summary, _source_diagnostics_for_policy
 from ..diagnostic_ids import (
@@ -220,31 +220,42 @@ _UPDATE_KIND_LABELS = {
 }
 
 
-def _latest_update_article(policy: ReleasePolicy, build: str) -> tuple[str, str | None]:
-    """KB number and validated Microsoft support article URL for a release-history build."""
-    record = next((row for row in policy.release_history if row.build == build), None)
-    if record is None:
+_CHANNEL_SUFFIXES = {"ltsc": " LTSC", "hotpatch": " Hotpatch"}
+
+
+def _latest_update_label(entry: ReleasePolicyEntry) -> str:
+    raw = entry.metadata.get("raw")
+    return str(raw.get("Latest update") or "").strip() if isinstance(raw, Mapping) else ""
+
+
+def _latest_update_article(policy: ReleasePolicy, build: str, update: str) -> tuple[str, str | None]:
+    """KB number and validated Microsoft support article URL for a release-history build.
+
+    When release history lists the build more than once, the row of the listed update kind wins.
+    """
+    records = [row for row in policy.release_history if row.build == build]
+    if not records:
         return "", None
+    letter = update.rsplit(" ", 1)[-1].upper()
+    record = next((row for row in records if str(row.update_type_letter or "").upper() == letter), records[0])
     return str(record.kb_article or "").strip(), _safe_support_article_url(record.kb_url)
 
 
 def _latest_update_diagnostic_rows(policy: ReleasePolicy) -> tuple[dict[str, Any], ...]:
     """One dashboard notice per Release Health version: its latest update date and build."""
     rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for entry in policy.current_versions:
         version = str(entry.version or "").strip().upper()
         build = str(entry.latest_build or "").strip()
         date = str(entry.metadata.get("latest_revision_date") or "").strip()
         if not version or not build or not date:
             continue
-        name = f"Windows 11 {version}"
-        if entry.servicing_channel.value == "ltsc":
-            name += " LTSC"
-        raw = entry.metadata.get("raw")
-        update = str(raw.get("Latest update") or "").strip() if isinstance(raw, Mapping) else ""
+        name = f"Windows 11 {version}{_CHANNEL_SUFFIXES.get(entry.servicing_channel.value, '')}"
+        update = _latest_update_label(entry)
         kind = _UPDATE_KIND_LABELS.get(update.rsplit(" ", 1)[-1].upper(), "")
         detail = f" ({update}, {kind})" if kind else (f" ({update})" if update else "")
-        kb_article, article_url = _latest_update_article(policy, build)
+        kb_article, article_url = _latest_update_article(policy, build, update)
         row = {
             "severity": "notice",
             "title": f"{name} latest update",
@@ -255,6 +266,9 @@ def _latest_update_diagnostic_rows(policy: ReleasePolicy) -> tuple[dict[str, Any
             ),
         }
         row_id = _source_diagnostic_id(**row, release=version, affects_broad_target=False)
+        if row_id in seen:
+            continue
+        seen.add(row_id)
         rows.append(
             {"id": row_id, **row, **({"update_details_url": article_url} if article_url else {})}
         )
@@ -302,7 +316,7 @@ def _source_diagnostic_display_text(value: Any, *, fallback: str = "") -> str:
     )
     # Date-only values (Release Health dates) keep their date-only precision.
     return re.sub(
-        r"(?<![\w/=.-])\d{4}-\d{2}-\d{2}(?![\w-])",
+        r"(?<![\w/=.:?#-])\d{4}-\d{2}-\d{2}(?![\w-]|[./]\w)",
         replace_iso,
         text,
     )

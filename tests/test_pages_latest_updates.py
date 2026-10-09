@@ -107,3 +107,44 @@ def test_dashboard_renders_a_read_more_link_on_latest_update_rows():
     url = _safe_support_article_url("https://support.microsoft.com/help/5124010")
 
     assert f'<a class="diag-read-more-inline" href="{url}" rel="noopener noreferrer">Read more</a>' in row
+
+
+def test_hotpatch_rows_are_labelled_and_repeated_entries_are_listed_once():
+    shared = {
+        "build_family": 26100,
+        "latest_build": "26100.9550",
+        "metadata": {"latest_revision_date": "2026-09-22", "raw": {"Latest update": "2026-09 D"}},
+    }
+    policy = ReleasePolicy(
+        current_versions=(
+            ReleasePolicyEntry(version="24H2", servicing_channel=ServicingChannel.HOTPATCH, **shared),
+            ReleasePolicyEntry(version="24H2", servicing_channel=ServicingChannel.HOTPATCH, **shared),
+            ReleasePolicyEntry(version="24H2", **shared),
+        )
+    )
+
+    rows = _latest_update_diagnostic_rows(policy)
+
+    assert [row["title"] for row in rows] == ["Windows 11 24H2 Hotpatch latest update", "Windows 11 24H2 latest update"]
+    assert len({row["id"] for row in rows}) == 2
+
+
+def test_kb_lookup_prefers_the_history_row_of_the_listed_update_kind():
+    policy = ReleasePolicy(
+        current_versions=(
+            ReleasePolicyEntry(
+                version="25H2",
+                build_family=26200,
+                latest_build="26200.9550",
+                metadata={"latest_revision_date": "2026-09-22", "raw": {"Latest update": "2026-09 D"}},
+            ),
+        ),
+        release_history=(
+            ReleaseHistoryEntry(release="25H2", build_family=26200, build="26200.9550", kb_article="KB1", update_type_letter="B"),
+            ReleaseHistoryEntry(release="25H2", build_family=26200, build="26200.9550", kb_article="KB2", update_type_letter="D"),
+        ),
+    )
+
+    (row,) = _latest_update_diagnostic_rows(policy)
+
+    assert row["tags"][-1] == "KB2"
