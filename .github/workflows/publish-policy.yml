@@ -55,6 +55,8 @@ jobs:
         run: >
           pytest -q
           tests/test_source_diagnostics_issue_sync.py
+          tests/test_source_diagnostics_issue_sync_issue_text.py
+          tests/test_source_diagnostics_issue_sync_matching.py
           tests/test_source_diagnostics_issue_metadata.py
           tests/test_policy_generator.py
           tests/test_policy_generator_assembly_baseline.py
