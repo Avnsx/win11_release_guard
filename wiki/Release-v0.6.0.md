@@ -69,14 +69,14 @@ minutes, with the error from the run, instead of the feed silently ageing.
 
 `broad_target_existing_devices` is the newest supported General Availability H2
 release that is not new-devices-only and has a B release in Release Health. A
-newer release without one is held only while no Patch Tuesday has passed since
-its availability date: Patch Tuesday ships a B release for every supported
-version on the same day, so the held release's newest B release must be dated
-before the new release became available. When that is not provable, because a
+newer release without one is held only while the held release's newest B
+release is dated before the new release became available. Patch Tuesday ships a
+B release for every supported version on the same day, so a later B release for
+the held release means Release Health is inconsistent. When that is not provable, because a
 Patch Tuesday passed without a B release for the new release, its dates are
 missing, or the only fallback is a newer release, generation still fails closed.
 
-The held release stays in `current_versions` with `not_broad_target`,
+The pending release stays in `current_versions` with `not_broad_target`,
 `not_broad_target_existing_devices`, `pending_first_b_release`, and
 `broad_target_hold_reason` metadata. Runtime clients already skip
 `not_broad_target` entries, so `0.5.0` clients apply the hold without an update.
@@ -116,7 +116,7 @@ with the captured `Policy generation failed:` line, later failures update it and
 comment only when the error changes, and the next successful run closes it. The
 issue is found by creator and a body marker rather than by label, its
 `internals: publish failure` label stays outside the source-diagnostic labels,
-and the report step cannot fail a publish run.
+and the report job cannot fail a publish run.
 
 ## Workflow Maintenance
 

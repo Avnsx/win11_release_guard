@@ -158,8 +158,8 @@ The issue is found by its creator (`github-actions[bot]`) and the
 `<!-- wrg-publish-policy-failure -->` body marker, never by label, so it is not
 duplicated when the `internals: publish failure` label cannot be created. That
 label is outside the source-diagnostic labels, so issue sync never updates or
-closes this issue. The report step is `continue-on-error`, so a GitHub Issues
-outage cannot turn a successful publish red.
+closes this issue. Every step of the report job is `continue-on-error`, so a
+GitHub Issues or package-index outage cannot turn a successful publish red.
 
 During `publish-policy.yml`, GitHub Issues API, label, or permission failures in
 the issue-sync mutation step are degraded rather than publish-blocking. The

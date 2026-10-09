@@ -21,7 +21,7 @@ now open a GitHub issue automatically, and the project is now MIT-licensed.
 
 * The feed publishes again after Microsoft lists a new annual release: the previous release stays the broad target until the new one has its first monthly security (B) release.
 * Generation refuses to publish a target that runtime clients would select differently.
-* A preview or out-of-band build is never used as the required baseline.
+* Under the default B-release-only policy, a target without a B release no longer falls back to a preview baseline.
 
 ### Added
 
