@@ -105,7 +105,10 @@ def test_pages_index_shows_generated_age_and_source_diagnostics_summary(tmp_path
     assert "console.warn('Windows 11 Release Guard UI '+scope+' failed',error)" not in index
     assert "shutdownUi" in index
     assert "pagehide" in index
-    assert "beforeunload" in index
+    # A download link fires beforeunload without leaving the page, so it must not stop the UI.
+    assert "beforeunload" not in index
+    assert "if(event&&event.persisted){return;}" in index
+    assert "pageshow" in index
     assert "safeSetTimeout" in index
     assert "safeSetInterval" in index
     assert "safeRequestFrame" in index

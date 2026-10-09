@@ -343,7 +343,10 @@ def test_signed_pages_output_contains_manifest_aliases_and_polished_index(tmp_pa
     assert "reportMissingNode" in index
     assert "shutdownUi" in index
     assert "pagehide" in index
-    assert "beforeunload" in index
+    # A download link fires beforeunload without leaving the page, so it must not stop the UI.
+    assert "beforeunload" not in index
+    assert "if(event&&event.persisted){return;}" in index
+    assert "pageshow" in index
     assert "safeSetTimeout" in index
     assert "safeSetInterval" in index
     assert "safeRequestFrame" in index

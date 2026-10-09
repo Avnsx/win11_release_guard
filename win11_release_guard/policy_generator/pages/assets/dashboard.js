@@ -64,8 +64,10 @@
         uiTimers.forEach(function(entry){try{if(entry[0]==='interval'){window.clearInterval(entry[1]);}else{window.clearTimeout(entry[1]);}}catch(error){reportUiError('timer cancel',error);}});
         uiTimers=[];
       }
-      window.addEventListener('pagehide',function(){guard('shutdown',shutdownUi);},{once:true});
-      window.addEventListener('beforeunload',function(){guard('shutdown',shutdownUi);},{once:true});
+      // Stop only on a real unload. A same-tab download link starts unloading without leaving the page,
+      // and a persisted pagehide can be restored from the back/forward cache with a working UI.
+      window.addEventListener('pagehide',function(event){if(event&&event.persisted){return;}guard('shutdown',shutdownUi);});
+      window.addEventListener('pageshow',function(event){if(event&&event.persisted){guard('freshness update',update);}});
       function setText(node,value,scope){if(uiActive&&node&&node.isConnected){node.textContent=value;return;}if(uiActive&&scope){reportMissingNode(scope,'text target');}}
       function setState(state,label,detail,detailLabel){
         if(!uiActive){return;}
